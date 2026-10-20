@@ -8,6 +8,16 @@ import { configManager, type ModelConfig } from '../config.js';
 import { t } from '../i18n.js';
 import { isQiniuBaseUrl } from '../endpoints.js';
 import { ConfigParseError, safeWriteFile } from '../core/safe-write.js';
+import { stateStore, type PriorValues } from '../core/state-store.js';
+import {
+  getYamlValue,
+  parseYamlDocument,
+  removeYamlLine,
+  restoreYamlValue,
+  setYamlLine,
+  stringifyYamlDocument,
+} from '../core/yaml-edit.js';
+import { isMap } from 'yaml';
 import { runHermesModelSelectionFlow } from '../wizard/flows/hermes-model-selection-flow.js';
 import { uiRenderer } from '../wizard/ui/ui-renderer.js';
 import { promptHelper } from '../wizard/ui/prompt-helper.js';
@@ -55,7 +65,8 @@ export class HermesTool implements ITool {
   }
 
   clearModelConfig(): void {
-    writeHermesConfig(removeManagedHermesConfig(readHermesConfig()));
+    if (!stateStore.getPriors(this.name) && !this.isConfigured()) return;
+    writeHermesConfig(removeManagedHermesConfig(readHermesConfig(), stateStore.getPriors(this.name)));
   }
 
   async loadConfig(apiKey: string, baseUrl: string, models: ModelConfig): Promise<void> {
@@ -65,9 +76,13 @@ export class HermesTool implements ITool {
     const existing = readHermesConfig();
     // 严格校验：YAML 损坏时报错，不覆盖用户配置
     try {
-      yaml.load(existing);
+      parseYamlDocument(existing);
     } catch (err) {
       throw new ConfigParseError(HERMES_CONFIG_FILE, err);
+    }
+    if (!stateStore.getPriors(this.name)) {
+      const priors = captureHermesPriors(existing);
+      if (priors) stateStore.recordPriors(this.name, priors);
     }
     writeHermesConfig(buildHermesConfig(existing, baseUrl, apiKey, models.hermesModel));
   }
@@ -93,48 +108,58 @@ export class HermesTool implements ITool {
   }
 }
 
+// 写入七牛的 model 配置：按行只改 provider / default / base_url / api_key，注释、空行与其他内容原样保留
 export function buildHermesConfig(
   existing: string,
   baseUrl: string,
   apiKey: string,
   model: string,
 ): string {
-  const config = parseYamlObject(existing);
-  const existingModel = isRecord(config.model) ? config.model : {};
-  const preservedModel = { ...existingModel };
-  for (const key of MANAGED_MODEL_KEYS) {
-    delete preservedModel[key];
-  }
-
-  config.model = {
+  const values: Record<(typeof MANAGED_MODEL_KEYS)[number], string> = {
     provider: 'custom',
     default: model,
     base_url: `${baseUrl.replace(/\/+$/, '')}/v1`,
     api_key: apiKey,
-    ...preservedModel,
   };
-
-  return dumpYaml(config);
+  let next = existing;
+  for (const key of MANAGED_MODEL_KEYS) next = setYamlLine(next, 'model', key, values[key]);
+  return verifiedOrDocument(next, existing, values);
 }
 
-export function removeManagedHermesConfig(existing: string): string {
-  const config = parseYamlObject(existing);
-  if (!isRecord(config.model)) {
-    return dumpYaml(config);
+// 按行编辑后再解析一遍确认结果；结构特殊（如 model 写成流式映射）时退回文档级编辑
+function verifiedOrDocument(next: string, existing: string, values: Partial<Record<string, string | null>>): string {
+  try {
+    const doc = parseYamlDocument(next);
+    const ok = Object.entries(values).every(([key, value]) => (getYamlValue(doc, ['model', key]) ?? null) === value);
+    if (ok) return next;
+  } catch {
+    // 落到下面的文档级编辑
   }
+  const doc = parseYamlDocument(existing);
+  if (!isMap(doc.get('model', true))) doc.set('model', doc.createNode({}));
+  for (const [key, value] of Object.entries(values)) restoreYamlValue(doc, ['model', key], value);
+  return stringifyYamlDocument(doc);
+}
 
-  const modelConfig = { ...config.model };
+// 移除七牛的 model 配置；有原值记录时写回原值，否则删除这些键
+export function removeManagedHermesConfig(existing: string, priors?: PriorValues): string {
+  const values: Record<string, string | null> = {};
+  let next = existing;
   for (const key of MANAGED_MODEL_KEYS) {
-    delete modelConfig[key];
+    const prior = priors ? priors[`model.${key}`] : null;
+    values[key] = typeof prior === 'string' ? prior : null;
+    next = typeof prior === 'string' ? setYamlLine(next, 'model', key, prior) : removeYamlLine(next, 'model', key);
   }
+  return verifiedOrDocument(next, existing, values);
+}
 
-  if (Object.keys(modelConfig).length > 0) {
-    config.model = modelConfig;
-  } else {
-    delete config.model;
-  }
-
-  return dumpYaml(config);
+// 首次写入前的原值（旧版本写过七牛配置时不记录）
+export function captureHermesPriors(existing: string): PriorValues | undefined {
+  const doc = parseYamlDocument(existing);
+  if (isQiniuBaseUrl(getYamlValue(doc, ['model', 'base_url']))) return undefined;
+  const priors: PriorValues = {};
+  for (const key of MANAGED_MODEL_KEYS) priors[`model.${key}`] = getYamlValue(doc, ['model', key]) ?? null;
+  return priors;
 }
 
 function readHermesConfig(): string {
@@ -171,10 +196,6 @@ function parseYamlObject(content: string): Record<string, unknown> {
   }
 }
 
-function dumpYaml(config: Record<string, unknown>): string {
-  if (Object.keys(config).length === 0) return '';
-  return yaml.dump(config, { lineWidth: -1, noRefs: true });
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);

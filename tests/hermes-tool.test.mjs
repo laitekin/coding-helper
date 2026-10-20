@@ -142,3 +142,26 @@ test('buildHermesModelChoices includes explicit manual model input option', () =
   assert.equal(choices.at(-1)?.value, HERMES_MANUAL_MODEL_VALUE);
   assert.match(choices.at(-1)?.name || '', /Enter model ID manually|手动输入模型 ID/);
 });
+
+test('buildHermesConfig keeps comments and quoting; restore with priors is byte-exact', async () => {
+  const { captureHermesPriors } = await import('../dist/lib/tools/hermes-tool.js');
+  const original = [
+    '# Hermes config',
+    'model:',
+    '  # Default model to use',
+    '  default: "anthropic/claude-opus-4.6"',
+    '',
+    '  # Inference provider selection',
+    '  provider: "auto"',
+    'terminal:',
+    '  backend: local # inline comment',
+    '',
+  ].join('\n');
+  const priors = captureHermesPriors(original);
+  const next = buildHermesConfig(original, 'https://api.qnaigc.com', 'qiniu-key', 'deepseek/deepseek-v4-flash');
+  assert.match(next, /# Default model to use\n  default: "deepseek\/deepseek-v4-flash"/);
+  assert.match(next, /# Inference provider selection\n  provider: "custom"/);
+  assert.match(next, /backend: local # inline comment/);
+  assert.match(next, /base_url: https:\/\/api\.qnaigc\.com\/v1/);
+  assert.equal(removeManagedHermesConfig(next, priors), original);
+});

@@ -135,3 +135,17 @@ test('toml table key helpers', () => {
 function require_js_yaml() {
   return path.join(process.cwd(), 'node_modules', 'js-yaml');
 }
+
+test('models.json (CodeBuddy / WorkBuddy) round trip keeps key order and drops fields we added', async () => {
+  const { applyModelsJson, revertModelsJson, captureModelsJsonPriors } = await import('../dist/lib/tools/models-json.js');
+  const original = { models: [{ id: 'mine', vendor: 'Other' }], theme: 'dark' };
+  const priors = captureModelsJsonPriors(original);
+  const applied = applyModelsJson(original, [{ id: 'q1', vendor: 'Qiniu' }]);
+  assert.deepEqual(Object.keys(applied), ['models', 'theme', 'availableModels']);
+  assert.deepEqual(applied.availableModels, ['mine', 'q1']);
+  const again = applyModelsJson(applied, [{ id: 'q2', vendor: 'Qiniu' }]);
+  assert.deepEqual(again.models.map((m) => m.id), ['mine', 'q2']);
+  assert.deepEqual(again.availableModels, ['mine', 'q2']);
+  assert.equal(JSON.stringify(revertModelsJson(again, priors)), JSON.stringify(original));
+  assert.deepEqual(revertModelsJson(applyModelsJson({}, [{ id: 'q1', vendor: 'Qiniu' }]), captureModelsJsonPriors({})), {});
+});

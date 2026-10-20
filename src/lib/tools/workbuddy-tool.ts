@@ -9,7 +9,9 @@ import {
   type MarketModelInfo,
 } from '../market-model-service.js';
 import { t } from '../i18n.js';
-import { readJsonObjectStrict, safeWriteFile, writeJson } from '../core/safe-write.js';
+import { readJsonObjectStrict, writeJson, writeJsonOrRemove } from '../core/safe-write.js';
+import { stateStore } from '../core/state-store.js';
+import { QINIU_VENDOR, applyModelsJson, captureModelsJsonPriors, hasQiniuModels, revertModelsJson } from './models-json.js';
 import { runWorkBuddyModelSelectionFlow } from '../wizard/flows/workbuddy-model-selection-flow.js';
 import { uiRenderer } from '../wizard/ui/ui-renderer.js';
 import { promptHelper } from '../wizard/ui/prompt-helper.js';
@@ -17,11 +19,8 @@ import { promptHelper } from '../wizard/ui/prompt-helper.js';
 const WORKBUDDY_DIR = path.join(os.homedir(), '.workbuddy');
 const WORKBUDDY_MODELS_FILE = path.join(WORKBUDDY_DIR, 'models.json');
 
-const QINIU_VENDOR = 'Qiniu';
 const DEFAULT_TEMPERATURE = 0.7;
 
-// 由本工具管理的顶层字段，写回时这些字段会被覆盖；其他字段保留原值
-const MANAGED_TOP_LEVEL_KEYS = new Set(['models', 'availableModels']);
 
 export interface WorkBuddyModel {
   id: string;
@@ -69,21 +68,14 @@ export class WorkBuddyTool implements ITool {
   }
 
   isConfigured(): boolean {
-    const models = this.getConfig().models;
-    return Array.isArray(models) && models.some((m: { vendor?: string }) => m?.vendor === QINIU_VENDOR);
+    return hasQiniuModels(this.getConfig());
   }
 
-  // 移除七牛模型，保留其他供应商配置及用户其他自定义字段
+  // 移除七牛模型，保留其他供应商配置及用户其他自定义字段；原本不存在的字段与文件一并删除
   clearModelConfig(): void {
     const existing = readJsonObjectStrict(WORKBUDDY_MODELS_FILE);
-    const models = existing.models;
-    if (!Array.isArray(models)) {
-      return;
-    }
-    const nonQiniuModels = (models as WorkBuddyModel[]).filter(
-      m => m.vendor !== QINIU_VENDOR,
-    );
-    this.writeConfig(existing, nonQiniuModels);
+    if (!hasQiniuModels(existing)) return;
+    writeJsonOrRemove(WORKBUDDY_MODELS_FILE, revertModelsJson(existing, stateStore.getPriors(this.name) ?? {}));
   }
 
   // 根据 models.workbuddyModels 中的 ID 列表，从市场获取详情后写入
@@ -115,15 +107,11 @@ export class WorkBuddyTool implements ITool {
 
     // 严格读取：文件损坏时报错，不覆盖用户配置
     const existing = readJsonObjectStrict(WORKBUDDY_MODELS_FILE);
-    const existingModels = Array.isArray(existing.models)
-      ? (existing.models as WorkBuddyModel[])
-      : [];
-    const nonQiniuModels = existingModels.filter(m => m.vendor !== QINIU_VENDOR);
-
-    const qiniuModels = selectedModels.map(m => this.toWorkBuddyModel(m, apiKey, normalizedBaseUrl));
-    const allCombined = this.deduplicateModels([...nonQiniuModels, ...qiniuModels]);
-
-    this.writeConfig(existing, allCombined);
+    if (!stateStore.getPriors(this.name) && !hasQiniuModels(existing)) {
+      stateStore.recordPriors(this.name, captureModelsJsonPriors(existing));
+    }
+    const qiniuModels = selectedModels.map(m => this.toModel(m, apiKey, normalizedBaseUrl));
+    writeJson(WORKBUDDY_MODELS_FILE, applyModelsJson(existing, qiniuModels));
   }
 
   async unloadConfig(): Promise<void> {
@@ -152,7 +140,7 @@ export class WorkBuddyTool implements ITool {
     uiRenderer.renderModelConfigItem(t('config_view_workbuddy_models'), value);
   }
 
-  private toWorkBuddyModel(
+  private toModel(
     market: MarketModelInfo,
     apiKey: string,
     baseUrl: string,
@@ -172,26 +160,5 @@ export class WorkBuddyTool implements ITool {
     };
   }
 
-  // 合并写入：保留用户在 models.json 里手动添加的其他顶层字段，仅覆盖 models / availableModels
-  private writeConfig(existing: Record<string, unknown>, models: WorkBuddyModel[]): void {
-    const merged: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(existing)) {
-      if (!MANAGED_TOP_LEVEL_KEYS.has(key)) {
-        merged[key] = value;
-      }
-    }
-    merged.models = models;
-    merged.availableModels = models.map(m => m.id);
 
-    writeJson(WORKBUDDY_MODELS_FILE, merged);
-  }
-
-  private deduplicateModels(models: WorkBuddyModel[]): WorkBuddyModel[] {
-    const seen = new Set<string>();
-    return models.filter(m => {
-      if (seen.has(m.id)) return false;
-      seen.add(m.id);
-      return true;
-    });
-  }
 }

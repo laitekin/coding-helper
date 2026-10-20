@@ -2,12 +2,12 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import yaml from 'js-yaml';
 import type { ModelConfig } from '../config.js';
 import { t } from '../i18n.js';
 import { isQiniuBaseUrl } from '../endpoints.js';
 import { ConfigParseError, backupFile, isDryRun, readTextFile, safeWriteFile } from '../core/safe-write.js';
 import { stateStore, type PriorValues } from '../core/state-store.js';
+import { deleteYamlValue, parseYamlDocument, restoreYamlValue, stringifyYamlDocument } from '../core/yaml-edit.js';
 import { OpenAICompatTool, fetchModelLimits, getPath, isRecord, openAIBaseUrl } from './openai-compat-tool.js';
 
 const PROVIDER_ID = 'qiniu';
@@ -24,20 +24,15 @@ function isQiniuModelRef(ref: string): boolean {
   return ref.startsWith(`custom_provider:${PROVIDER_ID}/`) || ref.startsWith(`${PROVIDER_ID}/`);
 }
 
-// 移除 custom_provider.qiniu，并把 --use 改掉的 defaultModel 按原值还原；其他设置原样保留
+// 移除 custom_provider.qiniu，并把 --use 改掉的 defaultModel 按原值还原；注释与其他设置原样保留
 export function removeMinimaxProvider(content: string, priors: PriorValues = {}): string {
-  const config = yaml.load(content);
-  if (!isRecord(config)) return content;
-  if (isRecord(config.custom_provider)) {
-    delete config.custom_provider[PROVIDER_ID];
-    if (Object.keys(config.custom_provider).length === 0) delete config.custom_provider;
+  const doc = parseYamlDocument(content);
+  deleteYamlValue(doc, ['custom_provider', PROVIDER_ID]);
+  const current = doc.get('defaultModel');
+  if (typeof current === 'string' && isQiniuModelRef(current)) {
+    restoreYamlValue(doc, ['defaultModel'], priors.defaultModel);
   }
-  if (typeof config.defaultModel === 'string' && isQiniuModelRef(config.defaultModel)) {
-    const prior = priors.defaultModel;
-    if (typeof prior === 'string') config.defaultModel = prior;
-    else delete config.defaultModel;
-  }
-  return Object.keys(config).length > 0 ? yaml.dump(config, { lineWidth: -1, noRefs: true }) : '';
+  return stringifyYamlDocument(doc);
 }
 
 // MiniMax Code（mcode）：配置结构未公开，通过官方的 mcode provider add 写入（含连通性测试）
@@ -52,7 +47,7 @@ export class MinimaxCodeTool extends OpenAICompatTool {
 
   getConfig(): Record<string, unknown> {
     try {
-      const parsed = yaml.load(readTextFile(getMinimaxConfigFile()) ?? '');
+      const parsed: unknown = parseYamlDocument(readTextFile(getMinimaxConfigFile()) ?? '').toJS();
       return isRecord(parsed) ? parsed : {};
     } catch {
       return {};

@@ -188,34 +188,27 @@ export function writeJson(file: string, data: unknown): void {
   safeWriteFile(file, formatJsonLike(readTextFile(file), data));
 }
 
-// 写回 JSON 对象；还原后为空对象时删除文件（文件本就是我们创建的，或原本为空）
-export function writeJsonOrRemove(file: string, data: Record<string, unknown>): void {
-  if (Object.keys(data).length > 0) {
-    writeJson(file, data);
+// 删除文件；所在目录因此变空时一并删除（目录是为这个文件创建的）
+function removeFile(file: string): void {
+  if (!fs.existsSync(file)) return;
+  if (plannedChanges) {
+    planChange(file, undefined);
     return;
   }
-  if (fs.existsSync(file)) {
-    if (plannedChanges) {
-      planChange(file, undefined);
-      return;
-    }
-    backupFile(file);
-    fs.rmSync(file, { force: true });
-  }
+  backupFile(file);
+  fs.rmSync(file, { force: true });
+  const dir = path.dirname(file);
+  if (dir !== os.homedir() && fs.readdirSync(dir).length === 0) fs.rmdirSync(dir);
+}
+
+// 写回 JSON 对象；还原后为空对象时删除文件（文件本就是我们创建的，或原本为空）
+export function writeJsonOrRemove(file: string, data: Record<string, unknown>): void {
+  if (Object.keys(data).length > 0) writeJson(file, data);
+  else removeFile(file);
 }
 
 // 写回文本；还原后为空时删除文件
 export function writeTextOrRemove(file: string, content: string): void {
-  if (content.trim()) {
-    safeWriteFile(file, content);
-    return;
-  }
-  if (fs.existsSync(file)) {
-    if (plannedChanges) {
-      planChange(file, undefined);
-      return;
-    }
-    backupFile(file);
-    fs.rmSync(file, { force: true });
-  }
+  if (content.trim()) safeWriteFile(file, content);
+  else removeFile(file);
 }
