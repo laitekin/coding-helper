@@ -194,5 +194,20 @@
   "restore_nothing": "No tools are connected to Qiniu, nothing to restore",
   "restore_confirm": "Remove Qiniu config from {{tools}} and restore previous settings?",
   "doctor_env_override": "Shell env override",
-  "doctor_env_override_detail": "These shell variables override the Claude Code settings file: {{keys}}. Remove them from ~/.zshrc or ~/.bashrc and reopen the terminal"
+  "doctor_env_override_detail": "These shell variables override the Claude Code settings file: {{keys}}. Remove them from ~/.zshrc or ~/.bashrc and reopen the terminal",
+
+  "generic_current_model": "{{tool}} currently uses: {{model}}",
+  "generic_select_model": "Choose the model for {{tool}} (type to search or enter a custom model ID):",
+  "generic_config_success": "Model for {{tool}}: {{model}}",
+  "generic_model_not_configured": "No model chosen for {{tool}} yet. Choose one under \"Configure Models\" first",
+  "config_view_model": "Model",
+  "setup_reason_launch_only": "No config file; launch it with coding-helper run",
+  "run_unsupported": "{{tool}} does not support launcher mode",
+  "run_supported_tools": "Supported tools: {{tools}}",
+  "dry_run_planned": "{{tool}} would be changed (dry run)",
+  "dry_run_create": "create",
+  "dry_run_modify": "modify",
+  "dry_run_delete": "delete",
+  "dry_run_no_changes": "No files would change",
+  "dry_run_footer": "Dry run: nothing above was written. Run again without --dry-run to apply."
 }

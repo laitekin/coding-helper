@@ -207,5 +207,20 @@
   "restore_nothing": "没有已接入七牛的工具，无需还原",
   "restore_confirm": "确定要从 {{tools}} 移除七牛配置并还原原有配置吗？",
   "doctor_env_override": "shell 环境变量覆盖",
-  "doctor_env_override_detail": "以下 shell 环境变量会覆盖 Claude Code 配置文件：{{keys}}。请从 ~/.zshrc 或 ~/.bashrc 中移除后重开终端"
+  "doctor_env_override_detail": "以下 shell 环境变量会覆盖 Claude Code 配置文件：{{keys}}。请从 ~/.zshrc 或 ~/.bashrc 中移除后重开终端",
+
+  "generic_current_model": "{{tool}} 当前使用的模型：{{model}}",
+  "generic_select_model": "请选择 {{tool}} 使用的模型（可输入搜索或自定义模型 ID）：",
+  "generic_config_success": "已为 {{tool}} 选择模型：{{model}}",
+  "generic_model_not_configured": "尚未为 {{tool}} 选择模型，请先在「配置模型」中选择",
+  "config_view_model": "模型",
+  "setup_reason_launch_only": "无配置文件，请用 coding-helper run 启动",
+  "run_unsupported": "{{tool}} 不支持启动器模式",
+  "run_supported_tools": "支持的工具：{{tools}}",
+  "dry_run_planned": "{{tool}} 将被修改（预演）",
+  "dry_run_create": "新建",
+  "dry_run_modify": "修改",
+  "dry_run_delete": "删除",
+  "dry_run_no_changes": "没有需要修改的文件",
+  "dry_run_footer": "预演模式：以上变更均未写入。去掉 --dry-run 即可执行。"
 }

@@ -32,6 +32,12 @@ export interface ITool {
   // 装载前必须先选择模型（无默认模型可用）
   requiresModelSelection?: boolean;
 
+  // 没有配置文件、只能通过 run 启动器使用的客户端（如 Copilot CLI）
+  launchOnly?: boolean;
+
+  // 启动器模式：只注入子进程的环境变量，不改用户配置文件
+  getLaunchEnv?(apiKey: string, baseUrl: string, models: ModelConfig): Record<string, string>;
+
   // 清除模型配置
   clearModelConfig(): void;
 

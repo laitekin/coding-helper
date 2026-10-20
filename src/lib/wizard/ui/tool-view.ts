@@ -4,9 +4,11 @@ import { t } from '../../i18n.js';
 import { theme } from './theme.js';
 import { uiRenderer } from './ui-renderer.js';
 import { logger } from '../../../utils/logger.js';
-import { padEnd, padVisible } from '../../../utils/string-width.js';
+import { padEnd, padVisible, truncate } from '../../../utils/string-width.js';
 import type { ITool } from '../../tools/base-tool.js';
-import { getSessionBackups } from '../../core/safe-write.js';
+import { getSessionBackups, isDryRun, type PlannedChange } from '../../core/safe-write.js';
+import { diffLines, withContext } from '../../../utils/line-diff.js';
+import os from 'node:os';
 import {
   applyTool,
   getSyncTargets,
@@ -80,7 +82,9 @@ export async function applyToolsWithProgress(tools: ITool[]): Promise<ToolResult
       indent: 2,
     }).start();
     const result = await applyTool(tool);
-    if (result.status === 'success') spinner.succeed(t('tool_config_loaded', { tool: tool.displayName }));
+    if (result.status === 'success') {
+      spinner.succeed(t(isDryRun() ? 'dry_run_planned' : 'tool_config_loaded', { tool: tool.displayName }));
+    }
     else if (result.status === 'skipped') spinner.warn(`${tool.displayName} ${theme.subtle(formatReason(result))}`);
     else spinner.fail(`${tool.displayName} ${theme.subtle(formatReason(result))}`);
     results.push(result);
@@ -97,4 +101,35 @@ export async function syncAfterChange(): Promise<ToolResult[]> {
   const results = await applyToolsWithProgress(targets);
   renderResultSummary(results);
   return results;
+}
+
+// --dry-run：逐个文件展示将要发生的变更，API Key 打码
+export function renderPlannedChanges(changes: PlannedChange[], apiKey: string | undefined): void {
+  const mask = (text: string): string =>
+    apiKey ? text.split(apiKey).join(uiRenderer.maskApiKey(apiKey)) : text;
+  const display = (file: string): string => file.replace(os.homedir(), '~');
+
+  if (changes.length === 0) {
+    uiRenderer.renderHint(t('dry_run_no_changes'));
+    return;
+  }
+  for (const change of changes) {
+    const label = change.after === undefined
+      ? t('dry_run_delete')
+      : change.before === undefined ? t('dry_run_create') : t('dry_run_modify');
+    logger.log(`  ${theme.brandBold(label)} ${theme.value(display(change.file))}`);
+    for (const line of withContext(diffLines(change.before ?? '', change.after ?? ''))) {
+      if (!line) {
+        logger.log(theme.subtle('    …'));
+        continue;
+      }
+      // 超长行（如 Codex 模型目录）截断显示
+      const text = truncate(mask(line.text), 100);
+      if (line.kind === '+') logger.log(theme.success(`  + ${text}`));
+      else if (line.kind === '-') logger.log(theme.danger(`  - ${text}`));
+      else logger.log(theme.subtle(`    ${text}`));
+    }
+    logger.newLine();
+  }
+  uiRenderer.renderHint(t('dry_run_footer'));
 }

@@ -15,6 +15,10 @@ export interface ModelConfig {
   workbuddyModels?: string[];
   hermesModel?: string;
   codexModel?: string;
+  // 通用客户端（OpenCode、Qwen Code 等）按工具名记录所选模型
+  toolModels?: Record<string, string>;
+  // 通用客户端未单独选择时使用的默认模型
+  defaultModel?: string;
 }
 
 export interface ClaudeCodeConfig {
@@ -35,6 +39,8 @@ interface Config {
   workbuddyModels?: string[];
   hermesModel?: string;
   codexModel?: string;
+  toolModels?: Record<string, string>;
+  defaultModel?: string;
 }
 
 // 配置管理器单例
@@ -118,6 +124,12 @@ class ConfigManager {
     this.save();
   }
 
+  // 仅本次运行生效、不落盘（setup --dry-run 使用）
+  useApiKeyForSession(apiKey: string): void {
+    this.load();
+    this.config.api_key = apiKey;
+  }
+
   revokeApiKey(): void {
     this.load();
     delete this.config.api_key;
@@ -141,6 +153,8 @@ class ConfigManager {
       workbuddyModels: this.config.workbuddyModels,
       hermesModel: this.config.hermesModel,
       codexModel: this.config.codexModel,
+      toolModels: this.config.toolModels ? { ...this.config.toolModels } : undefined,
+      defaultModel: this.config.defaultModel,
     };
   }
 
@@ -156,6 +170,12 @@ class ConfigManager {
     if ('workbuddyModels' in models) this.config.workbuddyModels = models.workbuddyModels;
     if ('hermesModel' in models) this.config.hermesModel = models.hermesModel;
     if ('codexModel' in models) this.config.codexModel = models.codexModel;
+    if ('toolModels' in models) {
+      this.config.toolModels = models.toolModels
+        ? { ...this.config.toolModels, ...models.toolModels }
+        : undefined;
+    }
+    if ('defaultModel' in models) this.config.defaultModel = models.defaultModel;
     this.save();
   }
 

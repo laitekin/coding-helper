@@ -6,7 +6,7 @@
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Node.js Version](https://img.shields.io/node/v/qiniu-coding-helper.svg)](https://nodejs.org)
 
-**一站式配置 Claude Code、Codex、CodeBuddy、WorkBuddy 和 Hermes Agent 使用七牛 AI API 端点的 CLI 工具**
+**一站式配置 Claude Code、Codex、OpenCode、Qwen Code、Kimi Code、Factory Droid、Copilot CLI、CodeBuddy、WorkBuddy 和 Hermes Agent 使用七牛 AI API 端点的 CLI 工具**
 
 [English](README.en-US.md) · [支持的工具](#-支持的工具) · [功能特性](#-功能特性) · [前置要求](#-前置要求) · [快速开始](#-快速开始) · [命令一览](#-命令一览) · [配置说明](#-配置说明) · [常见问题](#-常见问题)
 
@@ -23,6 +23,11 @@
 | CodeBuddy | CLI | `~/.codebuddy/models.json` |
 | WorkBuddy | 桌面应用 | `~/.workbuddy/models.json` |
 | Hermes Agent | CLI | `~/.hermes/config.yaml` |
+| OpenCode | CLI | `~/.config/opencode/opencode.json` |
+| Qwen Code | CLI | `~/.qwen/settings.json`（Key 写入 `~/.qwen/.env`） |
+| Kimi Code CLI | CLI | `~/.kimi-code/config.toml` |
+| Factory Droid | CLI | `~/.factory/settings.json` 的 `customModels` |
+| GitHub Copilot CLI | CLI | 无配置文件，通过 `coding-helper run copilot` 启动 |
 
 ## ✨ 功能特性
 
@@ -147,6 +152,19 @@ npx qiniu-coding-helper restore codex --yes
 ```
 
 修改 API Key 或线路后，已接入的工具会自动同步，无需再执行 `auth reload`。
+
+---
+
+### 🚀 `coding-helper run`
+
+启动器模式：只给本次启动的工具注入七牛环境变量，不修改任何配置文件。适合 GitHub Copilot CLI 这类没有配置文件的工具，或想同时保留官方账号的用户。后面的参数原样传给工具。
+
+```bash
+npx qiniu-coding-helper run copilot
+npx qiniu-coding-helper run claude -- --continue
+```
+
+OpenCode、Qwen Code、Kimi Code CLI、Factory Droid、Copilot CLI 使用同一个模型：在「配置模型」中选一次，之后 `setup --yes` 会复用。`setup --dry-run` 可以先预览每个文件将如何改动（Key 打码），不写入任何文件。
 
 ---
 

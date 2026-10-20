@@ -4,6 +4,11 @@ import { CodexTool } from './tools/codex-tool.js';
 import { CodeBuddyTool } from './tools/codebuddy-tool.js';
 import { WorkBuddyTool } from './tools/workbuddy-tool.js';
 import { HermesTool } from './tools/hermes-tool.js';
+import { OpenCodeTool } from './tools/opencode-tool.js';
+import { QwenCodeTool } from './tools/qwen-code-tool.js';
+import { KimiCodeTool } from './tools/kimi-code-tool.js';
+import { DroidTool } from './tools/droid-tool.js';
+import { CopilotTool } from './tools/copilot-tool.js';
 
 // 工具注册中心
 class ToolManager {
@@ -13,6 +18,11 @@ class ToolManager {
     // 注册默认工具
     this.register(new ClaudeCodeTool());
     this.register(new CodexTool());
+    this.register(new OpenCodeTool());
+    this.register(new QwenCodeTool());
+    this.register(new KimiCodeTool());
+    this.register(new DroidTool());
+    this.register(new CopilotTool());
     this.register(new CodeBuddyTool());
     this.register(new WorkBuddyTool());
     this.register(new HermesTool());

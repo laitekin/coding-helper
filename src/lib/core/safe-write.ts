@@ -45,8 +45,39 @@ export function readJsonObjectStrict(file: string): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
+// 预演模式：只记录将要发生的变更，不写盘、不备份
+export interface PlannedChange {
+  file: string;
+  before: string | undefined;
+  // undefined 表示文件将被删除
+  after: string | undefined;
+}
+
+let plannedChanges: Map<string, PlannedChange> | null = null;
+
+export function setDryRun(enabled: boolean): void {
+  plannedChanges = enabled ? new Map() : null;
+}
+
+export function isDryRun(): boolean {
+  return plannedChanges !== null;
+}
+
+export function getPlannedChanges(): PlannedChange[] {
+  return plannedChanges ? [...plannedChanges.values()] : [];
+}
+
+function planChange(file: string, after: string | undefined): void {
+  if (!plannedChanges) return;
+  const resolved = path.resolve(file);
+  const before = plannedChanges.get(resolved)?.before ?? readTextFile(resolved);
+  plannedChanges.set(resolved, { file: resolved, before, after });
+}
+
 // 原子写入：同目录写临时文件后 rename，避免中途失败留下半个文件
 export function atomicWriteFile(file: string, content: string, mode = 0o600): void {
+  // 预演模式下 coding-helper 自身的状态文件也不写
+  if (plannedChanges) return;
   const dir = path.dirname(file);
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   const tmp = path.join(dir, `.${path.basename(file)}.tmp-${process.pid}-${Date.now()}`);
@@ -102,6 +133,7 @@ function ensureSessionDir(): string {
 
 // 写入前备份原文件；同一次运行内同一文件只备份一次。文件不存在时返回 undefined
 export function backupFile(file: string): string | undefined {
+  if (plannedChanges) return undefined;
   const resolved = path.resolve(file);
   const existing = backedUp.get(resolved);
   if (existing) return existing;
@@ -134,6 +166,10 @@ export function safeWriteFile(file: string, content: string, mode = 0o600): void
   if (current === content) return;
   // 文件原本不存在且没有内容要写：不凭空创建空文件
   if (current === undefined && !content.trim()) return;
+  if (plannedChanges) {
+    planChange(file, content);
+    return;
+  }
   backupFile(file);
   atomicWriteFile(file, content, mode);
 }
@@ -145,6 +181,26 @@ export function writeJsonOrRemove(file: string, data: Record<string, unknown>): 
     return;
   }
   if (fs.existsSync(file)) {
+    if (plannedChanges) {
+      planChange(file, undefined);
+      return;
+    }
+    backupFile(file);
+    fs.rmSync(file, { force: true });
+  }
+}
+
+// 写回文本；还原后为空时删除文件
+export function writeTextOrRemove(file: string, content: string): void {
+  if (content.trim()) {
+    safeWriteFile(file, content);
+    return;
+  }
+  if (fs.existsSync(file)) {
+    if (plannedChanges) {
+      planChange(file, undefined);
+      return;
+    }
     backupFile(file);
     fs.rmSync(file, { force: true });
   }

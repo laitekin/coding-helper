@@ -115,22 +115,7 @@ export class ClaudeCodeTool implements ITool {
 
     // 写入七牛配置；先清掉旧的模型变量，避免取消选择后残留
     for (const key of CLAUDE_ENV_KEYS) delete env[key];
-    env.ANTHROPIC_BASE_URL = baseUrl;
-    env.ANTHROPIC_AUTH_TOKEN = apiKey;
-    env.API_TIMEOUT_MS = API_TIMEOUT;
-    // 禁用非必要流量，第三方端点不需要 Anthropic 遥测
-    env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1';
-    // 禁用属性块，提升网关下 prompt cache 命中率
-    env.CLAUDE_CODE_ATTRIBUTION_HEADER = '0';
-
-    // 写入模型配置
-    const claudeCode = models.claudeCode || {};
-    if (claudeCode.haikuModel) env.ANTHROPIC_DEFAULT_HAIKU_MODEL = claudeCode.haikuModel;
-    if (claudeCode.sonnetModel) env.ANTHROPIC_DEFAULT_SONNET_MODEL = claudeCode.sonnetModel;
-    if (claudeCode.opusModel) env.ANTHROPIC_DEFAULT_OPUS_MODEL = claudeCode.opusModel;
-    if (claudeCode.subagentModel) env.CLAUDE_CODE_SUBAGENT_MODEL = claudeCode.subagentModel;
-
-    settings.env = env;
+    settings.env = { ...env, ...buildClaudeEnv(apiKey, baseUrl, models) };
 
     // 写入公司公告（使用当前语言）
     settings.companyAnnouncements = [
@@ -148,6 +133,11 @@ export class ClaudeCodeTool implements ITool {
     // 写入 ~/.claude.json，设置 onboarding 完成标记
     claudeJson.hasCompletedOnboarding = true;
     safeWriteFile(CLAUDE_JSON_FILE, JSON.stringify(claudeJson, null, 2) + '\n');
+  }
+
+  // 启动器模式：与写入 settings.json 的变量一致，只作用于本次启动
+  getLaunchEnv(apiKey: string, baseUrl: string, models: ModelConfig): Record<string, string> {
+    return buildClaudeEnv(apiKey, baseUrl, models);
   }
 
   // 从 Claude Code 移除配置
@@ -189,6 +179,25 @@ export class ClaudeCodeTool implements ITool {
   private writeSettings(settings: Record<string, unknown>): void {
     safeWriteFile(CLAUDE_SETTINGS_FILE, JSON.stringify(settings, null, 2) + '\n');
   }
+}
+
+// 七牛线路下 Claude Code 需要的环境变量（settings.json 与启动器共用）
+function buildClaudeEnv(apiKey: string, baseUrl: string, models: ModelConfig): Record<string, string> {
+  const env: Record<string, string> = {
+    ANTHROPIC_BASE_URL: baseUrl,
+    ANTHROPIC_AUTH_TOKEN: apiKey,
+    API_TIMEOUT_MS: API_TIMEOUT,
+    // 禁用非必要流量，第三方端点不需要 Anthropic 遥测
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
+    // 禁用属性块，提升网关下 prompt cache 命中率
+    CLAUDE_CODE_ATTRIBUTION_HEADER: '0',
+  };
+  const claudeCode = models.claudeCode || {};
+  if (claudeCode.haikuModel) env.ANTHROPIC_DEFAULT_HAIKU_MODEL = claudeCode.haikuModel;
+  if (claudeCode.sonnetModel) env.ANTHROPIC_DEFAULT_SONNET_MODEL = claudeCode.sonnetModel;
+  if (claudeCode.opusModel) env.ANTHROPIC_DEFAULT_OPUS_MODEL = claudeCode.opusModel;
+  if (claudeCode.subagentModel) env.CLAUDE_CODE_SUBAGENT_MODEL = claudeCode.subagentModel;
+  return env;
 }
 
 // 原值为 null/undefined 时删除键，否则写回原值

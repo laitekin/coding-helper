@@ -16,7 +16,8 @@ export async function selectTools(message: string): Promise<ITool[]> {
     detections.map((d) => ({
       name: formatToolChoice(d, nameWidth),
       value: d.tool.name,
-      checked: d.installed === true,
+      // 只能用启动器的工具不需要写配置，不默认勾选
+      checked: d.installed === true && !d.tool.launchOnly,
     })),
   );
   return detections.filter((d) => selected.includes(d.tool.name)).map((d) => d.tool);

@@ -44,7 +44,8 @@ export function hasSavedToolModelConfig(
     case 'hermes':
       return !!models.hermesModel;
     default:
-      return false;
+      // 通用客户端：单独选过模型，或已有通用默认模型
+      return !!(models.toolModels?.[tool.name] || models.defaultModel);
   }
 }
 
@@ -73,6 +74,8 @@ export function detectAllTools(): ToolDetection[] {
 export async function applyTool(tool: ITool): Promise<ToolResult> {
   const apiKey = configManager.getApiKey();
   if (!apiKey) return { tool, status: 'failed', reason: 'apikey_not_set' };
+
+  if (tool.launchOnly) return { tool, status: 'skipped', reason: 'setup_reason_launch_only' };
 
   const models = configManager.getModels();
   if (tool.requiresModelSelection && !hasSavedToolModelConfig(tool, models)) {
@@ -103,6 +106,7 @@ export async function removeTool(tool: ITool): Promise<ToolResult> {
 export function getSyncTargets(): ITool[] {
   const applied = new Set(stateStore.getApplied());
   return toolManager.getAll().filter((tool) => {
+    if (tool.launchOnly) return false;
     if (applied.has(tool.name)) return true;
     try {
       return tool.isConfigured();

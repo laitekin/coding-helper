@@ -7,7 +7,8 @@ import { marketModelService } from '../lib/market-model-service.js';
 import { toolManager } from '../lib/tool-manager.js';
 import { uiRenderer } from '../lib/wizard/ui/ui-renderer.js';
 import { selectTools } from '../lib/wizard/flows/tool-setup-flow.js';
-import { applyToolsWithProgress, renderResultSummary } from '../lib/wizard/ui/tool-view.js';
+import { applyToolsWithProgress, renderPlannedChanges, renderResultSummary } from '../lib/wizard/ui/tool-view.js';
+import { getPlannedChanges, setDryRun } from '../lib/core/safe-write.js';
 import {
   applyTool,
   detectAllTools,
@@ -23,6 +24,7 @@ export interface SetupOptions {
   yes?: boolean;
   json?: boolean;
   keyStdin?: boolean;
+  dryRun?: boolean;
 }
 
 // 从标准输入读取 API Key，避免明文出现在命令行与 shell 历史中
@@ -62,7 +64,9 @@ export async function setupCommand(options: SetupOptions): Promise<void> {
       if (!key) throw new Error(t('apikey_empty'));
       const result = await validateApiKey(key, configManager.baseUrl);
       if (!result.valid) throw new Error(t('apikey_invalid', { error: result.error || '' }));
-      configManager.setApiKey(key);
+      // 预演模式不保存 Key
+      if (options.dryRun) configManager.useApiKeyForSession(key);
+      else configManager.setApiKey(key);
       modelService.clearCache();
       marketModelService.clearCache();
     }
@@ -95,7 +99,7 @@ export async function setupCommand(options: SetupOptions): Promise<void> {
     }
 
     // 3. 交互模式下，为必须选模型但还没选的工具补一次模型选择
-    if (interactive) {
+    if (interactive && !options.dryRun) {
       for (const tool of targets) {
         if (tool.requiresModelSelection && !hasSavedToolModelConfig(tool, configManager.getModels())) {
           await tool.runModelConfigFlow();
@@ -107,7 +111,8 @@ export async function setupCommand(options: SetupOptions): Promise<void> {
       uiRenderer.renderHint(t('setup_none_selected'));
     }
 
-    // 4. 装载并汇总
+    // 4. 装载并汇总（预演模式下只记录变更，不写盘）
+    if (options.dryRun) setDryRun(true);
     let applied: ToolResult[];
     if (quiet) {
       applied = [];
@@ -117,7 +122,24 @@ export async function setupCommand(options: SetupOptions): Promise<void> {
     }
     const results = [...applied, ...skipped];
 
-    if (quiet) {
+    if (options.dryRun) {
+      const changes = getPlannedChanges();
+      setDryRun(false);
+      if (quiet) {
+        const mask = (text?: string): string | undefined => {
+          const key = configManager.getApiKey();
+          return text && key ? text.split(key).join(uiRenderer.maskApiKey(key)) : text;
+        };
+        console.log(JSON.stringify({
+          ...toJson(results),
+          dryRun: true,
+          changes: changes.map((c) => ({ file: c.file, before: mask(c.before), after: mask(c.after) })),
+        }, null, 2));
+      } else {
+        renderResultSummary(results);
+        renderPlannedChanges(changes, configManager.getApiKey());
+      }
+    } else if (quiet) {
       console.log(JSON.stringify(toJson(results), null, 2));
     } else {
       renderResultSummary(results);

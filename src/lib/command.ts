@@ -7,6 +7,7 @@ import {
   setupCommand,
   statusCommand,
   restoreCommand,
+  runCommand,
 } from '../commands/index.js';
 import { Wizard } from './wizard/wizard.js';
 import { i18n } from './i18n.js';
@@ -24,6 +25,8 @@ function resolveToolName(tool: string): string {
 // 创建并配置 Commander 程序
 export function createProgram(): Command {
   const program = new Command();
+  // run 子命令需要把选项原样传给被启动的工具
+  program.enablePositionalOptions();
 
   program
     .name('coding-helper')
@@ -56,7 +59,8 @@ export function createProgram(): Command {
     .option('-y, --yes', 'skip prompts and use saved or default models')
     .option('--json', 'print results as JSON')
     .option('--key-stdin', 'read the API Key from stdin instead of saved config')
-    .action(async (options: { tools?: string; yes?: boolean; json?: boolean; keyStdin?: boolean }) => {
+    .option('--dry-run', 'show what would change without writing any file')
+    .action(async (options: { tools?: string; yes?: boolean; json?: boolean; keyStdin?: boolean; dryRun?: boolean }) => {
       await setupCommand(options);
     });
 
@@ -76,6 +80,16 @@ export function createProgram(): Command {
     .option('-y, --yes', 'skip confirmation')
     .action(async (tools: string | undefined, options: { yes?: boolean }) => {
       await restoreCommand(tools, options);
+    });
+
+  // run - 启动器模式：只给子进程注入七牛环境变量，不改配置文件
+  program
+    .command('run <tool> [args...]')
+    .description('Launch a coding tool with Qiniu settings injected, without touching its config')
+    .allowUnknownOption()
+    .passThroughOptions()
+    .action(async (tool: string, args: string[] = []) => {
+      await runCommand(tool, args);
     });
 
   // auth - API Key 管理

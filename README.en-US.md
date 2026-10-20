@@ -6,7 +6,7 @@
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Node.js Version](https://img.shields.io/node/v/qiniu-coding-helper.svg)](https://nodejs.org)
 
-**The CLI helper for configuring Claude Code, Codex, CodeBuddy, WorkBuddy, and Hermes Agent with Qiniu AI API endpoints**
+**The CLI helper for configuring Claude Code, Codex, OpenCode, Qwen Code, Kimi Code, Factory Droid, Copilot CLI, CodeBuddy, WorkBuddy, and Hermes Agent with Qiniu AI API endpoints**
 
 [简体中文](README.md) · [Supported Tools](#-supported-tools) · [Features](#-features) · [Prerequisites](#-prerequisites) · [Quick Start](#-quick-start) · [Commands](#-commands) · [Configuration](#-configuration) · [FAQ](#-faq)
 
@@ -23,6 +23,11 @@
 | CodeBuddy | CLI | `~/.codebuddy/models.json` |
 | WorkBuddy | Desktop app | `~/.workbuddy/models.json` |
 | Hermes Agent | CLI | `~/.hermes/config.yaml` |
+| OpenCode | CLI | `~/.config/opencode/opencode.json` |
+| Qwen Code | CLI | `~/.qwen/settings.json` (key in `~/.qwen/.env`) |
+| Kimi Code CLI | CLI | `~/.kimi-code/config.toml` |
+| Factory Droid | CLI | `customModels` in `~/.factory/settings.json` |
+| GitHub Copilot CLI | CLI | No config file; launch with `coding-helper run copilot` |
 
 ## ✨ Features
 
@@ -147,6 +152,19 @@ npx qiniu-coding-helper restore codex --yes
 ```
 
 After you change the API Key or endpoint, connected tools are synced automatically; `auth reload` is no longer required.
+
+---
+
+### 🚀 `coding-helper run`
+
+Launcher mode: injects the Qiniu settings into this one launch only, without touching any config file. Use it for tools without a config file such as GitHub Copilot CLI, or to keep your official account alongside. Remaining arguments are passed through.
+
+```bash
+npx qiniu-coding-helper run copilot
+npx qiniu-coding-helper run claude -- --continue
+```
+
+OpenCode, Qwen Code, Kimi Code CLI, Factory Droid and Copilot CLI share one model: choose it once under "Configure Models" and `setup --yes` reuses it. `setup --dry-run` previews how each file would change (API Key masked) without writing anything.
 
 ---
 

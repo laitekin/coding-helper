@@ -10,6 +10,18 @@ import { uiRenderer } from '../wizard/ui/ui-renderer.js';
 import { promptHelper } from '../wizard/ui/prompt-helper.js';
 import { readJsonObjectStrict, safeWriteFile, writeJsonOrRemove } from '../core/safe-write.js';
 import { stateStore, type PriorValues } from '../core/state-store.js';
+import {
+  escapeTomlString,
+  getTopLevelTomlValue,
+  topLevelEnd,
+  normalizeToml,
+  removeTomlTable,
+  removeTopLevelTomlKey,
+  upsertTopLevelTomlKey,
+} from '../core/toml-edit.js';
+
+// 兼容旧导入路径
+export { getTopLevelTomlValue, upsertTopLevelTomlKey, removeTopLevelTomlKey };
 
 const CODEX_DIR = path.join(os.homedir(), '.codex');
 const CODEX_CONFIG_FILE = path.join(CODEX_DIR, 'config.toml');
@@ -297,58 +309,6 @@ function parseJsonObject(content: string): Record<string, unknown> {
   }
 }
 
-// 顶层区域：第一个表头之前的行
-function topLevelEnd(lines: string[]): number {
-  const index = lines.findIndex((line) => isTomlTableHeader(line));
-  return index >= 0 ? index : lines.length;
-}
-
-function isTomlTableHeader(line: string): boolean {
-  return /^\[\[?[^\]]+\]\]?\s*(#.*)?$/.test(line.trim());
-}
-
-function topLevelKeyPattern(key: string): RegExp {
-  return new RegExp(`^${key}\\s*=`);
-}
-
-// 读取顶层键的原始值文本（如 '"gpt-5"'），不存在时返回 undefined
-export function getTopLevelTomlValue(content: string, key: string): string | undefined {
-  const lines = content.split('\n');
-  const end = topLevelEnd(lines);
-  for (let i = 0; i < end; i++) {
-    const trimmed = lines[i].trim();
-    if (topLevelKeyPattern(key).test(trimmed)) return trimmed.replace(topLevelKeyPattern(key), '').trim();
-  }
-  return undefined;
-}
-
-// 删除顶层键
-export function removeTopLevelTomlKey(content: string, key: string): string {
-  const lines = content.split('\n');
-  const end = topLevelEnd(lines);
-  return lines.filter((line, i) => i >= end || !topLevelKeyPattern(key).test(line.trim())).join('\n');
-}
-
-// 更新或插入顶层键；新键插在顶层区域末尾（第一个表头之前）
-export function upsertTopLevelTomlKey(content: string, key: string, rawValue: string): string {
-  const lines = content.split('\n');
-  const end = topLevelEnd(lines);
-  const line = `${key} = ${rawValue}`;
-  const index = lines.findIndex((l, i) => i < end && topLevelKeyPattern(key).test(l.trim()));
-  if (index >= 0) {
-    lines[index] = line;
-    return lines.join('\n');
-  }
-  let insertAt = end;
-  while (insertAt > 0 && lines[insertAt - 1].trim() === '') insertAt--;
-  lines.splice(insertAt, 0, line);
-  // 紧挨着表头时补一个空行，保持可读
-  if (insertAt + 1 < lines.length && isTomlTableHeader(lines[insertAt + 1])) {
-    lines.splice(insertAt + 1, 0, '');
-  }
-  return lines.join('\n');
-}
-
 function removeTopLevelQnaigcModelProvider(content: string): string {
   const lines = content.split('\n');
   const searchEnd = topLevelEnd(lines);
@@ -360,29 +320,6 @@ function removeTopLevelQnaigcModelProvider(content: string): string {
     .join('\n');
 }
 
-function removeTomlTable(content: string, tableName: string): string {
-  const lines = content.split('\n');
-  const result: string[] = [];
-  let skipping = false;
-  const header = `[${tableName}]`;
-  const dottedHeaderPrefix = `[${tableName}.`;
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed === header || trimmed.startsWith(dottedHeaderPrefix)) {
-      skipping = true;
-      continue;
-    }
-    if (skipping && isTomlTableHeader(trimmed)) {
-      skipping = false;
-    }
-    if (!skipping) {
-      result.push(line);
-    }
-  }
-
-  return result.join('\n');
-}
 
 function restoreJsonValue(target: Record<string, unknown>, key: string, prior: unknown): void {
   if (prior === null || prior === undefined) delete target[key];
@@ -393,11 +330,4 @@ function hasManagedCodexConfig(content: string): boolean {
   return content.includes(`[model_providers.${PROVIDER_NAME}]`);
 }
 
-function normalizeToml(content: string): string {
-  const trimmed = content.trim();
-  return trimmed ? `${trimmed}\n` : '';
-}
 
-function escapeTomlString(value: string): string {
-  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-}
