@@ -1,0 +1,14 @@
+[
+  { "id": "s01", "at": 0.6, "text": "想让 Claude Code 跑在七牛的模型上？" },
+  { "id": "s02", "at": 6.2, "text": "只需要一条命令。" },
+  { "id": "s03", "at": 10.6, "text": "打开终端，输入 npx qiniu-coding-helper，不用安装。" },
+  { "id": "s04", "at": 15.4, "text": "先选语言，再选线路：国内选 qnaigc，海外选 modelink。" },
+  { "id": "s05", "at": 21.2, "text": "粘贴你的 API Key，工具会当场帮你验证。" },
+  { "id": "s06", "at": 28.1, "text": "勾选要接入的编程助手，十三款工具随你挑。" },
+  { "id": "s07", "at": 35.6, "text": "为 Haiku、Sonnet、Opus 各挑一个模型，也能直接搜索。" },
+  { "id": "s08", "at": 43.1, "text": "写入之前，原文件会自动备份。" },
+  { "id": "s09", "at": 50.6, "text": "全部接入。" },
+  { "id": "s10", "at": 53.1, "text": "重启 Claude Code，还是熟悉的界面，跑的已经是七牛线路。" },
+  { "id": "s11", "at": 63.1, "text": "有问题跑 doctor，想撤销就 restore。" },
+  { "id": "s12", "at": 69.4, "text": "npx qiniu-coding-helper，现在就试试。" }
+]

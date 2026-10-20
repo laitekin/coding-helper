@@ -60,7 +60,7 @@ qiniu-coding-helper 使用教程短片 · v0.1 分镜稿
 | S01 | 0:00.6 | 想让 Claude Code 跑在七牛的模型上？ | 17 | 3.8 s |
 | S02 | 0:06.2 | 只需要一条命令。 | 7 | 1.8 s |
 | S03 | 0:10.6 | 打开终端，输入 npx qiniu-coding-helper，不用安装。 | 22 | 4.4 s |
-| S04 | 0:15.6 | 先选语言，再选线路：国内选 qnaigc，海外选 modelink。 | 22 | 4.4 s |
+| S04 | 0:15.4 | 先选语言，再选线路：国内选 qnaigc，海外选 modelink。 | 22 | 4.4 s |
 | S05 | 0:21.2 | 粘贴你的 API Key，工具会当场帮你验证。 | 18 | 4.0 s |
 | S06 | 0:28.1 | 勾选要接入的编程助手，十三款工具随你挑。 | 19 | 4.2 s |
 | S07 | 0:35.6 | 为 Haiku、Sonnet、Opus 各挑一个模型，也能直接搜索。 | 22 | 4.6 s |
@@ -135,7 +135,37 @@ PLAYWRIGHT_PATH=$(npm root -g)/playwright/index.mjs node video/film/tools/video.
 
 字体：JetBrains Mono（等宽，逐字绘制以避开连字）+ 文泉驿正黑（中文）。成片前可换成思源黑体并放进 `film/fonts/`。
 
-## 10. 下一步
+## 10. 声音与成片
 
-1. 审无声预览，调整镜头细节。
-2. 旁白（edge-tts + whisper 回检）→ 配乐 → 音效（按卡点表）→ 混音 → 合成，输出成片与 `.srt`。
+一条命令重建整片（约 2 分钟；`--skip-tts` 跳过联网合成旁白）：
+
+```bash
+bash video/build.sh
+```
+
+| 步骤 | 脚本 | 说明 |
+|---|---|---|
+| 旁白 | `audio/tts.py` | edge-tts `zh-CN-YunxiNeural`，台词与入点在 `audio/lines.json` |
+| 回检 | `audio/asr_check.py` | 裁掉首尾静音，faster-whisper 逐句转写，繁转简后逐字比对（阈值 0.9），写出实际时长 |
+| 字幕 | `audio/srt.py` | 按实际时长生成 `film/cues.js`（硬字幕）和 `.srt`；至少停留 1.8 s，按 4.5 字/秒保证读完 |
+| 配乐 / 音效 / 混音 | `audio/mix.py` | 全部代码合成：方波琶音、三角波贝斯、噪声鼓组、程序化拟音；旁白时音乐压低 6 dB |
+| 画面 | `film/tools/video.mjs` | 多 worker 逐帧渲染 |
+| 合成 | `mux.sh` | 两遍 loudnorm，−14 LUFS / −1.5 dBTP，AAC 192k |
+
+成片：`film/out/qiniu-coding-helper.mp4` + `qiniu-coding-helper.srt`（不入库）。
+
+当前成片测量值：
+
+| 项 | 结果 |
+|---|---|
+| 时长 | 75.0 s，1920×1080，24 fps |
+| 响度 | −14.2 LUFS，真峰值 −1.1 dBFS |
+| 人声 / 音乐 | 旁白时人声比音乐高 12.1 dB |
+| 静音 | 第 20 小节、第 28 小节前半，音乐轨完全静音 |
+| 旁白回检 | 12/12 句通过（逐句准确率 ≥ 0.94）；成片整段转写 12 句全部识别 |
+| 黑帧 | 无 |
+
+## 11. 下一步
+
+1. 审成片，按反馈调整镜头、旁白或配乐。
+2. 可选：换思源黑体（放进 `film/fonts/`）、出竖版 9:16、出英文版旁白。

@@ -10,6 +10,7 @@
 </head>
 <body>
 <canvas id="c" width="1920" height="1080"></canvas>
+<script src="cues.js"></script>
 <script>
 // 《一条命令，接上七牛》画面
 // 约定：window.DUR 总时长；window.render(t) 画出 t 秒这一帧；window.READY 字体就绪
@@ -197,21 +198,8 @@ function logo(x, y, cw, ch, lit) {
   });
 }
 
-// ---------- 字幕（与 TREATMENT.md 旁白表一致）----------
-const CUES = [
-  [0.6, 4.6, '想让 Claude Code 跑在七牛的模型上？'],
-  [6.2, 9.6, '只需要一条命令。'],
-  [10.6, 15.0, '打开终端，输入 npx qiniu-coding-helper，不用安装。'],
-  [15.6, 20.0, '先选语言，再选线路：国内选 qnaigc，海外选 modelink。'],
-  [21.2, 27.0, '粘贴你的 API Key，工具会当场帮你验证。'],
-  [28.1, 34.6, '勾选要接入的编程助手，十三款工具随你挑。'],
-  [35.6, 42.2, '为 Haiku、Sonnet、Opus 各挑一个模型，也能直接搜索。'],
-  [43.1, 47.0, '写入之前，原文件会自动备份。'],
-  [50.6, 52.4, '全部接入。'],
-  [53.1, 59.0, '重启 Claude Code，还是熟悉的界面，跑的已经是七牛线路。'],
-  [63.1, 67.0, '有问题跑 doctor，想撤销就 restore。'],
-  [69.4, 74.6, 'npx qiniu-coding-helper，现在就试试。'],
-];
+// ---------- 字幕：cues.js 由 audio/srt.py 按旁白实际时长生成 ----------
+const CUES = window.CUES || [];
 function subtitle(t) {
   const cue = CUES.find(([a, b]) => t >= a && t < b);
   if (!cue) return;
