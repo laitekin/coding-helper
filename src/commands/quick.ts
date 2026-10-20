@@ -1,14 +1,14 @@
 import ora, { type Ora } from 'ora';
 import { t, i18n } from '../lib/i18n.js';
 import { configManager } from '../lib/config.js';
-import { DEFAULT_ENDPOINT, ENDPOINT_DEFINITIONS, getBaseUrl, otherEndpoint } from '../lib/endpoints.js';
+import { CUSTOM_ENDPOINT, DEFAULT_ENDPOINT, getBaseUrl, otherEndpoint } from '../lib/endpoints.js';
 import { validateApiKey, checkAccountStatus, describeAccountStatus } from '../lib/api-validator.js';
 import { modelService } from '../lib/model-service.js';
 import { marketModelService, getModelCapabilities } from '../lib/market-model-service.js';
 import { toolManager } from '../lib/tool-manager.js';
 import { applyTool, exitCodeFor, type ToolResult } from '../lib/core/tool-service.js';
 import { getPlannedChanges, setDryRun } from '../lib/core/safe-write.js';
-import { parseQuickArgs, pickApiKey, pickModel, type ModelSource } from '../lib/core/quick-args.js';
+import { isValidProfileName, parseContextSize, parseQuickArgs, pickApiKey, pickModel, type ModelSource } from '../lib/core/quick-args.js';
 import { modelConfigFor, savedModelFor } from '../lib/core/model-mapping.js';
 import type { ITool } from '../lib/tools/base-tool.js';
 import { uiRenderer } from '../lib/wizard/ui/ui-renderer.js';
@@ -23,6 +23,8 @@ export interface QuickOptions {
   json?: boolean;
   // commander 的 --no-save 生成 save: false
   save?: boolean;
+  // 上下文大小，如 128k；auto 表示使用模型上限
+  context?: string;
 }
 
 // 写入前的校验失败：不改动任何文件，退出码 1
@@ -90,8 +92,23 @@ export async function quickCommand(target: string, rest: string[], options: Quic
     // --no-save / --dry-run：Key、线路、模型只在本次进程内生效
     if (options.save === false || options.dryRun) configManager.useSessionOnly();
 
-    // 2. 取得 Key：命令参数 → QINIU_API_KEY → 已保存 → 隐藏输入
-    let picked = pickApiKey(args, process.env, configManager.getApiKey());
+    if (options.context !== undefined) {
+      try {
+        configManager.setContextWindow(parseContextSize(options.context));
+      } catch {
+        throw new QuickError(t('context_invalid', { value: options.context }));
+      }
+    }
+
+    // @配置档：已存在时用它的 Key 与线路；带 Key 时保存为该配置档
+    if (args.profile !== undefined && !isValidProfileName(args.profile)) throw new QuickError(t('profile_name_invalid'));
+    const profile = args.profile ? configManager.getProfile(args.profile) : undefined;
+    if (args.profile && !profile && !args.apiKey) throw new QuickError(t('quick_profile_not_found', { name: args.profile }));
+
+    // 2. 取得 Key：命令参数 → 配置档 → QINIU_API_KEY → 已保存 → 隐藏输入
+    let picked = profile && !args.apiKey
+      ? { key: profile.apiKey, source: 'profile' as const }
+      : pickApiKey(args, process.env, configManager.getApiKey());
     if (!picked && !json && process.stdin.isTTY) {
       const entered = (await promptHelper.password(t('quick_key_prompt'))).trim();
       if (entered) picked = { key: entered, source: 'prompt' };
@@ -104,11 +121,14 @@ export async function quickCommand(target: string, rest: string[], options: Quic
     spinner = step(json, t('quick_validating'));
     const preferred = options.intl
       ? 'international'
+      : profile ? profile.endpoint
       : configManager.isFirstRun() ? DEFAULT_ENDPOINT : configManager.getEndpoint();
+    const customUrl = preferred === CUSTOM_ENDPOINT ? (profile ? profile.baseUrl : configManager.baseUrl) : undefined;
+    const baseFor = (id: string): string => (id === CUSTOM_ENDPOINT && customUrl ? customUrl : getBaseUrl(id));
     let endpoint = preferred;
-    let validation = await validateApiKey(apiKey, getBaseUrl(endpoint));
+    let validation = await validateApiKey(apiKey, baseFor(endpoint));
     let switched = false;
-    if (!validation.valid && validation.error === 'Invalid API Key') {
+    if (!validation.valid && validation.error === 'Invalid API Key' && endpoint !== CUSTOM_ENDPOINT) {
       const other = otherEndpoint(preferred);
       const retry = await validateApiKey(apiKey, getBaseUrl(other));
       if (retry.valid) {
@@ -122,9 +142,19 @@ export async function quickCommand(target: string, rest: string[], options: Quic
         ? t('quick_key_invalid')
         : t('apikey_invalid', { error: validation.error || '' }));
     }
-    const baseUrl = getBaseUrl(endpoint);
-    configManager.setEndpoint(endpoint);
-    configManager.setApiKey(apiKey);
+    const baseUrl = baseFor(endpoint);
+    // 指定了配置档且它不是当前配置档：只把这次的工具绑定到它，不改当前连接
+    let pinProfile: string | undefined;
+    if (args.profile) {
+      configManager.saveProfile(args.profile, apiKey, endpoint, customUrl);
+      const active = configManager.getActiveProfile();
+      if (!active || active === args.profile || !configManager.getApiKey()) configManager.useProfile(args.profile);
+      else pinProfile = args.profile;
+      report.profile = args.profile;
+    } else {
+      configManager.setEndpoint(endpoint, customUrl);
+      configManager.setApiKey(apiKey);
+    }
     modelService.clearCache();
     marketModelService.clearCache();
     report.endpoint = endpoint;
@@ -133,7 +163,7 @@ export async function quickCommand(target: string, rest: string[], options: Quic
     // 4. 确认账户可用：欠费暂停时停止，配了也用不了
     const account = await checkAccountStatus(apiKey, baseUrl);
     if (!account.usable) throw new QuickError(describeAccountStatus(account));
-    spinner?.succeed(t('quick_key_ok', { endpoint: t(ENDPOINT_DEFINITIONS[endpoint].i18nKey) }) +
+    spinner?.succeed(t('quick_key_ok', { endpoint: uiRenderer.endpointLabel(endpoint, baseUrl) }) +
       (switched ? t('quick_endpoint_switched') : ''));
 
     // 5. 确定模型：命令指定 → 已保存 → 按推荐列表自动选择；只选支持工具调用的模型
@@ -212,6 +242,7 @@ export async function quickCommand(target: string, rest: string[], options: Quic
     }
 
     // 7. 写入：复用 applyTool（备份、只改七牛条目、原子写入、记录原值）
+    if (pinProfile) for (const tool of writable) configManager.setToolProfile(tool.name, pinProfile);
     if (options.dryRun) setDryRun(true);
     for (const tool of writable) {
       // Copilot CLI 没有配置文件，保存模型后即可通过 run 使用

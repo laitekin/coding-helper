@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import yaml from 'js-yaml';
-import { DEFAULT_ENDPOINT, getBaseUrl, normalizeEndpointId } from './endpoints.js';
+import { CUSTOM_ENDPOINT, DEFAULT_ENDPOINT, getBaseUrl, normalizeEndpointId, registerCustomBaseUrls } from './endpoints.js';
 
 // 配置文件路径
 const CONFIG_DIR = path.join(os.homedir(), '.coding-helper');
@@ -29,11 +29,42 @@ export interface ClaudeCodeConfig {
   useDefaultModels?: boolean;
 }
 
+// 配置档：一组 Key + 线路（国内 / 海外 / 自定义 baseUrl）
+export interface ProfileEntry {
+  api_key: string;
+  endpoint: string;
+  base_url?: string;
+}
+
+export interface Profile {
+  name: string;
+  apiKey: string;
+  endpoint: string;
+  baseUrl: string;
+}
+
+// 一个工具实际使用的连接
+export interface Connection {
+  apiKey?: string;
+  endpoint: string;
+  baseUrl: string;
+  profile?: string;
+}
+
 // 配置文件结构
 interface Config {
   lang?: string;
   endpoint?: string;
+  // endpoint 为 custom 时的地址
+  base_url?: string;
   api_key?: string;
+  // 当前配置档；顶层 api_key / endpoint 始终是它的副本
+  profile?: string;
+  profiles?: Record<string, ProfileEntry>;
+  // 单独绑定到其他配置档的工具：工具名 → 配置档名
+  tool_profiles?: Record<string, string>;
+  // 上下文大小上限（token），不设置时使用模型上限
+  context_window?: number;
   claudeCode?: ClaudeCodeConfig;
   codeBuddyModels?: string[];
   workbuddyModels?: string[];
@@ -69,6 +100,7 @@ class ConfigManager {
       this.config = {};
     }
     this.loaded = true;
+    this.registerCustomUrls();
   }
 
   // 进入会话模式：之后的修改只在本次进程内生效
@@ -77,8 +109,17 @@ class ConfigManager {
     this.sessionOnly = true;
   }
 
+  // 自定义 baseUrl 也算七牛线路（用于识别、同步与还原）
+  private registerCustomUrls(): void {
+    registerCustomBaseUrls([
+      this.config.base_url,
+      ...Object.values(this.config.profiles ?? {}).map((p) => p.base_url),
+    ].filter((u): u is string => !!u));
+  }
+
   // 保存配置
   private save(): void {
+    this.registerCustomUrls();
     if (this.sessionOnly) return;
     this.ensureDir();
     const content = yaml.dump(this.config, { lineWidth: -1 });
@@ -115,9 +156,12 @@ class ConfigManager {
     return normalizeEndpointId(this.config.endpoint || DEFAULT_ENDPOINT);
   }
 
-  setEndpoint(endpoint: string): void {
+  setEndpoint(endpoint: string, baseUrl?: string): void {
     this.load();
     this.config.endpoint = endpoint;
+    if (endpoint === CUSTOM_ENDPOINT) this.config.base_url = baseUrl;
+    else delete this.config.base_url;
+    this.syncActiveProfile();
     this.save();
   }
 
@@ -130,6 +174,7 @@ class ConfigManager {
   setApiKey(apiKey: string): void {
     this.load();
     this.config.api_key = apiKey;
+    this.syncActiveProfile();
     this.save();
   }
 
@@ -190,7 +235,121 @@ class ConfigManager {
 
   // 根据当前线路获取 base URL
   get baseUrl(): string {
-    return getBaseUrl(this.getEndpoint());
+    const endpoint = this.getEndpoint();
+    if (endpoint === CUSTOM_ENDPOINT && this.config.base_url) return this.config.base_url.replace(/\/+$/, '');
+    return getBaseUrl(endpoint);
+  }
+
+  // ─── 上下文大小 ───
+
+  getContextWindow(): number | undefined {
+    this.load();
+    return this.config.context_window || undefined;
+  }
+
+  setContextWindow(tokens: number | undefined): void {
+    this.load();
+    if (tokens) this.config.context_window = tokens;
+    else delete this.config.context_window;
+    this.save();
+  }
+
+  // ─── 配置档 ───
+
+  getActiveProfile(): string | undefined {
+    this.load();
+    const name = this.config.profile;
+    return name && this.config.profiles?.[name] ? name : undefined;
+  }
+
+  listProfiles(): Profile[] {
+    this.load();
+    return Object.entries(this.config.profiles ?? {}).map(([name, p]) => toProfile(name, p));
+  }
+
+  getProfile(name: string): Profile | undefined {
+    this.load();
+    const entry = this.config.profiles?.[name];
+    return entry ? toProfile(name, entry) : undefined;
+  }
+
+  saveProfile(name: string, apiKey: string, endpoint: string, baseUrl?: string): void {
+    this.load();
+    this.config.profiles = {
+      ...this.config.profiles,
+      [name]: { api_key: apiKey, endpoint, ...(endpoint === CUSTOM_ENDPOINT && baseUrl ? { base_url: baseUrl.replace(/\/+$/, '') } : {}) },
+    };
+    // 正在用的配置档被修改时，顶层连接一起更新
+    if (this.config.profile === name) this.copyProfileToTop(name);
+    this.save();
+  }
+
+  removeProfile(name: string): void {
+    this.load();
+    if (!this.config.profiles?.[name]) return;
+    delete this.config.profiles[name];
+    if (Object.keys(this.config.profiles).length === 0) delete this.config.profiles;
+    if (this.config.profile === name) delete this.config.profile;
+    for (const [tool, profile] of Object.entries(this.config.tool_profiles ?? {})) {
+      if (profile === name) delete this.config.tool_profiles![tool];
+    }
+    this.save();
+  }
+
+  // 切换当前配置档：顶层连接改为它，取消所有工具的单独绑定
+  useProfile(name: string): void {
+    this.load();
+    if (!this.config.profiles?.[name]) throw new Error(`Profile not found: ${name}`);
+    this.config.profile = name;
+    this.copyProfileToTop(name);
+    delete this.config.tool_profiles;
+    this.save();
+  }
+
+  getToolProfile(toolName: string): string | undefined {
+    this.load();
+    const name = this.config.tool_profiles?.[toolName];
+    return name && this.config.profiles?.[name] ? name : undefined;
+  }
+
+  // 把单个工具绑定到某个配置档；与当前配置档相同或传 undefined 时解除绑定
+  setToolProfile(toolName: string, name: string | undefined): void {
+    this.load();
+    const tools = { ...this.config.tool_profiles };
+    if (name && name !== this.config.profile) tools[toolName] = name;
+    else delete tools[toolName];
+    this.config.tool_profiles = Object.keys(tools).length ? tools : undefined;
+    if (!this.config.tool_profiles) delete this.config.tool_profiles;
+    this.save();
+  }
+
+  // 工具实际使用的连接：单独绑定了配置档的用它，否则用当前连接
+  getConnection(toolName?: string): Connection {
+    const pinned = toolName ? this.getToolProfile(toolName) : undefined;
+    if (pinned) {
+      const p = this.getProfile(pinned)!;
+      return { apiKey: p.apiKey, endpoint: p.endpoint, baseUrl: p.baseUrl, profile: pinned };
+    }
+    return { apiKey: this.getApiKey(), endpoint: this.getEndpoint(), baseUrl: this.baseUrl, profile: this.getActiveProfile() };
+  }
+
+  private copyProfileToTop(name: string): void {
+    const p = this.config.profiles![name];
+    this.config.api_key = p.api_key;
+    this.config.endpoint = p.endpoint;
+    if (p.base_url) this.config.base_url = p.base_url;
+    else delete this.config.base_url;
+  }
+
+  // 修改当前 Key / 线路时，同步写回当前配置档
+  private syncActiveProfile(): void {
+    const name = this.config.profile;
+    if (!name || !this.config.profiles?.[name] || !this.config.api_key) return;
+    this.config.profiles[name] = {
+      api_key: this.config.api_key,
+      endpoint: this.config.endpoint || DEFAULT_ENDPOINT,
+      ...(this.config.base_url ? { base_url: this.config.base_url } : {}),
+    };
   }
 
   // 获取配置目录路径
@@ -202,6 +361,12 @@ class ConfigManager {
   get configFile(): string {
     return CONFIG_FILE;
   }
+}
+
+function toProfile(name: string, entry: ProfileEntry): Profile {
+  const endpoint = normalizeEndpointId(entry.endpoint || DEFAULT_ENDPOINT);
+  const baseUrl = endpoint === CUSTOM_ENDPOINT && entry.base_url ? entry.base_url : getBaseUrl(endpoint);
+  return { name, apiKey: entry.api_key, endpoint, baseUrl };
 }
 
 // 导出单例

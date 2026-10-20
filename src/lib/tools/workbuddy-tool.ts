@@ -1,3 +1,4 @@
+import { capContextWindow } from './openai-compat-tool.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -152,7 +153,7 @@ export class WorkBuddyTool implements ITool {
       vendor: QINIU_VENDOR,
       url: `${baseUrl}/v1/chat/completions`,
       apiKey,
-      maxInputTokens: caps.maxInputTokens,
+      maxInputTokens: capContextWindow(caps.maxInputTokens),
       maxOutputTokens: caps.maxOutputTokens,
       temperature: DEFAULT_TEMPERATURE,
       supportsToolCall: caps.toolCall,

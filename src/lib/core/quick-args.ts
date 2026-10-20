@@ -5,16 +5,21 @@ export interface QuickArgs {
   tools: string[] | 'all';
   apiKey?: string;
   model?: string;
+  // @名称：使用（或保存为）该配置档
+  profile?: string;
 }
 
-// 位置参数按内容识别：sk- 开头的是 Key，其余是模型
+// 位置参数按内容识别：sk- 开头的是 Key，@ 开头的是配置档，其余是模型
 export function parseQuickArgs(target: string, rest: string[]): QuickArgs {
   const tools = target === 'all'
     ? 'all'
     : target.split(',').map((name) => name.trim()).filter(Boolean);
   const args: QuickArgs = { tools };
   for (const token of rest) {
-    if (/^sk-/.test(token)) {
+    if (token.startsWith('@')) {
+      if (args.profile) throw new Error('duplicate_profile');
+      args.profile = token.slice(1);
+    } else if (/^sk-/.test(token)) {
       if (args.apiKey) throw new Error('duplicate_key');
       args.apiKey = token;
     } else {
@@ -25,7 +30,7 @@ export function parseQuickArgs(target: string, rest: string[]): QuickArgs {
   return args;
 }
 
-export type KeySource = 'argument' | 'env' | 'saved' | 'prompt';
+export type KeySource = 'argument' | 'profile' | 'env' | 'saved' | 'prompt';
 
 // Key 来源优先级：命令参数 → QINIU_API_KEY → 已保存；都没有时返回 undefined，由调用方决定是否弹出输入
 export function pickApiKey(
@@ -130,4 +135,27 @@ function editDistance(a: string, b: string): number {
     }
   }
   return row[b.length];
+}
+
+// 上下文大小：支持 128k / 1m / 131072；auto、0 表示使用模型上限（返回 undefined）
+export function parseContextSize(input: string): number | undefined {
+  const text = input.trim().toLowerCase();
+  if (!text || text === 'auto' || text === '0') return undefined;
+  const match = text.match(/^(\d+(?:\.\d+)?)\s*([km]?)$/);
+  if (!match) throw new Error('invalid_context');
+  const value = Number(match[1]) * (match[2] === 'k' ? 1000 : match[2] === 'm' ? 1000000 : 1);
+  if (!Number.isFinite(value) || value < 1000) throw new Error('invalid_context');
+  return Math.round(value);
+}
+
+// 显示用：131072 → 131K，1000000 → 1M
+export function formatContextSize(tokens: number): string {
+  if (tokens >= 1000000 && tokens % 1000000 === 0) return `${tokens / 1000000}M`;
+  if (tokens >= 1000) return `${Math.round(tokens / 1000)}K`;
+  return String(tokens);
+}
+
+// 配置档名：字母、数字、- 和 _，不超过 32 位
+export function isValidProfileName(name: string): boolean {
+  return /^[A-Za-z0-9_-]{1,32}$/.test(name);
 }

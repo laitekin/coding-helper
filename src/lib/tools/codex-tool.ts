@@ -8,7 +8,7 @@ import { DEFAULT_ENDPOINT, getBaseUrl } from '../endpoints.js';
 import { t } from '../i18n.js';
 import { uiRenderer } from '../wizard/ui/ui-renderer.js';
 import { promptHelper } from '../wizard/ui/prompt-helper.js';
-import { readJsonObjectStrict, safeWriteFile, writeJsonOrRemove, writeJson } from '../core/safe-write.js';
+import { readJsonObjectStrict, safeWriteFile, writeJsonOrRemove, writeJson, writeTextOrRemove } from '../core/safe-write.js';
 import { stateStore, type PriorValues } from '../core/state-store.js';
 import {
   escapeTomlString,
@@ -16,6 +16,7 @@ import {
   topLevelEnd,
   normalizeToml,
   removeTomlTable,
+  removeTomlTablesWhere,
   removeTopLevelTomlKey,
   upsertTopLevelTomlKey,
 } from '../core/toml-edit.js';
@@ -113,15 +114,25 @@ export class CodexTool implements ITool {
     // 备份 + 原子写入；只增删七牛条目，用户的 MCP、沙箱策略、其他 provider 原样保留
     writeJson(CODEX_AUTH_FILE, JSON.parse(buildCodexAuthJson(JSON.stringify(existingAuth), apiKey)));
     safeWriteFile(CODEX_CATALOG_FILE, buildCodexModelCatalog(GPT_MODELS));
-    safeWriteFile(
-      CODEX_CONFIG_FILE,
-      mergeCodexConfig(existingConfig, baseUrl, models.codexModel || this.defaultModel, CODEX_CATALOG_FILE),
-    );
+    // 旧版本装载时没记录上下文原值，这里补记（已有记录时不覆盖）
+    if (stateStore.getPriors(this.name)) {
+      stateStore.recordPriors(this.name, { 'config.model_context_window': getTopLevelTomlValue(existingConfig, 'model_context_window') ?? null });
+    }
+    const model = models.codexModel || this.defaultModel;
+    let content = mergeCodexConfig(existingConfig, baseUrl, model, CODEX_CATALOG_FILE);
+    content = applyContextWindow(content, model, stateStore.getPriors(this.name) ?? {});
+    // 每个配置档写一个 provider + 配置档文件，之后可用 codex -p qn-<配置档> 直接切换
+    const profiles = configManager.listProfiles();
+    content = mergeCodexProfiles(content, profiles);
+    safeWriteFile(CODEX_CONFIG_FILE, content);
+    writeCodexProfileFiles(profiles, model, CODEX_CATALOG_FILE);
   }
 
   async unloadConfig(): Promise<void> {
     const priors = stateStore.getPriors(this.name) ?? {};
-    safeWriteFile(CODEX_CONFIG_FILE, restoreCodexConfig(readCodexConfig(), priors));
+    // 还原后为空说明文件是我们创建的，直接删除
+    writeTextOrRemove(CODEX_CONFIG_FILE, restoreCodexConfig(readCodexConfig(), priors));
+    for (const file of managedProfileFiles()) writeTextOrRemove(file, '');
     if (fs.existsSync(CODEX_CATALOG_FILE)) fs.rmSync(CODEX_CATALOG_FILE);
     // 目录是我们创建的，清空后一并删除
     if (fs.existsSync(CODEX_CATALOG_DIR) && fs.readdirSync(CODEX_CATALOG_DIR).length === 0) {
@@ -228,7 +239,90 @@ export function buildCodexConfig(_existing: string, baseUrl?: string, model?: st
 }
 
 // 由七牛管理的顶层键（写入前记录原值，卸载时还原）
-const MANAGED_TOP_LEVEL_KEYS = ['model', 'model_provider', 'model_catalog_json'] as const;
+const MANAGED_TOP_LEVEL_KEYS = ['model', 'model_provider', 'model_catalog_json', 'model_context_window'] as const;
+
+// 上下文大小：用户设置了就写 model_context_window（不超过模型上限），改回「自动」时还原原值
+export function applyContextWindow(content: string, model: string, priors: PriorValues): string {
+  const setting = configManager.getContextWindow();
+  if (setting) {
+    const max = GPT_MODELS.find((m) => m.id === model)?.context_length;
+    return upsertTopLevelTomlKey(content, 'model_context_window', String(max ? Math.min(setting, max) : setting));
+  }
+  const prior = priors['config.model_context_window'];
+  if (prior === undefined) return content;
+  return typeof prior === 'string'
+    ? upsertTopLevelTomlKey(content, 'model_context_window', prior)
+    : removeTopLevelTomlKey(content, 'model_context_window');
+}
+
+// 配置档对应的 Codex 表名：provider qnaigc-<名>、profile qn-<名>
+const PROFILE_PROVIDER_PREFIX = `${PROVIDER_NAME}-`;
+const PROFILE_TABLE_PREFIX = 'qn-';
+
+export function codexProfileName(profile: string): string {
+  return `${PROFILE_TABLE_PREFIX}${profile.replace(/[^A-Za-z0-9_-]/g, '-')}`;
+}
+
+function isProfileTable(name: string): boolean {
+  return name.startsWith(`model_providers.${PROFILE_PROVIDER_PREFIX}`) ||
+    (name.startsWith(`profiles.${PROFILE_TABLE_PREFIX}`) && name !== `profiles.${PROFILE_NAME}`);
+}
+
+// 配置档：config.toml 里每个配置档一个 provider（自带 Key，互不影响）；
+// 模型与 provider 选择写进 ~/.codex/qn-<名>.config.toml（Codex 0.134+ 的配置档格式），用 codex -p qn-<名> 切换
+export function mergeCodexProfiles(
+  content: string,
+  profiles: { name: string; apiKey: string; baseUrl: string }[],
+): string {
+  const body = removeTomlTablesWhere(content, isProfileTable).trim();
+  const tables = profiles.map((p) => [
+    `[model_providers.${codexProviderName(p.name)}]`,
+    `name = "Qiniu (${escapeTomlString(p.name)})"`,
+    `base_url = "${escapeTomlString(`${p.baseUrl.replace(/\/+$/, '')}/bypass/openai/v1`)}"`,
+    `experimental_bearer_token = "${escapeTomlString(p.apiKey)}"`,
+    'wire_api = "responses"',
+    '',
+  ].join('\n'));
+  return normalizeToml(tables.length ? `${body}\n\n${tables.join('\n')}` : body);
+}
+
+export function codexProviderName(profile: string): string {
+  return `${PROFILE_PROVIDER_PREFIX}${codexProfileName(profile).slice(PROFILE_TABLE_PREFIX.length)}`;
+}
+
+export function buildCodexProfileFile(profile: string, model: string, catalogPath?: string): string {
+  return [
+    '# 由 qiniu-coding-helper 生成：codex -p ' + codexProfileName(profile),
+    `model_provider = "${codexProviderName(profile)}"`,
+    `model = "${escapeTomlString(model)}"`,
+    ...(catalogPath ? [`model_catalog_json = "${escapeTomlString(catalogPath)}"`] : []),
+    '',
+  ].join('\n');
+}
+
+function codexProfileFile(profile: string): string {
+  return path.join(CODEX_DIR, `${codexProfileName(profile)}.config.toml`);
+}
+
+// 我们生成的配置档文件（qn-*.config.toml）
+function managedProfileFiles(): string[] {
+  try {
+    return fs.readdirSync(CODEX_DIR)
+      .filter((f) => f.startsWith(PROFILE_TABLE_PREFIX) && f.endsWith('.config.toml'))
+      .map((f) => path.join(CODEX_DIR, f));
+  } catch {
+    return [];
+  }
+}
+
+// 写入当前所有配置档的文件，删掉已不存在的配置档留下的文件
+function writeCodexProfileFiles(profiles: { name: string }[], model: string, catalogPath: string): void {
+  const wanted = new Map(profiles.map((p) => [codexProfileFile(p.name), buildCodexProfileFile(p.name, model, catalogPath)]));
+  for (const file of managedProfileFiles()) {
+    if (!wanted.has(file)) writeTextOrRemove(file, '');
+  }
+  for (const [file, text] of wanted) safeWriteFile(file, text);
+}
 
 // 合并写入：原地更新顶层键（保持位置），替换七牛的 provider 与 profile 表，其他内容原样保留
 export function mergeCodexConfig(existing: string, baseUrl?: string, model?: string, catalogPath?: string): string {
@@ -263,9 +357,12 @@ export function restoreCodexConfig(existing: string, priors: PriorValues): strin
 }
 
 function removeManagedTables(content: string): string {
-  return removeTomlTable(
-    removeTomlTable(content, `model_providers.${PROVIDER_NAME}`),
-    `profiles.${PROFILE_NAME}`,
+  return removeTomlTablesWhere(
+    removeTomlTable(
+      removeTomlTable(content, `model_providers.${PROVIDER_NAME}`),
+      `profiles.${PROFILE_NAME}`,
+    ),
+    isProfileTable,
   );
 }
 

@@ -70,9 +70,10 @@ export function detectAllTools(): ToolDetection[] {
   return toolManager.getAll().map(detectTool);
 }
 
-// 把当前 API Key、线路与模型写入客户端，并记录装载状态
+// 把 API Key、线路与模型写入客户端，并记录装载状态；单独绑定了配置档的工具用该配置档的连接
 export async function applyTool(tool: ITool): Promise<ToolResult> {
-  const apiKey = configManager.getApiKey();
+  const connection = configManager.getConnection(tool.name);
+  const apiKey = connection.apiKey;
   if (!apiKey) return { tool, status: 'failed', reason: 'apikey_not_set' };
 
   if (tool.launchOnly) return { tool, status: 'skipped', reason: 'setup_reason_launch_only' };
@@ -83,8 +84,8 @@ export async function applyTool(tool: ITool): Promise<ToolResult> {
   }
 
   try {
-    await tool.loadConfig(apiKey, configManager.baseUrl, models);
-    stateStore.markApplied(tool.name, configManager.getEndpoint());
+    await tool.loadConfig(apiKey, connection.baseUrl, models);
+    stateStore.markApplied(tool.name, connection.endpoint);
     return { tool, status: 'success' };
   } catch (err: unknown) {
     return { tool, status: 'failed', reason: err instanceof Error ? err.message : String(err) };

@@ -20,7 +20,20 @@ export async function runCommand(toolName: string, args: string[]): Promise<void
     return;
   }
 
-  const apiKey = configManager.getApiKey();
+  // run <tool> @配置档 [参数…]：本次启动使用该配置档
+  let rest = args;
+  let connection = configManager.getConnection(tool.name);
+  if (rest[0]?.startsWith('@')) {
+    const profile = configManager.getProfile(rest[0].slice(1));
+    if (!profile) {
+      uiRenderer.renderError(t('quick_profile_not_found', { name: rest[0].slice(1) }));
+      process.exitCode = 1;
+      return;
+    }
+    connection = { apiKey: profile.apiKey, endpoint: profile.endpoint, baseUrl: profile.baseUrl, profile: profile.name };
+    rest = rest.slice(1);
+  }
+  const apiKey = connection.apiKey;
   if (!apiKey) {
     uiRenderer.renderError(t('setup_apikey_missing'));
     process.exitCode = 1;
@@ -29,7 +42,7 @@ export async function runCommand(toolName: string, args: string[]): Promise<void
 
   let env: Record<string, string>;
   try {
-    env = tool.getLaunchEnv(apiKey, configManager.baseUrl, configManager.getModels());
+    env = tool.getLaunchEnv(apiKey, connection.baseUrl, configManager.getModels());
   } catch (err: unknown) {
     uiRenderer.renderError(err instanceof Error ? err.message : String(err));
     process.exitCode = 1;
@@ -43,7 +56,7 @@ export async function runCommand(toolName: string, args: string[]): Promise<void
   }
 
   // 兼容 `run claude -- --continue` 写法：去掉分隔用的 --
-  const passArgs = args[0] === '--' ? args.slice(1) : args;
+  const passArgs = rest[0] === '--' ? rest.slice(1) : rest;
   const child = spawn(tool.command, passArgs, {
     stdio: 'inherit',
     env: { ...process.env, ...env },
