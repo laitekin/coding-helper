@@ -26,14 +26,17 @@ export interface ITool {
   // 获取当前工具配置
   getConfig(): Record<string, unknown>;
 
+  // 客户端的配置文件当前是否指向七牛（读实际文件，用于 status / 状态徽标）
+  isConfigured(): boolean;
+
+  // 装载前必须先选择模型（无默认模型可用）
+  requiresModelSelection?: boolean;
+
   // 清除模型配置
   clearModelConfig(): void;
 
   // 将完整配置写入工具
   loadConfig(apiKey: string, baseUrl: string, models: ModelConfig): Promise<void>;
-
-  // 配置装载完成后需要在成功页展示的补充信息
-  getLoadConfigNotes?(): string[];
 
   // 从工具移除配置
   unloadConfig(): void | Promise<void>;

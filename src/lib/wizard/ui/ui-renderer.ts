@@ -1,5 +1,5 @@
 import chalk from 'chalk';
-import { stringWidth, padEnd, truncate } from '../../../utils/string-width.js';
+import { stringWidth, padEnd, truncate, visibleWidth, padVisible } from '../../../utils/string-width.js';
 import { logger } from '../../../utils/logger.js';
 import { renderLogo as renderLogoArt } from './logo.js';
 import { theme } from './theme.js';
@@ -48,17 +48,15 @@ export const uiRenderer = {
     ]);
   },
 
-  // 渲染欢迎界面
+  // 渲染欢迎界面（圆角卡片）
   renderWelcome(title: string, description: string, privacyNotice: string): void {
-    const line = '─'.repeat(50);
-    logger.newLine();
-    logger.log(chalk.cyan(line));
-    logger.log(chalk.bold.cyan(`  ${title}`));
-    logger.log(chalk.cyan(line));
-    logger.newLine();
-    logger.log(`  ${description}`);
-    logger.newLine();
-    logger.log(chalk.dim(`  ${privacyNotice}`));
+    const lines = [theme.brandBold(title), '', theme.value(description), theme.subtle(privacyNotice)];
+    const inner = Math.max(46, ...lines.map(visibleWidth)) + 4;
+    logger.log(`  ${theme.border('╭' + '─'.repeat(inner) + '╮')}`);
+    for (const l of lines) {
+      logger.log(`  ${theme.border('│')}  ${padVisible(l, inner - 2)}${theme.border('│')}`);
+    }
+    logger.log(`  ${theme.border('╰' + '─'.repeat(inner) + '╯')}`);
     logger.newLine();
   },
 
@@ -72,6 +70,35 @@ export const uiRenderer = {
     logger.newLine();
     logger.log(`  ${theme.subtle(leftLine)} ${theme.heading(title)} ${theme.subtle(rightLine)}`);
     logger.newLine();
+  },
+
+  // 渲染向导进度：● ● ○ ○  2/4 · 标题
+  renderSteps(current: number, total: number, title: string): void {
+    const dots = Array.from({ length: total }, (_, i) => {
+      if (i < current - 1) return theme.success('●');
+      if (i === current - 1) return theme.brandBold('◉');
+      return theme.subtle('○');
+    }).join(' ');
+    logger.log(`  ${dots}  ${theme.subtle(`${current}/${total}`)} ${theme.subtle('·')} ${theme.heading(title)}`);
+    logger.newLine();
+  },
+
+  // 渲染圆角表格：表头 + 行，单元格可带颜色
+  renderTable(headers: string[], rows: string[][]): void {
+    const widths = headers.map((header, col) => Math.max(
+      visibleWidth(header),
+      ...rows.map((row) => visibleWidth(row[col] ?? '')),
+    ));
+    const line = (left: string, mid: string, right: string): string =>
+      `  ${theme.border(left + widths.map((w) => '─'.repeat(w + 2)).join(mid) + right)}`;
+    const row = (cells: string[]): string =>
+      `  ${theme.border('│')}${cells.map((cell, i) => ` ${padVisible(cell, widths[i])} `).join(theme.border('│'))}${theme.border('│')}`;
+
+    logger.log(line('╭', '┬', '╮'));
+    logger.log(row(headers.map((h) => theme.label(h))));
+    logger.log(line('├', '┼', '┤'));
+    for (const r of rows) logger.log(row(r));
+    logger.log(line('╰', '┴', '╯'));
   },
 
   // 渲染带边框的配置面板卡片（动态宽度，自适应内容）
@@ -92,8 +119,8 @@ export const uiRenderer = {
     // 可用的值列最大宽度（超出时截断）
     const maxAllowedValueWidth = innerWidth - OVERHEAD - labelWidth;
 
-    const topBorder    = `  ${theme.border('┌' + '─'.repeat(innerWidth) + '┐')}`;
-    const bottomBorder = `  ${theme.border('└' + '─'.repeat(innerWidth) + '┘')}`;
+    const topBorder    = `  ${theme.border('╭' + '─'.repeat(innerWidth) + '╮')}`;
+    const bottomBorder = `  ${theme.border('╰' + '─'.repeat(innerWidth) + '╯')}`;
     const midBorder    = `  ${theme.border('├' + '─'.repeat(innerWidth) + '┤')}`;
 
     logger.log(topBorder);

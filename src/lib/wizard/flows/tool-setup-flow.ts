@@ -1,58 +1,57 @@
 import { t } from '../../i18n.js';
 import { configManager } from '../../config.js';
-import { toolManager } from '../../tool-manager.js';
 import { promptHelper } from '../ui/prompt-helper.js';
 import { uiRenderer } from '../ui/ui-renderer.js';
+import { formatToolChoice, applyToolsWithProgress, renderResultSummary } from '../ui/tool-view.js';
+import { stringWidth } from '../../../utils/string-width.js';
+import { detectAllTools } from '../../core/tool-service.js';
 import type { ITool } from '../../tools/base-tool.js';
 
-async function setupTool(tool: ITool): Promise<void> {
-  // 用户取消模型配置时跳过后续装载与就绪提示，避免误报"配置成功"
-  const completed = await tool.runModelConfigFlow();
-  if (!completed) return;
+// 多选客户端：默认勾选已安装的；返回用户选择的工具
+export async function selectTools(message: string): Promise<ITool[]> {
+  const detections = detectAllTools();
+  const nameWidth = Math.max(...detections.map((d) => stringWidth(d.tool.displayName)));
+  const selected = await promptHelper.checkbox<string>(
+    message,
+    detections.map((d) => ({
+      name: formatToolChoice(d, nameWidth),
+      value: d.tool.name,
+      checked: d.installed === true,
+    })),
+  );
+  return detections.filter((d) => selected.includes(d.tool.name)).map((d) => d.tool);
+}
 
-  const apiKey = configManager.getApiKey();
-  if (apiKey) {
-    if (tool.name === 'codex') {
-      uiRenderer.renderHeader();
-      const confirmed = await promptHelper.confirm(t('tool_config_load_confirm', { tool: tool.displayName }));
-      if (!confirmed) return;
-    }
-    const models = configManager.getModels();
-    try {
-      await tool.loadConfig(apiKey, configManager.baseUrl, models);
-      uiRenderer.renderHeader();
-      uiRenderer.renderSuccess(t('tool_config_loaded', { tool: tool.displayName }));
-      for (const note of tool.getLoadConfigNotes?.() ?? []) uiRenderer.renderHint(note);
-    } catch (err: unknown) {
-      uiRenderer.renderHeader();
-      uiRenderer.renderError(
-        err instanceof Error ? err.message : t('tool_config_load_failed', { tool: tool.displayName }),
-      );
-      for (const note of tool.getLoadConfigNotes?.() ?? []) uiRenderer.renderHint(note);
-      await promptHelper.pressEnter();
-      return;
-    }
+// 依次为选中的客户端配置模型，再统一装载并展示汇总
+export async function setupTools(tools: ITool[]): Promise<void> {
+  const ready: ITool[] = [];
+  for (const tool of tools) {
+    // 用户取消某个工具的模型配置时只跳过它，不影响其他工具
+    if (await tool.runModelConfigFlow()) ready.push(tool);
   }
+  if (ready.length === 0) return;
 
-  uiRenderer.renderSuccess(t('tool_setup_ready', { tool: tool.displayName }));
+  uiRenderer.renderHeader();
+  uiRenderer.renderTitle(t('setup_title'));
+  if (!configManager.getApiKey()) {
+    uiRenderer.renderWarning(t('apikey_not_set'));
+    return;
+  }
+  const results = await applyToolsWithProgress(ready);
+  renderResultSummary(results);
   await promptHelper.pressEnter();
 }
 
-// 初始化向导专用：选择工具 → 引导配置
-export async function runToolSetupFlow(): Promise<void> {
-  const tools = toolManager.getAll();
-
+// 初始化向导专用：多选工具 → 逐个配置模型 → 批量装载
+export async function runToolSetupFlow(step?: { current: number; total: number }): Promise<void> {
   uiRenderer.renderHeader();
-  uiRenderer.renderTitle(t('menu_configure_tools'));
+  if (step) uiRenderer.renderSteps(step.current, step.total, t('menu_configure_tools'));
+  else uiRenderer.renderTitle(t('menu_configure_tools'));
 
-  const choices = tools.map((tool) => ({
-    name: tool.displayName,
-    value: tool.name,
-  }));
-
-  const toolName = await promptHelper.select<string>(t('menu_select_action'), choices);
-  const tool = toolManager.get(toolName);
-  if (!tool) return;
-
-  await setupTool(tool);
+  const tools = await selectTools(t('setup_select_tools'));
+  if (tools.length === 0) {
+    uiRenderer.renderHint(t('setup_none_selected'));
+    return;
+  }
+  await setupTools(tools);
 }

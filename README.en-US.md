@@ -102,6 +102,54 @@ npx qiniu-coding-helper init
 
 ---
 
+### ⚡ `coding-helper setup`
+
+Write the Qiniu configuration into every installed coding tool in one go. Works in scripts and CI.
+
+```bash
+# Interactive: pick tools (installed ones are pre-selected), confirm models, then write all
+npx qiniu-coding-helper setup
+
+# Non-interactive: configure all installed tools and print a summary table
+npx qiniu-coding-helper setup --yes
+
+# Only the given tools, results as JSON
+npx qiniu-coding-helper setup --tools claude,codex --json
+
+# Read the API Key from stdin so it never lands in shell history
+echo "$QINIU_KEY" | npx qiniu-coding-helper setup --key-stdin --yes
+```
+
+Exit codes: `0` all succeeded (tools skipped because they are not installed don't count as failures), `2` some failed, `1` all failed. Original files are backed up to `~/.coding-helper/backups/<timestamp>/` before writing.
+
+---
+
+### 📋 `coding-helper status`
+
+Reads each tool's actual config files and lists the installed version and whether it points to Qiniu. Add `--json` for JSON output.
+
+```bash
+npx qiniu-coding-helper status
+```
+
+---
+
+### ↩️ `coding-helper restore`
+
+Removes the Qiniu configuration and writes back the settings it replaced (for example your previous `ANTHROPIC_BASE_URL`, Codex `model`, or the OpenAI key in `auth.json`). Anything you added after setup is kept.
+
+```bash
+# Restore every connected tool
+npx qiniu-coding-helper restore
+
+# Only Codex, without confirmation
+npx qiniu-coding-helper restore codex --yes
+```
+
+After you change the API Key or endpoint, connected tools are synced automatically; `auth reload` is no longer required.
+
+---
+
 ### 🔐 `coding-helper auth`
 
 Manage your API Key authentication.
@@ -230,7 +278,7 @@ When configuration is applied, these environment variables are set in `~/.claude
 
 ### 🔧 Codex Configuration
 
-When Codex configuration is applied, Coding Helper first backs up an existing `~/.codex/config.toml` and `~/.codex/model-catalogs/qnaigc.json` to timestamped `.bak-fenno-*` files and prints every backup path. It then replaces `config.toml` with the Qiniu Codex configuration to avoid conflicts with existing settings; unloading does not automatically restore the backup, so restore it manually using the printed path. The API Key is stored in Codex's own `~/.codex/auth.json` auth cache. It does not rely on a `QINIU_API_KEY` shell environment variable.
+When Codex configuration is applied, Coding Helper only adds and removes its own entries in `~/.codex/config.toml`: it updates the top-level `model`, `model_provider` and `model_catalog_json`, and adds `[model_providers.qnaigc]` and `[profiles.qn-gpt]`. Your MCP servers, sandbox policy and other providers are kept as they are. The original file is backed up to `~/.coding-helper/backups/<timestamp>/` first; `restore codex` writes back the replaced top-level keys and the OpenAI key previously in `auth.json`. The API Key is stored in Codex's own `~/.codex/auth.json` auth cache. It does not rely on a `QINIU_API_KEY` shell environment variable.
 
 It also writes the GPT model catalog maintained by Coding Helper to `~/.codex/model-catalogs/qnaigc.json` and loads it through `model_catalog_json`. The catalog includes only Qiniu-supported `openai/gpt*` models together with their context metadata.
 

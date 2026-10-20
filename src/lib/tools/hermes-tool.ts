@@ -6,6 +6,8 @@ import { execSync } from 'node:child_process';
 import type { ITool } from './base-tool.js';
 import { configManager, type ModelConfig } from '../config.js';
 import { t } from '../i18n.js';
+import { isQiniuBaseUrl } from '../endpoints.js';
+import { ConfigParseError, safeWriteFile } from '../core/safe-write.js';
 import { runHermesModelSelectionFlow } from '../wizard/flows/hermes-model-selection-flow.js';
 import { uiRenderer } from '../wizard/ui/ui-renderer.js';
 import { promptHelper } from '../wizard/ui/prompt-helper.js';
@@ -18,6 +20,7 @@ const MANAGED_MODEL_KEYS = ['provider', 'default', 'base_url', 'api_key'] as con
 export class HermesTool implements ITool {
   name = 'hermes';
   displayName = 'Hermes Agent';
+  requiresModelSelection = true;
   command = 'hermes';
   installCommand = 'curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash';
   updateCommand = 'hermes update';
@@ -46,6 +49,11 @@ export class HermesTool implements ITool {
     return parseYamlObject(readHermesConfig());
   }
 
+  isConfigured(): boolean {
+    const model = this.getConfig().model;
+    return isRecord(model) && isQiniuBaseUrl(model.base_url);
+  }
+
   clearModelConfig(): void {
     writeHermesConfig(removeManagedHermesConfig(readHermesConfig()));
   }
@@ -54,7 +62,14 @@ export class HermesTool implements ITool {
     if (!models.hermesModel) {
       throw new Error(t('hermes_model_not_configured'));
     }
-    writeHermesConfig(buildHermesConfig(readHermesConfig(), baseUrl, apiKey, models.hermesModel));
+    const existing = readHermesConfig();
+    // 严格校验：YAML 损坏时报错，不覆盖用户配置
+    try {
+      yaml.load(existing);
+    } catch (err) {
+      throw new ConfigParseError(HERMES_CONFIG_FILE, err);
+    }
+    writeHermesConfig(buildHermesConfig(existing, baseUrl, apiKey, models.hermesModel));
   }
 
   async unloadConfig(): Promise<void> {
@@ -134,8 +149,7 @@ function readHermesConfig(): string {
 }
 
 function writeHermesConfig(content: string): void {
-  fs.mkdirSync(HERMES_DIR, { recursive: true, mode: 0o700 });
-  fs.writeFileSync(HERMES_CONFIG_FILE, content, { encoding: 'utf-8', mode: 0o600 });
+  safeWriteFile(HERMES_CONFIG_FILE, content);
   applyHermesConfigPermissions(HERMES_DIR, HERMES_CONFIG_FILE);
 }
 

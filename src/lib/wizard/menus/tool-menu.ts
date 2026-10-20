@@ -8,7 +8,8 @@ import { theme } from '../ui/theme.js';
 import type { ITool } from '../../tools/base-tool.js';
 import { logger } from '../../../utils/logger.js';
 import { fetchLatestVersion, isNewerVersion } from '../../version-service.js';
-import type { ModelConfig } from '../../config.js';
+import { applyToolsWithProgress, formatConfiguredBadge, renderResultSummary } from '../ui/tool-view.js';
+import { detectTool, hasSavedToolModelConfig, removeTool } from '../../core/tool-service.js';
 
 // 工具菜单操作
 type ToolMenuAction =
@@ -56,6 +57,8 @@ export async function showToolMenu(tool: ITool): Promise<void> {
       tool.npmPackageName,
       tool.isInstalled() === null,
     );
+    uiRenderer.renderConfigItem(t('tool_badge_label'), formatConfiguredBadge(detectTool(tool)));
+    logger.newLine();
 
     // 如果最新版本还未获取到，设置 AbortController 以便版本到达后自动刷新
     const controller = new AbortController();
@@ -105,13 +108,14 @@ export async function showToolMenu(tool: ITool): Promise<void> {
           t('tool_config_unload_confirm', { tool: tool.displayName }),
         );
         if (confirmed) {
-          try {
-            await tool.unloadConfig();
-            uiRenderer.renderHeader();
+          const result = await removeTool(tool);
+          uiRenderer.renderHeader();
+          if (result.status === 'success') {
             uiRenderer.renderSuccess(t('tool_config_unloaded', { tool: tool.displayName }));
-          } catch {
-            uiRenderer.renderHeader();
+            uiRenderer.renderHint(t('tool_config_restored_hint'));
+          } else {
             uiRenderer.renderError(t('tool_config_unload_failed', { tool: tool.displayName }));
+            if (result.reason) uiRenderer.renderHint(result.reason);
           }
           await promptHelper.pressEnter();
         }
@@ -150,43 +154,12 @@ export function isLatestVersionFetchPending(state: {
   return Boolean(state.fetchPromise && !state.fetchCompleted);
 }
 
-// 判断 coding-helper 自身是否保存过该工具的模型配置状态
-export function hasSavedToolModelConfig(
-  tool: Pick<ITool, 'name'>,
-  models: ModelConfig,
-): boolean {
-  switch (tool.name) {
-    case 'claude-code':
-      return !!(
-        models.claudeCode?.useDefaultModels ||
-        models.claudeCode?.haikuModel ||
-        models.claudeCode?.sonnetModel ||
-        models.claudeCode?.opusModel ||
-        models.claudeCode?.subagentModel
-      );
-    case 'codex':
-      return !!models.codexModel;
-    case 'codebuddy':
-      return !!models.codeBuddyModels?.length;
-    case 'workbuddy':
-      return !!models.workbuddyModels?.length;
-    case 'hermes':
-      return !!models.hermesModel;
-    default:
-      return false;
-  }
-}
+// 兼容旧导入路径
+export { hasSavedToolModelConfig };
 
 async function runInitialToolSetup(tool: ITool): Promise<void> {
   const completed = await tool.runModelConfigFlow();
   if (!completed) return;
-
-  if (tool.name === 'codex') {
-    uiRenderer.renderHeader();
-    const confirmed = await promptHelper.confirm(t('tool_config_load_confirm', { tool: tool.displayName }));
-    if (!confirmed) return;
-  }
-
   await applyConfig(tool);
 }
 
@@ -262,26 +235,10 @@ async function loadConfig(tool: ITool): Promise<void> {
 }
 
 async function applyConfig(tool: ITool): Promise<void> {
-  const apiKey = configManager.getApiKey();
-  if (!apiKey) {
-    uiRenderer.renderError(t('apikey_not_set'));
-    await promptHelper.pressEnter();
-    return;
-  }
-
-  const models = configManager.getModels();
-  try {
-    await tool.loadConfig(apiKey, configManager.baseUrl, models);
-    uiRenderer.renderHeader();
-    uiRenderer.renderSuccess(t('tool_config_loaded', { tool: tool.displayName }));
-    for (const note of tool.getLoadConfigNotes?.() ?? []) uiRenderer.renderHint(note);
-  } catch (err: unknown) {
-    uiRenderer.renderHeader();
-    uiRenderer.renderError(
-      err instanceof Error ? err.message : t('tool_config_load_failed', { tool: tool.displayName }),
-    );
-    for (const note of tool.getLoadConfigNotes?.() ?? []) uiRenderer.renderHint(note);
-  }
+  uiRenderer.renderHeader();
+  uiRenderer.renderTitle(t('setup_title'));
+  const results = await applyToolsWithProgress([tool]);
+  renderResultSummary(results);
   await promptHelper.pressEnter();
 }
 

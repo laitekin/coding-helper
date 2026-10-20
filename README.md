@@ -102,6 +102,54 @@ npx qiniu-coding-helper init
 
 ---
 
+### ⚡ `coding-helper setup`
+
+一键把七牛配置写入本机已安装的编码工具，适合脚本和 CI。
+
+```bash
+# 交互式：勾选工具（默认勾选已安装的），逐个确认模型后批量写入
+npx qiniu-coding-helper setup
+
+# 非交互：配置所有已安装的工具，结束时输出汇总表
+npx qiniu-coding-helper setup --yes
+
+# 只配置指定工具，结果以 JSON 输出
+npx qiniu-coding-helper setup --tools claude,codex --json
+
+# 从标准输入读取 API Key，避免 Key 进入 shell 历史
+echo "$QINIU_KEY" | npx qiniu-coding-helper setup --key-stdin --yes
+```
+
+退出码：`0` 全部成功（未安装而跳过的不算失败），`2` 部分失败，`1` 全部失败。写入前会把原文件备份到 `~/.coding-helper/backups/<时间戳>/`。
+
+---
+
+### 📋 `coding-helper status`
+
+读取各工具的实际配置文件，列出安装版本和是否已接入七牛。加 `--json` 输出 JSON。
+
+```bash
+npx qiniu-coding-helper status
+```
+
+---
+
+### ↩️ `coding-helper restore`
+
+移除七牛配置，并把被覆盖的原有设置写回（例如原来的 `ANTHROPIC_BASE_URL`、Codex 的 `model`、`auth.json` 里的 OpenAI Key）。安装后你自己加的配置会保留。
+
+```bash
+# 还原所有已接入的工具
+npx qiniu-coding-helper restore
+
+# 只还原 Codex，跳过确认
+npx qiniu-coding-helper restore codex --yes
+```
+
+修改 API Key 或线路后，已接入的工具会自动同步，无需再执行 `auth reload`。
+
+---
+
 ### 🔐 `coding-helper auth`
 
 管理 API Key 认证。
@@ -230,7 +278,7 @@ npx qiniu-coding-helper enter hermes
 
 ### 🔧 Codex 配置
 
-配置应用后，Coding Helper 会先将已有的 `~/.codex/config.toml` 和 `~/.codex/model-catalogs/qnaigc.json` 备份为带时间戳的 `.bak-fenno-*` 文件，并在终端显示每个备份路径。随后会用七牛 Codex 配置完整覆盖 `config.toml`，避免与客户原配置冲突；卸载时不会自动恢复备份，请按提示路径手动恢复。API Key 会写入 Codex 自己的 `~/.codex/auth.json` 认证缓存。它不依赖 `QINIU_API_KEY` shell 环境变量。
+配置应用后，Coding Helper 只在 `~/.codex/config.toml` 中增删七牛自己的条目：更新顶层的 `model`、`model_provider`、`model_catalog_json`，并添加 `[model_providers.qnaigc]` 与 `[profiles.qn-gpt]`。你的 MCP 服务器、沙箱策略和其他 provider 原样保留。写入前原文件会备份到 `~/.coding-helper/backups/<时间戳>/`；运行 `restore codex` 会把被覆盖的顶层键和 `auth.json` 中原来的 OpenAI Key 写回。API Key 会写入 Codex 自己的 `~/.codex/auth.json` 认证缓存。它不依赖 `QINIU_API_KEY` shell 环境变量。
 
 同时会在 `~/.codex/model-catalogs/qnaigc.json` 写入维护在 Coding Helper 中的七牛 GPT 模型目录，并通过 `model_catalog_json` 配置项加载。目录只包含七牛支持的 `openai/gpt*` 模型及其上下文元数据。
 

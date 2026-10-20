@@ -26,7 +26,7 @@ node dist/cli.js doctor
 node dist/cli.js lang show
 ```
 
-注意: `pnpm build` 包含 `cp -r src/locales dist/locales`，因为 tsc 不会复制 JSON 翻译文件。无测试框架、无 lint 配置。Node.js >= 18。
+注意: `pnpm build` 包含 `cp -r src/locales dist/locales`，因为 tsc 不会复制 JSON 翻译文件。测试用 `pnpm test`（`node --test`，针对 dist/），CI 会运行。无 lint 配置。Node.js >= 18。
 
 ## Code Conventions
 
@@ -45,7 +45,12 @@ node dist/cli.js lang show
 - `modelService` — 从 `/v1/models` 获取模型列表，带内存缓存
 - `toolManager` — 工具注册中心，当前只注册 ClaudeCodeTool
 
-**工具扩展**: 实现 `ITool` 接口 (`src/lib/tools/base-tool.ts`)，在 `ToolManager` 中注册即可。Phase 1 仅支持 Claude Code。
+**工具扩展**: 实现 `ITool` 接口 (`src/lib/tools/base-tool.ts`)，在 `ToolManager` 中注册即可。
+
+**核心层** (`src/lib/core/`):
+- `safe-write.ts` — 写客户端配置一律用 `safeWriteFile`（备份到 `~/.coding-helper/backups/<时间戳>/` + 原子写入）；读用户 JSON 用 `readJsonObjectStrict`，解析失败抛错，绝不按空对象覆盖
+- `state-store.ts` — `~/.coding-helper/state.json`，记录已装载的工具与首次写入前的原值（priors），卸载按原值还原
+- `tool-service.ts` — `applyTool` / `removeTool` / `syncAppliedTools`，向导、`auth`、`setup`、`restore` 共用；改 Key 或线路后自动同步已装载工具
 
 **向导系统** (`src/lib/wizard/`):
 - `flows/` — 独立配置流程（语言、线路、API Key、模型选择）
@@ -54,6 +59,7 @@ node dist/cli.js lang show
 
 **配置写入目标**:
 - `~/.coding-helper/config.yaml` — coding-helper 自身配置（语言、线路、API Key、模型）
+- `~/.coding-helper/state.json`、`backups/` — 装载记录、原值与原文件备份（清除配置时保留）
 - `~/.claude/settings.json` — Claude Code 环境变量 (ANTHROPIC_BASE_URL、ANTHROPIC_AUTH_TOKEN 等)
 - `~/.claude.json` — Claude Code onboarding 标记
 
@@ -70,6 +76,9 @@ node dist/cli.js lang show
 ```bash
 coding-helper                      # 默认：首次进向导，之后进主菜单
 coding-helper init                 # 强制重新初始化
+coding-helper setup [--tools a,b] [--yes] [--json] [--key-stdin]  # 一键批量配置
+coding-helper status [--json]      # 各工具实际接入状态
+coding-helper restore [tools] [-y] # 移除七牛配置并还原原值
 coding-helper auth [token]         # 设置 API Key（交互式或直接传入）
 coding-helper auth revoke          # 删除 API Key
 coding-helper auth reload <tool>   # 重新加载配置到工具

@@ -16,6 +16,8 @@ export const promptHelper = {
         name: 'answer',
         message,
         choices,
+        pageSize: 12,
+        loop: false,
       },
     ]);
     return answer as T;
@@ -82,7 +84,10 @@ export const promptHelper = {
   },
 
   // 多选列表
-  async checkbox<T extends string>(message: string, choices: { name: string; value: T }[]): Promise<T[]> {
+  async checkbox<T extends string>(
+    message: string,
+    choices: { name: string; value: T; checked?: boolean }[],
+  ): Promise<T[]> {
     const { answer } = await inquirer.prompt([
       {
         type: 'checkbox',
@@ -90,6 +95,7 @@ export const promptHelper = {
         message,
         choices,
         pageSize: 15,
+        loop: false,
       },
     ]);
     return answer as T[];

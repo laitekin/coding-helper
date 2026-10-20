@@ -7,29 +7,24 @@ import { runApiKeyFlow } from './flows/api-key-flow.js';
 import { showMainMenu } from './menus/main-menu.js';
 import { runToolSetupFlow } from './flows/tool-setup-flow.js';
 
+// 首次向导步骤数：语言、线路、API Key、编码工具
+const INIT_STEPS = 4;
+
 // Wizard 协调器 - 管理首次运行向导和主菜单
 export class Wizard {
   // 运行首次初始化向导
   async runInitWizard(): Promise<void> {
-    // 清屏后显示欢迎界面（首次使用固定中文提示选择语言）
-    uiRenderer.renderHeader();
-    uiRenderer.renderWelcome(
-      t('welcome'),
-      t('welcome_description'),
-      t('privacy_notice'),
-    );
-
-    // 1. 选择语言
-    await runLanguageFlow();
+    // 1. 选择语言（含欢迎卡片，首次使用固定中文提示选择语言）
+    await runLanguageFlow({ current: 1, total: INIT_STEPS });
 
     // 2. 选择线路
-    await runEndpointSelectionFlow();
+    await runEndpointSelectionFlow({ current: 2, total: INIT_STEPS });
 
-    // 3. 输入 API Key
-    await runApiKeyFlow();
+    // 3. 输入 API Key（首次配置时还没有已接入的客户端，无需同步）
+    await runApiKeyFlow({ current: 3, total: INIT_STEPS });
 
-    // 4. 选择工具并引导配置（配置模型 → 装载配置 → 提示就绪）
-    await runToolSetupFlow();
+    // 4. 多选工具并引导配置（配置模型 → 批量装载 → 汇总）
+    await runToolSetupFlow({ current: 4, total: INIT_STEPS });
 
     // 初始化完成
     uiRenderer.renderSuccess(t('init_complete'));

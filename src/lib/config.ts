@@ -124,13 +124,12 @@ class ConfigManager {
     this.save();
   }
 
-  // 清除所有配置，直接删除配置文件夹
+  // 清除 coding-helper 配置（语言、线路、Key、模型）
+  // 保留 backups/ 与 state.json：之后仍可用 restore 把客户端还原到安装前
   clearConfig(): void {
     this.config = {};
     this.loaded = false;
-    if (fs.existsSync(CONFIG_DIR)) {
-      fs.rmSync(CONFIG_DIR, { recursive: true, force: true });
-    }
+    fs.rmSync(CONFIG_FILE, { force: true });
   }
 
   // 模型配置

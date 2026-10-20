@@ -1,10 +1,12 @@
-import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { execSync } from 'node:child_process';
 import type { ITool } from './base-tool.js';
 import { configManager, type ModelConfig } from '../config.js';
 import { t } from '../i18n.js';
+import { isQiniuBaseUrl } from '../endpoints.js';
+import { readJsonObjectStrict, safeWriteFile, writeJsonOrRemove } from '../core/safe-write.js';
+import { stateStore, type PriorValues } from '../core/state-store.js';
 import { runModelSelectionFlow } from '../wizard/flows/model-selection-flow.js';
 import { uiRenderer } from '../wizard/ui/ui-renderer.js';
 
@@ -62,46 +64,57 @@ export class ClaudeCodeTool implements ITool {
     }
   }
 
-  // 读取当前 Claude Code settings.json
+  // 读取当前 Claude Code settings.json（解析失败时返回空对象，仅用于展示）
   getConfig(): Record<string, unknown> {
     try {
-      if (fs.existsSync(CLAUDE_SETTINGS_FILE)) {
-        const content = fs.readFileSync(CLAUDE_SETTINGS_FILE, 'utf-8');
-        return JSON.parse(content) as Record<string, unknown>;
-      }
+      return readJsonObjectStrict(CLAUDE_SETTINGS_FILE);
     } catch {
-      // 文件不存在或解析失败
+      return {};
     }
-    return {};
   }
 
-  // 清除所有七牛相关环境变量
+  isConfigured(): boolean {
+    const env = this.getConfig().env;
+    return isRecord(env) && isQiniuBaseUrl(env.ANTHROPIC_BASE_URL);
+  }
+
+  // 清除所有七牛相关配置，按记录的原值还原
   clearModelConfig(): void {
-    const settings = this.getConfig();
-    const env = (settings.env as Record<string, string>) || {};
+    const recorded = stateStore.getPriors(this.name);
+    const settings = readJsonObjectStrict(CLAUDE_SETTINGS_FILE);
+    const env = isRecord(settings.env) ? { ...settings.env } : {};
+    // 没有装载记录且当前也不指向七牛：不是我们写的，不动用户配置
+    if (!recorded && !isQiniuBaseUrl(env.ANTHROPIC_BASE_URL)) return;
+    const priors = recorded ?? {};
 
     for (const key of CLAUDE_ENV_KEYS) {
-      delete env[key];
+      restoreValue(env, key, priors[`env.${key}`]);
     }
-
-    settings.env = env;
-    delete settings.companyAnnouncements;
-    delete settings.attribution;
+    if (Object.keys(env).length > 0) settings.env = env;
+    else delete settings.env;
+    restoreValue(settings, 'companyAnnouncements', priors.companyAnnouncements);
+    restoreValue(settings, 'attribution', priors.attribution);
     this.writeSettings(settings);
+
+    const onboardingKey = 'claudeJson.hasCompletedOnboarding';
+    if (onboardingKey in priors) {
+      const claudeJson = readJsonObjectStrict(CLAUDE_JSON_FILE);
+      restoreValue(claudeJson, 'hasCompletedOnboarding', priors[onboardingKey]);
+      writeJsonOrRemove(CLAUDE_JSON_FILE, claudeJson);
+    }
   }
 
   // 将完整配置写入 Claude Code
   async loadConfig(apiKey: string, baseUrl: string, models: ModelConfig): Promise<void> {
-    // 确保目录存在
-    if (!fs.existsSync(CLAUDE_SETTINGS_DIR)) {
-      fs.mkdirSync(CLAUDE_SETTINGS_DIR, { recursive: true, mode: 0o700 });
-    }
+    // 严格读取：文件损坏时直接报错，不覆盖用户配置
+    const settings = readJsonObjectStrict(CLAUDE_SETTINGS_FILE);
+    const claudeJson = readJsonObjectStrict(CLAUDE_JSON_FILE);
+    const env = isRecord(settings.env) ? { ...settings.env } : {};
 
-    // 读取现有配置，保留其他字段
-    const settings = this.getConfig();
-    const env = (settings.env as Record<string, string>) || {};
+    this.recordPriors(settings, env, claudeJson);
 
-    // 写入七牛配置
+    // 写入七牛配置；先清掉旧的模型变量，避免取消选择后残留
+    for (const key of CLAUDE_ENV_KEYS) delete env[key];
     env.ANTHROPIC_BASE_URL = baseUrl;
     env.ANTHROPIC_AUTH_TOKEN = apiKey;
     env.API_TIMEOUT_MS = API_TIMEOUT;
@@ -133,12 +146,31 @@ export class ClaudeCodeTool implements ITool {
     this.writeSettings(settings);
 
     // 写入 ~/.claude.json，设置 onboarding 完成标记
-    this.writeClaudeJson();
+    claudeJson.hasCompletedOnboarding = true;
+    safeWriteFile(CLAUDE_JSON_FILE, JSON.stringify(claudeJson, null, 2) + '\n');
   }
 
   // 从 Claude Code 移除配置
   unloadConfig(): void {
     this.clearModelConfig();
+  }
+
+  // 首次写入前记录原值；旧版本已写过七牛配置（无记录）时不把七牛的值当作原值
+  private recordPriors(
+    settings: Record<string, unknown>,
+    env: Record<string, unknown>,
+    claudeJson: Record<string, unknown>,
+  ): void {
+    if (stateStore.getPriors(this.name)) return;
+    const legacy = isQiniuBaseUrl(env.ANTHROPIC_BASE_URL);
+    const priors: PriorValues = {};
+    for (const key of CLAUDE_ENV_KEYS) {
+      priors[`env.${key}`] = legacy ? null : env[key] ?? null;
+    }
+    priors.companyAnnouncements = legacy ? null : settings.companyAnnouncements ?? null;
+    priors.attribution = legacy ? null : settings.attribution ?? null;
+    priors['claudeJson.hasCompletedOnboarding'] = claudeJson.hasCompletedOnboarding ?? null;
+    stateStore.recordPriors(this.name, priors);
   }
 
   async runModelConfigFlow(): Promise<boolean> {
@@ -153,27 +185,18 @@ export class ClaudeCodeTool implements ITool {
     uiRenderer.renderModelConfigItem(t('config_view_subagent'), claudeCode.subagentModel);
   }
 
-  // 写入 settings.json
+  // 写入 settings.json（备份 + 原子写入）
   private writeSettings(settings: Record<string, unknown>): void {
-    if (!fs.existsSync(CLAUDE_SETTINGS_DIR)) {
-      fs.mkdirSync(CLAUDE_SETTINGS_DIR, { recursive: true, mode: 0o700 });
-    }
-    fs.writeFileSync(CLAUDE_SETTINGS_FILE, JSON.stringify(settings, null, 2) + '\n', { encoding: 'utf-8', mode: 0o600 });
+    safeWriteFile(CLAUDE_SETTINGS_FILE, JSON.stringify(settings, null, 2) + '\n');
   }
+}
 
-  // 写入 ~/.claude.json
-  private writeClaudeJson(): void {
-    let data: Record<string, unknown> = {};
-    try {
-      if (fs.existsSync(CLAUDE_JSON_FILE)) {
-        const content = fs.readFileSync(CLAUDE_JSON_FILE, 'utf-8');
-        data = JSON.parse(content) as Record<string, unknown>;
-      }
-    } catch {
-      // 文件不存在或解析失败
-    }
+// 原值为 null/undefined 时删除键，否则写回原值
+function restoreValue(target: Record<string, unknown>, key: string, prior: unknown): void {
+  if (prior === null || prior === undefined) delete target[key];
+  else target[key] = prior;
+}
 
-    data.hasCompletedOnboarding = true;
-    fs.writeFileSync(CLAUDE_JSON_FILE, JSON.stringify(data, null, 2) + '\n', { encoding: 'utf-8', mode: 0o600 });
-  }
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }

@@ -5,10 +5,13 @@ import { validateApiKey } from '../../api-validator.js';
 import { promptHelper } from '../ui/prompt-helper.js';
 import { uiRenderer } from '../ui/ui-renderer.js';
 import { modelService } from '../../model-service.js';
+import { marketModelService } from '../../market-model-service.js';
+import { syncAfterChange } from '../ui/tool-view.js';
 
-// API Key 输入和验证流程
-export async function runApiKeyFlow(): Promise<boolean> {
+// API Key 输入和验证流程；step 用于首次向导的进度展示
+export async function runApiKeyFlow(step?: { current: number; total: number }): Promise<boolean> {
   uiRenderer.renderHeader();
+  if (step) uiRenderer.renderSteps(step.current, step.total, t('menu_configure_apikey'));
   // 显示 API Key 获取提示
   uiRenderer.renderHint(t('apikey_hint'));
 
@@ -32,10 +35,17 @@ export async function runApiKeyFlow(): Promise<boolean> {
 
     if (result.valid) {
       spinner.succeed(t('apikey_valid'));
+      const changed = configManager.getApiKey() !== apiKey.trim();
       configManager.setApiKey(apiKey.trim());
       // 新 API Key 需要清除模型缓存
       modelService.clearCache();
+      marketModelService.clearCache();
       uiRenderer.renderSuccess(t('apikey_saved'));
+      // 换 Key 后同步到已接入的客户端（F4）
+      if (!step && changed) {
+        const results = await syncAfterChange();
+        if (results.length > 0) await promptHelper.pressEnter();
+      }
       return true;
     }
 
@@ -45,6 +55,7 @@ export async function runApiKeyFlow(): Promise<boolean> {
     if (!retry) return false;
     // 重试前清屏并重新渲染
     uiRenderer.renderHeader();
+    if (step) uiRenderer.renderSteps(step.current, step.total, t('menu_configure_apikey'));
     uiRenderer.renderHint(t('apikey_hint'));
   }
 }

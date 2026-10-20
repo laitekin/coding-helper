@@ -10,12 +10,17 @@ import { toolManager } from '../../tool-manager.js';
 import { configManager } from '../../config.js';
 import { logger } from '../../../utils/logger.js';
 import chalk from 'chalk';
+import { selectTools, setupTools } from '../flows/tool-setup-flow.js';
+import { formatToolChoice } from '../ui/tool-view.js';
+import { detectAllTools } from '../../core/tool-service.js';
+import { stringWidth } from '../../../utils/string-width.js';
 
 // 主菜单操作
 type MainMenuAction =
   | 'language'
   | 'endpoint'
   | 'apikey'
+  | 'setup_all'
   | 'tools'
   | 'clear_config'
   | 'update'
@@ -29,6 +34,7 @@ export async function showMainMenu(): Promise<void> {
     uiRenderer.renderTitle(t('menu_main_title'));
 
     const action = await promptHelper.select<MainMenuAction>(t('menu_select_action'), [
+      { name: `${theme.brandBold('★')} ${theme.brandBold(t('menu_setup_all'))}`, value: 'setup_all' },
       { name: `${theme.icon('◆')} ${t('menu_configure_language')}`, value: 'language' },
       { name: `${theme.icon('◇')} ${t('menu_configure_endpoint')}`, value: 'endpoint' },
       { name: `${theme.icon('◈')} ${t('menu_configure_apikey')}`, value: 'apikey' },
@@ -48,6 +54,9 @@ export async function showMainMenu(): Promise<void> {
       case 'apikey':
         await runApiKeyFlow();
         break;
+      case 'setup_all':
+        await runSetupAll();
+        break;
       case 'tools':
         await showToolSelector();
         break;
@@ -63,17 +72,26 @@ export async function showMainMenu(): Promise<void> {
   }
 }
 
-// 工具选择器（当有多个工具时选择）
-async function showToolSelector(): Promise<void> {
-  const tools = toolManager.getAll();
+// 一键配置：多选工具（默认勾选已安装），逐个配置模型后批量装载
+async function runSetupAll(): Promise<void> {
+  uiRenderer.renderHeader();
+  uiRenderer.renderTitle(t('menu_setup_all'));
+  const tools = await selectTools(t('setup_select_tools'));
+  if (tools.length === 0) return;
+  await setupTools(tools);
+}
 
+// 工具选择器：每行展示版本与接入状态
+async function showToolSelector(): Promise<void> {
   uiRenderer.renderHeader();
   uiRenderer.renderTitle(t('menu_configure_tools'));
 
-  const choices = tools.map((tool) => ({
-    name: tool.displayName,
-    value: tool.name,
-  }));
+  const detections = detectAllTools();
+  const nameWidth = Math.max(...detections.map((d) => stringWidth(d.tool.displayName)));
+  const choices = [
+    ...detections.map((d) => ({ name: formatToolChoice(d, nameWidth), value: d.tool.name })),
+    { name: `${theme.dimIcon('◁')} ${t('tool_back')}`, value: '__back__' },
+  ];
 
   const toolName = await promptHelper.select<string>(t('menu_select_action'), choices);
   const tool = toolManager.get(toolName);

@@ -9,6 +9,7 @@ import {
   type MarketModelInfo,
 } from '../market-model-service.js';
 import { t } from '../i18n.js';
+import { readJsonObjectStrict, safeWriteFile } from '../core/safe-write.js';
 import { runWorkBuddyModelSelectionFlow } from '../wizard/flows/workbuddy-model-selection-flow.js';
 import { uiRenderer } from '../wizard/ui/ui-renderer.js';
 import { promptHelper } from '../wizard/ui/prompt-helper.js';
@@ -38,6 +39,7 @@ export interface WorkBuddyModel {
 export class WorkBuddyTool implements ITool {
   name = 'workbuddy';
   displayName = 'WorkBuddy';
+  requiresModelSelection = true;
   command = 'workbuddy';
   // WorkBuddy 是桌面端应用，不是 npm 包
   installCommand = '';
@@ -66,9 +68,14 @@ export class WorkBuddyTool implements ITool {
     return {};
   }
 
+  isConfigured(): boolean {
+    const models = this.getConfig().models;
+    return Array.isArray(models) && models.some((m: { vendor?: string }) => m?.vendor === QINIU_VENDOR);
+  }
+
   // 移除七牛模型，保留其他供应商配置及用户其他自定义字段
   clearModelConfig(): void {
-    const existing = this.getConfig();
+    const existing = readJsonObjectStrict(WORKBUDDY_MODELS_FILE);
     const models = existing.models;
     if (!Array.isArray(models)) {
       return;
@@ -106,7 +113,8 @@ export class WorkBuddyTool implements ITool {
       );
     }
 
-    const existing = this.getConfig();
+    // 严格读取：文件损坏时报错，不覆盖用户配置
+    const existing = readJsonObjectStrict(WORKBUDDY_MODELS_FILE);
     const existingModels = Array.isArray(existing.models)
       ? (existing.models as WorkBuddyModel[])
       : [];
@@ -175,13 +183,7 @@ export class WorkBuddyTool implements ITool {
     merged.models = models;
     merged.availableModels = models.map(m => m.id);
 
-    // mkdirSync 配合 recursive: true 是幂等的，不需要预检查
-    fs.mkdirSync(WORKBUDDY_DIR, { recursive: true, mode: 0o700 });
-    fs.writeFileSync(
-      WORKBUDDY_MODELS_FILE,
-      JSON.stringify(merged, null, 2) + '\n',
-      { encoding: 'utf-8', mode: 0o600 },
-    );
+    safeWriteFile(WORKBUDDY_MODELS_FILE, JSON.stringify(merged, null, 2) + '\n');
   }
 
   private deduplicateModels(models: WorkBuddyModel[]): WorkBuddyModel[] {

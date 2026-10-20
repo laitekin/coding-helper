@@ -1,0 +1,100 @@
+import ora from 'ora';
+import path from 'node:path';
+import { t } from '../../i18n.js';
+import { theme } from './theme.js';
+import { uiRenderer } from './ui-renderer.js';
+import { logger } from '../../../utils/logger.js';
+import { padEnd, padVisible } from '../../../utils/string-width.js';
+import type { ITool } from '../../tools/base-tool.js';
+import { getSessionBackups } from '../../core/safe-write.js';
+import {
+  applyTool,
+  getSyncTargets,
+  type ToolDetection,
+  type ToolResult,
+} from '../../core/tool-service.js';
+
+// 安装状态文本：v1.2.3 / 未安装 / 桌面应用
+export function formatInstallState(detection: ToolDetection): string {
+  if (detection.installed === null) return theme.subtle(t('tool_badge_desktop'));
+  if (!detection.installed) return theme.subtle(t('tool_badge_not_installed'));
+  return theme.value(detection.version ? `v${detection.version}` : t('doctor_found'));
+}
+
+// 接入状态徽标：● 已接入七牛 / ○ 未接入
+export function formatConfiguredBadge(detection: ToolDetection): string {
+  return detection.configured
+    ? theme.success(`● ${t('tool_badge_configured')}`)
+    : theme.subtle(`○ ${t('tool_badge_not_configured')}`);
+}
+
+// 选择列表中的一行：名称、版本、接入状态按列对齐
+export function formatToolChoice(detection: ToolDetection, nameWidth: number): string {
+  const name = theme.value(padEnd(detection.tool.displayName, nameWidth));
+  const install = padVisible(formatInstallState(detection), 12);
+  return `${name}  ${install}  ${formatConfiguredBadge(detection)}`;
+}
+
+function formatResultStatus(result: ToolResult): string {
+  switch (result.status) {
+    case 'success': return theme.success(`✔ ${t('setup_status_success')}`);
+    case 'skipped': return theme.warning(`– ${t('setup_status_skipped')}`);
+    default: return theme.danger(`✖ ${t('setup_status_failed')}`);
+  }
+}
+
+// 跳过原因是 i18n key，失败原因是错误信息
+function formatReason(result: ToolResult): string {
+  if (!result.reason) return '';
+  const translated = t(result.reason);
+  return theme.subtle(translated === result.reason ? result.reason : translated);
+}
+
+// 汇总表 + 备份位置提示
+export function renderResultSummary(results: ToolResult[]): void {
+  if (results.length === 0) return;
+  logger.newLine();
+  uiRenderer.renderTable(
+    [t('setup_col_tool'), t('setup_col_result'), t('setup_col_detail')],
+    results.map((r) => [theme.value(r.tool.displayName), formatResultStatus(r), formatReason(r)]),
+  );
+
+  const backups = getSessionBackups();
+  if (backups.length > 0) {
+    logger.newLine();
+    uiRenderer.renderHint(t('setup_backup_hint', {
+      count: String(backups.length),
+      path: path.dirname(backups[0].backup),
+    }));
+  }
+  logger.newLine();
+}
+
+// 逐个装载并显示进度；返回每个客户端的结果
+export async function applyToolsWithProgress(tools: ITool[]): Promise<ToolResult[]> {
+  const results: ToolResult[] = [];
+  for (const tool of tools) {
+    const spinner = ora({
+      text: t('setup_applying', { tool: tool.displayName }),
+      color: 'cyan',
+      indent: 2,
+    }).start();
+    const result = await applyTool(tool);
+    if (result.status === 'success') spinner.succeed(t('tool_config_loaded', { tool: tool.displayName }));
+    else if (result.status === 'skipped') spinner.warn(`${tool.displayName} ${theme.subtle(formatReason(result))}`);
+    else spinner.fail(`${tool.displayName} ${theme.subtle(formatReason(result))}`);
+    results.push(result);
+  }
+  return results;
+}
+
+// API Key 或线路变更后，同步到已接入的客户端
+export async function syncAfterChange(): Promise<ToolResult[]> {
+  const targets = getSyncTargets();
+  if (targets.length === 0) return [];
+  logger.newLine();
+  uiRenderer.renderHint(t('sync_start', { count: String(targets.length) }));
+  const results = await applyToolsWithProgress(targets);
+  renderResultSummary(results);
+  return results;
+}

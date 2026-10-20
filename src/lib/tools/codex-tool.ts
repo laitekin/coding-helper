@@ -8,6 +8,8 @@ import { DEFAULT_ENDPOINT, getBaseUrl } from '../endpoints.js';
 import { t } from '../i18n.js';
 import { uiRenderer } from '../wizard/ui/ui-renderer.js';
 import { promptHelper } from '../wizard/ui/prompt-helper.js';
+import { readJsonObjectStrict, safeWriteFile, writeJsonOrRemove } from '../core/safe-write.js';
+import { stateStore, type PriorValues } from '../core/state-store.js';
 
 const CODEX_DIR = path.join(os.homedir(), '.codex');
 const CODEX_CONFIG_FILE = path.join(CODEX_DIR, 'config.toml');
@@ -47,7 +49,6 @@ export class CodexTool implements ITool {
   updateCommand = 'npm install -g @openai/codex@latest';
   npmPackageName = '@openai/codex';
   aliases = ['openai-codex'];
-  private lastBackupPaths: string[] = [];
 
   getVersion(): string | null {
     try {
@@ -78,29 +79,57 @@ export class CodexTool implements ITool {
     };
   }
 
+  isConfigured(): boolean {
+    return hasManagedCodexConfig(readCodexConfig());
+  }
+
   clearModelConfig(): void {
     const content = readCodexConfig();
-    writeCodexConfig(removeTomlTable(content, 'profiles.qn-gpt'));
+    safeWriteFile(CODEX_CONFIG_FILE, normalizeToml(removeTomlTable(content, 'profiles.qn-gpt')));
   }
 
   async loadConfig(apiKey: string, baseUrl: string, models: ModelConfig): Promise<void> {
-    this.lastBackupPaths = [
-      backupCodexFile(CODEX_CONFIG_FILE),
-      backupCodexFile(CODEX_CATALOG_FILE),
-    ].filter((backup): backup is string => !!backup);
-    writeCodexAuth(buildCodexAuthJson(readCodexAuth(), apiKey));
-    writeCodexCatalog(buildCodexModelCatalog(GPT_MODELS));
-    writeCodexConfig(buildCodexConfig('', baseUrl, models.codexModel || this.defaultModel, CODEX_CATALOG_FILE));
-  }
+    const existingConfig = readCodexConfig();
+    const existingAuth = readJsonObjectStrict(CODEX_AUTH_FILE);
+    this.recordPriors(existingConfig, existingAuth);
 
-  getLoadConfigNotes(): string[] {
-    return this.lastBackupPaths.map((path) => formatCodexBackupNote(path));
+    // 备份 + 原子写入；只增删七牛条目，用户的 MCP、沙箱策略、其他 provider 原样保留
+    safeWriteFile(CODEX_AUTH_FILE, buildCodexAuthJson(JSON.stringify(existingAuth), apiKey));
+    safeWriteFile(CODEX_CATALOG_FILE, buildCodexModelCatalog(GPT_MODELS));
+    safeWriteFile(
+      CODEX_CONFIG_FILE,
+      mergeCodexConfig(existingConfig, baseUrl, models.codexModel || this.defaultModel, CODEX_CATALOG_FILE),
+    );
   }
 
   async unloadConfig(): Promise<void> {
-    const content = readCodexConfig();
-    writeCodexConfig(removeManagedCodexConfig(content));
+    const priors = stateStore.getPriors(this.name) ?? {};
+    safeWriteFile(CODEX_CONFIG_FILE, restoreCodexConfig(readCodexConfig(), priors));
     if (fs.existsSync(CODEX_CATALOG_FILE)) fs.rmSync(CODEX_CATALOG_FILE);
+    // 目录是我们创建的，清空后一并删除
+    if (fs.existsSync(CODEX_CATALOG_DIR) && fs.readdirSync(CODEX_CATALOG_DIR).length === 0) {
+      fs.rmdirSync(CODEX_CATALOG_DIR);
+    }
+
+    // 有记录时才还原 auth.json，避免误删用户自己的 OpenAI Key
+    if ('auth.OPENAI_API_KEY' in priors) {
+      const auth = readJsonObjectStrict(CODEX_AUTH_FILE);
+      restoreJsonValue(auth, 'OPENAI_API_KEY', priors['auth.OPENAI_API_KEY']);
+      restoreJsonValue(auth, 'auth_mode', priors['auth.auth_mode']);
+      writeJsonOrRemove(CODEX_AUTH_FILE, auth);
+    }
+  }
+
+  // 首次写入前记录被覆盖的顶层键与 auth.json 字段；旧版本已写过时不记录
+  private recordPriors(config: string, auth: Record<string, unknown>): void {
+    if (stateStore.getPriors(this.name) || hasManagedCodexConfig(config)) return;
+    const priors: PriorValues = {};
+    for (const key of MANAGED_TOP_LEVEL_KEYS) {
+      priors[`config.${key}`] = getTopLevelTomlValue(config, key) ?? null;
+    }
+    priors['auth.OPENAI_API_KEY'] = auth.OPENAI_API_KEY ?? null;
+    priors['auth.auth_mode'] = auth.auth_mode ?? null;
+    stateStore.recordPriors(this.name, priors);
   }
 
   async runModelConfigFlow(): Promise<boolean> {
@@ -143,6 +172,48 @@ export function buildCodexConfig(_existing: string, baseUrl?: string, model?: st
   return normalizeToml(sections.join('\n'));
 }
 
+// 由七牛管理的顶层键（写入前记录原值，卸载时还原）
+const MANAGED_TOP_LEVEL_KEYS = ['model', 'model_provider', 'model_catalog_json'] as const;
+
+// 合并写入：原地更新顶层键（保持位置），替换七牛的 provider 与 profile 表，其他内容原样保留
+export function mergeCodexConfig(existing: string, baseUrl?: string, model?: string, catalogPath?: string): string {
+  let content = removeManagedTables(existing);
+  if (model) content = upsertTopLevelTomlKey(content, 'model', `"${escapeTomlString(model)}"`);
+  content = upsertTopLevelTomlKey(content, 'model_provider', `"${PROVIDER_NAME}"`);
+  if (catalogPath) content = upsertTopLevelTomlKey(content, 'model_catalog_json', `"${escapeTomlString(catalogPath)}"`);
+
+  const managed = buildCodexConfig('', baseUrl, model, catalogPath);
+  const managedTables = managed.slice(managed.indexOf(`[model_providers.${PROVIDER_NAME}]`));
+  const body = content.trim();
+  return normalizeToml(body ? `${body}\n\n${managedTables}` : managedTables);
+}
+
+// 卸载：移除七牛的表，并把被覆盖的顶层键原地写回原值；无记录（旧版本写入）时按旧规则清理
+export function restoreCodexConfig(existing: string, priors: PriorValues): string {
+  const managed = hasManagedCodexConfig(existing);
+  let content = existing;
+  for (const key of MANAGED_TOP_LEVEL_KEYS) {
+    const priorKey = `config.${key}`;
+    if (priorKey in priors) {
+      const prior = priors[priorKey];
+      content = typeof prior === 'string'
+        ? upsertTopLevelTomlKey(content, key, prior)
+        : removeTopLevelTomlKey(content, key);
+    }
+  }
+  if (!('config.model' in priors) && managed) content = removeTopLevelModel(content);
+  if (!('config.model_provider' in priors)) content = removeTopLevelQnaigcModelProvider(content);
+  if (!('config.model_catalog_json' in priors)) content = removeTopLevelCatalogPath(content);
+  return normalizeToml(removeManagedTables(content));
+}
+
+function removeManagedTables(content: string): string {
+  return removeTomlTable(
+    removeTomlTable(content, `model_providers.${PROVIDER_NAME}`),
+    `profiles.${PROFILE_NAME}`,
+  );
+}
+
 export function removeManagedCodexConfig(existing: string): string {
   let content = existing;
   if (hasManagedCodexConfig(content)) content = removeTopLevelModel(content);
@@ -155,8 +226,7 @@ export function removeManagedCodexConfig(existing: string): string {
 
 function removeTopLevelModel(content: string): string {
   const lines = content.split('\n');
-  const firstTableIndex = lines.findIndex((line) => /^\[[^\]]+\]\s*$/.test(line.trim()));
-  const searchEnd = firstTableIndex >= 0 ? firstTableIndex : lines.length;
+  const searchEnd = topLevelEnd(lines);
   return lines.filter((line, lineIndex) => lineIndex >= searchEnd || !/^model\s*=/.test(line.trim())).join('\n');
 }
 
@@ -170,31 +240,6 @@ export function buildCodexAuthJson(existing: string, apiKey: string): string {
   auth.auth_mode = 'apikey';
   auth.OPENAI_API_KEY = apiKey;
   return `${JSON.stringify(auth, null, 2)}\n`;
-}
-
-export function backupCodexFile(filePath: string, now = new Date()): string | undefined {
-  if (!fs.existsSync(filePath)) return undefined;
-  const pad = (value: number): string => String(value).padStart(2, '0');
-  const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}` +
-    `${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-  const baseBackupPath = `${filePath}.bak-fenno-${timestamp}`;
-  let backupPath = baseBackupPath;
-  let suffix = 1;
-  while (fs.existsSync(backupPath)) {
-    backupPath = `${baseBackupPath}-${suffix}`;
-    suffix += 1;
-  }
-  fs.copyFileSync(filePath, backupPath);
-  return backupPath;
-}
-
-export function formatCodexBackupNote(
-  backupPath: string,
-  translate: (key: string, params?: Record<string, string>) => string = t,
-): string {
-  const key = 'codex_backup_created';
-  const translated = translate(key, { path: backupPath });
-  return translated === key ? `Codex 原配置已备份到：${backupPath}` : translated;
 }
 
 export function buildCodexModelCatalog(models: CodexCatalogModel[]): string {
@@ -240,38 +285,6 @@ function readCodexConfig(): string {
   return '';
 }
 
-function readCodexAuth(): string {
-  try {
-    if (fs.existsSync(CODEX_AUTH_FILE)) {
-      return fs.readFileSync(CODEX_AUTH_FILE, 'utf-8');
-    }
-  } catch {
-    // 文件不存在或读取失败时按空配置处理
-  }
-  return '';
-}
-
-function writeCodexConfig(content: string): void {
-  if (!fs.existsSync(CODEX_DIR)) {
-    fs.mkdirSync(CODEX_DIR, { recursive: true, mode: 0o700 });
-  }
-  fs.writeFileSync(CODEX_CONFIG_FILE, content, { encoding: 'utf-8', mode: 0o600 });
-}
-
-function writeCodexCatalog(content: string): void {
-  if (!fs.existsSync(CODEX_CATALOG_DIR)) {
-    fs.mkdirSync(CODEX_CATALOG_DIR, { recursive: true, mode: 0o700 });
-  }
-  fs.writeFileSync(CODEX_CATALOG_FILE, content, { encoding: 'utf-8', mode: 0o600 });
-}
-
-function writeCodexAuth(content: string): void {
-  if (!fs.existsSync(CODEX_DIR)) {
-    fs.mkdirSync(CODEX_DIR, { recursive: true, mode: 0o700 });
-  }
-  fs.writeFileSync(CODEX_AUTH_FILE, content, { encoding: 'utf-8', mode: 0o600 });
-}
-
 function parseJsonObject(content: string): Record<string, unknown> {
   if (!content.trim()) return {};
   try {
@@ -284,22 +297,61 @@ function parseJsonObject(content: string): Record<string, unknown> {
   }
 }
 
-function upsertTopLevelModelProvider(content: string): string {
+// 顶层区域：第一个表头之前的行
+function topLevelEnd(lines: string[]): number {
+  const index = lines.findIndex((line) => isTomlTableHeader(line));
+  return index >= 0 ? index : lines.length;
+}
+
+function isTomlTableHeader(line: string): boolean {
+  return /^\[\[?[^\]]+\]\]?\s*(#.*)?$/.test(line.trim());
+}
+
+function topLevelKeyPattern(key: string): RegExp {
+  return new RegExp(`^${key}\\s*=`);
+}
+
+// 读取顶层键的原始值文本（如 '"gpt-5"'），不存在时返回 undefined
+export function getTopLevelTomlValue(content: string, key: string): string | undefined {
   const lines = content.split('\n');
-  const firstTableIndex = lines.findIndex((line) => /^\[[^\]]+\]\s*$/.test(line.trim()));
-  const searchEnd = firstTableIndex >= 0 ? firstTableIndex : lines.length;
-  const index = lines.findIndex((line, lineIndex) => lineIndex < searchEnd && /^model_provider\s*=/.test(line.trim()));
+  const end = topLevelEnd(lines);
+  for (let i = 0; i < end; i++) {
+    const trimmed = lines[i].trim();
+    if (topLevelKeyPattern(key).test(trimmed)) return trimmed.replace(topLevelKeyPattern(key), '').trim();
+  }
+  return undefined;
+}
+
+// 删除顶层键
+export function removeTopLevelTomlKey(content: string, key: string): string {
+  const lines = content.split('\n');
+  const end = topLevelEnd(lines);
+  return lines.filter((line, i) => i >= end || !topLevelKeyPattern(key).test(line.trim())).join('\n');
+}
+
+// 更新或插入顶层键；新键插在顶层区域末尾（第一个表头之前）
+export function upsertTopLevelTomlKey(content: string, key: string, rawValue: string): string {
+  const lines = content.split('\n');
+  const end = topLevelEnd(lines);
+  const line = `${key} = ${rawValue}`;
+  const index = lines.findIndex((l, i) => i < end && topLevelKeyPattern(key).test(l.trim()));
   if (index >= 0) {
-    lines[index] = `model_provider = "${PROVIDER_NAME}"`;
+    lines[index] = line;
     return lines.join('\n');
   }
-  return `model_provider = "${PROVIDER_NAME}"\n${content}`;
+  let insertAt = end;
+  while (insertAt > 0 && lines[insertAt - 1].trim() === '') insertAt--;
+  lines.splice(insertAt, 0, line);
+  // 紧挨着表头时补一个空行，保持可读
+  if (insertAt + 1 < lines.length && isTomlTableHeader(lines[insertAt + 1])) {
+    lines.splice(insertAt + 1, 0, '');
+  }
+  return lines.join('\n');
 }
 
 function removeTopLevelQnaigcModelProvider(content: string): string {
   const lines = content.split('\n');
-  const firstTableIndex = lines.findIndex((line) => /^\[[^\]]+\]\s*$/.test(line.trim()));
-  const searchEnd = firstTableIndex >= 0 ? firstTableIndex : lines.length;
+  const searchEnd = topLevelEnd(lines);
   return lines
     .filter((line, lineIndex) => (
       lineIndex >= searchEnd ||
@@ -321,7 +373,7 @@ function removeTomlTable(content: string, tableName: string): string {
       skipping = true;
       continue;
     }
-    if (skipping && /^\[[^\]]+\]\s*$/.test(trimmed)) {
+    if (skipping && isTomlTableHeader(trimmed)) {
       skipping = false;
     }
     if (!skipping) {
@@ -330,6 +382,11 @@ function removeTomlTable(content: string, tableName: string): string {
   }
 
   return result.join('\n');
+}
+
+function restoreJsonValue(target: Record<string, unknown>, key: string, prior: unknown): void {
+  if (prior === null || prior === undefined) delete target[key];
+  else target[key] = prior;
 }
 
 function hasManagedCodexConfig(content: string): boolean {

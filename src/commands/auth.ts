@@ -6,7 +6,8 @@ import { marketModelService } from '../lib/market-model-service.js';
 import { toolManager } from '../lib/tool-manager.js';
 import { uiRenderer } from '../lib/wizard/ui/ui-renderer.js';
 import { runApiKeyFlow } from '../lib/wizard/flows/api-key-flow.js';
-import { promptHelper } from '../lib/wizard/ui/prompt-helper.js';
+import { applyToolsWithProgress, renderResultSummary, syncAfterChange } from '../lib/wizard/ui/tool-view.js';
+import { exitCodeFor } from '../lib/core/tool-service.js';
 import ora from 'ora';
 
 // 拼接已注册工具名称及别名，用于 auth reload 的提示文案
@@ -52,20 +53,9 @@ export async function authCommand(tokenOrAction?: string): Promise<void> {
       return;
     }
 
-    try {
-      if (tool.name === 'codex') {
-        const confirmed = await promptHelper.confirm(t('tool_config_load_confirm', { tool: tool.displayName }));
-        if (!confirmed) return;
-      }
-      await tool.loadConfig(apiKey, configManager.baseUrl, configManager.getModels());
-      uiRenderer.renderSuccess(t('tool_config_loaded', { tool: tool.displayName }));
-      for (const note of tool.getLoadConfigNotes?.() ?? []) uiRenderer.renderHint(note);
-    } catch (err: unknown) {
-      uiRenderer.renderError(
-        err instanceof Error ? err.message : t('tool_config_load_failed', { tool: tool.displayName }),
-      );
-      for (const note of tool.getLoadConfigNotes?.() ?? []) uiRenderer.renderHint(note);
-    }
+    const results = await applyToolsWithProgress([tool]);
+    renderResultSummary(results);
+    process.exitCode = exitCodeFor(results);
     return;
   }
 
@@ -75,10 +65,13 @@ export async function authCommand(tokenOrAction?: string): Promise<void> {
 
     if (result.valid) {
       spinner.succeed(t('apikey_valid'));
+      const changed = configManager.getApiKey() !== tokenOrAction;
       configManager.setApiKey(tokenOrAction);
       modelService.clearCache();
       marketModelService.clearCache();
       uiRenderer.renderSuccess(t('apikey_saved'));
+      // 换 Key 后同步到已接入的客户端（F4）
+      if (changed) await syncAfterChange();
     } else {
       spinner.fail(t('apikey_invalid', { error: result.error || '' }));
     }
