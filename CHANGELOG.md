@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.6.2] - 2026-10-21
 
 ### 新增
 * 配置档：一组 API Key + 线路（国内 / 海外 / 自定义地址）。`profile add / list / use / remove`，可切换当前配置档，或用 `profile use <名称> <工具>` 只让某个工具使用它；一条命令里用 `@名称` 指定，`run <工具> @名称` 只对这次启动生效
