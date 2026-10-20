@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.5.0] - 2026-10-20
 
 ### 新增
 * 一条命令配置：`npx qiniu-coding-helper <工具[,工具…]|all> [API Key] [模型 ID]`，支持 `--intl`、`--dry-run`、`--json`、`--no-save`。Key 可来自参数、`QINIU_API_KEY`、已保存的 Key 或隐藏输入；模型可省略，自动从 Key 可用且支持工具调用的模型中选择；Key 无效时自动尝试另一条线路；Key、账户、模型校验全部在写入前完成；Codex 通过一次最小请求确认模型可在七牛 Responses 接口上使用
