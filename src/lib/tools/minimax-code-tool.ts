@@ -19,6 +19,11 @@ export function getMinimaxConfigFile(): string {
   return path.join(dir, 'config.yaml');
 }
 
+// mcode 实际写入的格式是 custom_provider:qiniu/<model>，也兼容 qiniu/<model>
+function isQiniuModelRef(ref: string): boolean {
+  return ref.startsWith(`custom_provider:${PROVIDER_ID}/`) || ref.startsWith(`${PROVIDER_ID}/`);
+}
+
 // 移除 custom_provider.qiniu，并把 --use 改掉的 defaultModel 按原值还原；其他设置原样保留
 export function removeMinimaxProvider(content: string, priors: PriorValues = {}): string {
   const config = yaml.load(content);
@@ -27,7 +32,7 @@ export function removeMinimaxProvider(content: string, priors: PriorValues = {})
     delete config.custom_provider[PROVIDER_ID];
     if (Object.keys(config.custom_provider).length === 0) delete config.custom_provider;
   }
-  if (typeof config.defaultModel === 'string' && config.defaultModel.startsWith(`${PROVIDER_ID}/`)) {
+  if (typeof config.defaultModel === 'string' && isQiniuModelRef(config.defaultModel)) {
     const prior = priors.defaultModel;
     if (typeof prior === 'string') config.defaultModel = prior;
     else delete config.defaultModel;

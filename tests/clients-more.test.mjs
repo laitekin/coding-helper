@@ -96,7 +96,7 @@ const file = path.join(process.env.HOME, '.minimax', 'config.yaml');
 const cfg = fs.existsSync(file) ? yaml.load(fs.readFileSync(file, 'utf8')) || {} : {};
 cfg.custom_provider = cfg.custom_provider || {};
 cfg.custom_provider[get('--name')] = { name: get('--name'), kind: 'custom', api: get('--api-format'), options: { apiKey: process.env[get('--api-key-env')], baseURL: get('--base-url') }, models: { [get('--model')]: null } };
-if (args.includes('--use')) cfg.defaultModel = get('--name') + '/' + get('--model');
+if (args.includes('--use')) cfg.defaultModel = 'custom_provider:' + get('--name') + '/' + get('--model');
 fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, yaml.dump(cfg));
 `, { mode: 0o755 });
   process.env.PATH = `${bin}${path.delimiter}${process.env.PATH}`;
@@ -109,7 +109,7 @@ fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, ya
   assert.equal(loaded.custom_provider.qiniu.options.apiKey, 'sk-qiniu');
   assert.equal(loaded.custom_provider.qiniu.options.baseURL, 'https://api.qnaigc.com/v1');
   assert.equal(loaded.custom_provider.qiniu.api, 'openai-completions');
-  assert.equal(loaded.defaultModel, 'qiniu/deepseek-v3');
+  assert.equal(loaded.defaultModel, 'custom_provider:qiniu/deepseek-v3');
   assert.equal(tool.isConfigured(), true);
 
   tool.unloadConfig();
