@@ -212,5 +212,9 @@
   "dry_run_footer": "Dry run: nothing above was written. Run again without --dry-run to apply.",
   "openclaw_json5_unsupported": "{{file}} contains comments or trailing commas (JSON5) and cannot be rewritten safely. Remove them first, or add the Qiniu provider by hand",
   "minimax_provider_add_failed": "mcode provider add failed: {{error}}",
-  "kimi_legacy_cli": "Found the legacy kimi-cli {{version}} (reads ~/.kimi). Install the new Kimi Code instead: {{command}}"
+  "kimi_legacy_cli": "Found the legacy kimi-cli {{version}} (reads ~/.kimi). Install the new Kimi Code instead: {{command}}",
+  "doctor_account": "Account",
+  "doctor_account_ok": "Models can be called",
+  "account_billing_suspended": "The API Key is valid, but the Qiniu account is suspended for billing, so model calls will fail. Top up in the Qiniu console first",
+  "account_unusable": "The API Key is valid, but models cannot be called right now: {{error}}"
 }

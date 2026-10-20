@@ -225,5 +225,9 @@
   "dry_run_footer": "预演模式：以上变更均未写入。去掉 --dry-run 即可执行。",
   "openclaw_json5_unsupported": "{{file}} 含注释或尾逗号（JSON5），无法安全改写。请先删掉注释和尾逗号，或手动添加七牛 provider",
   "minimax_provider_add_failed": "mcode provider add 失败：{{error}}",
-  "kimi_legacy_cli": "检测到旧版 kimi-cli {{version}}（读取 ~/.kimi），请改装新版 Kimi Code：{{command}}"
+  "kimi_legacy_cli": "检测到旧版 kimi-cli {{version}}（读取 ~/.kimi），请改装新版 Kimi Code：{{command}}",
+  "doctor_account": "账户状态",
+  "doctor_account_ok": "可正常调用模型",
+  "account_billing_suspended": "API Key 有效，但七牛账户因欠费已暂停，模型调用会失败。请到七牛控制台充值后再使用",
+  "account_unusable": "API Key 有效，但当前无法调用模型：{{error}}"
 }

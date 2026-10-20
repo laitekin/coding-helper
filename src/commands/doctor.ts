@@ -2,7 +2,7 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { t, i18n } from '../lib/i18n.js';
 import { configManager } from '../lib/config.js';
-import { validateApiKey } from '../lib/api-validator.js';
+import { validateApiKey, checkAccountStatus, describeAccountStatus } from '../lib/api-validator.js';
 import { detectAllTools } from '../lib/core/tool-service.js';
 import { uiRenderer } from '../lib/wizard/ui/ui-renderer.js';
 import { logger } from '../utils/logger.js';
@@ -45,6 +45,16 @@ export async function doctorCommand(): Promise<void> {
       status: result.valid ? 'pass' : 'fail',
       detail: result.valid ? uiRenderer.maskApiKey(apiKey) : (result.error || t('doctor_fail')),
     });
+
+    // Key 有效时再确认账户能真正调用模型（欠费暂停时 Key 校验仍会通过）
+    if (result.valid) {
+      const account = await checkAccountStatus(apiKey, configManager.baseUrl);
+      checks.push({
+        label: t('doctor_account'),
+        status: account.usable ? 'pass' : 'fail',
+        detail: account.usable ? t('doctor_account_ok') : describeAccountStatus(account),
+      });
+    }
 
     // 3. 网络连接检查
     checks.push({

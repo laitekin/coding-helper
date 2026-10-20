@@ -1,7 +1,7 @@
 import ora from 'ora';
 import { t, i18n } from '../lib/i18n.js';
 import { configManager } from '../lib/config.js';
-import { validateApiKey } from '../lib/api-validator.js';
+import { validateApiKey, checkAccountStatus, describeAccountStatus } from '../lib/api-validator.js';
 import { modelService } from '../lib/model-service.js';
 import { marketModelService } from '../lib/market-model-service.js';
 import { toolManager } from '../lib/tool-manager.js';
@@ -77,6 +77,13 @@ export async function setupCommand(options: SetupOptions): Promise<void> {
       uiRenderer.renderTitle(t('setup_title'));
     }
 
+    // 账户不可用（如欠费暂停）时提前提醒；配置照常写入，充值后即可使用
+    const account = await checkAccountStatus(configManager.getApiKey() as string, configManager.baseUrl);
+    if (!account.usable && !quiet) {
+      uiRenderer.renderWarning(describeAccountStatus(account));
+      logger.newLine();
+    }
+
     // 2. 选择客户端
     const explicit = options.tools ? resolveTools(options.tools) : undefined;
     let targets: ITool[];
@@ -140,7 +147,7 @@ export async function setupCommand(options: SetupOptions): Promise<void> {
         renderPlannedChanges(changes, configManager.getApiKey());
       }
     } else if (quiet) {
-      console.log(JSON.stringify(toJson(results), null, 2));
+      console.log(JSON.stringify({ ...toJson(results), account }, null, 2));
     } else {
       renderResultSummary(results);
       if (results.some((r) => r.status === 'success')) uiRenderer.renderHint(t('setup_restore_hint'));
