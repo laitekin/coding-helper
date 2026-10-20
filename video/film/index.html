@@ -1,0 +1,544 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>一条命令，接上七牛</title>
+<style>
+  html, body { margin: 0; background: #000; }
+  canvas { display: block; width: 1920px; height: 1080px; }
+</style>
+</head>
+<body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<script>
+// 《一条命令，接上七牛》画面
+// 约定：window.DUR 总时长；window.render(t) 画出 t 秒这一帧；window.READY 字体就绪
+// 渲染必须确定：不用 Date.now()、不用 Math.random()、帧间不留状态
+const W = 1920, H = 1080;
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
+const C = {
+  bg0: '#040507', bg1: '#0f141a',
+  win: '#0a0d12', winEdge: '#1e252e', bar: '#10151b',
+  fg: '#d6dde6', white: '#f5f7fa', muted: '#6b7280', dim: '#3b424c',
+  claude: '#d97757', eye: '#1a0f0b',
+  qiniu: '#00b4e6', qiniuHi: '#5fe0ff', qiniuDeep: '#005c99', ok: '#00e5a0',
+};
+const GRAD = ['#00D4FF', '#00B4E6', '#0094CC', '#0078B3', '#005C99', '#004080'];
+const MONO = '"JetBrains Mono", "DejaVu Sans Mono", monospace';
+const CJK = '"WenQuanYi Zen Hei", "Noto Sans CJK SC", "Noto Sans SC", sans-serif';
+const BPM = 96, BEAT = 60 / BPM, BAR = BEAT * 4;
+
+// ---------- 小工具 ----------
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const lerp = (a, b, k) => a + (b - a) * k;
+const easeOut = (k) => 1 - Math.pow(1 - clamp(k), 3);
+const easeInOut = (k) => { k = clamp(k); return k < .5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2; };
+// 带种子的哈希随机，0..1
+const hash = (n) => { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };
+const isWide = (ch) => /[⺀-鿿豈-﫿︰-﹏＀-￯]/.test(ch);
+const dispWidth = (s) => [...s].reduce((n, ch) => n + (isWide(ch) ? 2 : 1), 0);
+const pad = (s, n) => s + ' '.repeat(Math.max(0, n - dispWidth(s)));
+
+function rr(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+
+// 等宽排版：segs = [[文字, 颜色, {bold, glow, alpha}]]，CJK 占两格；返回结束时的格数
+function text(segs, x, y, size, col0 = 0) {
+  const cw = size * 0.6;
+  let col = col0;
+  ctx.textBaseline = 'middle';
+  for (const [s, color, o = {}] of segs) {
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.globalAlpha *= o.alpha ?? 1;
+    if (o.glow) { ctx.shadowColor = color; ctx.shadowBlur = o.glow; }
+    const weight = o.bold ? 700 : 400;
+    // 逐字画在固定格上：保证对齐，也避开 JetBrains Mono 的连字（<= == // 会被合成符号）
+    for (const ch of s) {
+      if (ch === ' ') { col++; continue; }
+      if (ch.charCodeAt(0) < 128) {
+        ctx.font = `${weight} ${size}px ${MONO}`;
+        ctx.fillText(ch, x + col * cw, y);
+        col++; continue;
+      }
+      const wide = isWide(ch);
+      ctx.font = `${weight} ${wide ? size * 0.98 : size}px ${wide ? CJK : MONO}`;
+      const span = wide ? 2 : 1;
+      const m = ctx.measureText(ch).width;
+      ctx.fillText(ch, x + col * cw + (span * cw - m) / 2, y);
+      col += span;
+    }
+    ctx.restore();
+  }
+  return col;
+}
+
+// ---------- 背景与终端窗口 ----------
+function backdrop() {
+  const g = ctx.createRadialGradient(W / 2, H * .45, 80, W / 2, H / 2, W * .75);
+  g.addColorStop(0, C.bg1); g.addColorStop(1, C.bg0);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = 'rgba(255,255,255,0.035)';
+  for (let y = 24; y < H; y += 48) for (let x = 24; x < W; x += 48) ctx.fillRect(x, y, 2, 2);
+}
+function vignette() {
+  const g = ctx.createRadialGradient(W / 2, H / 2, H * .35, W / 2, H / 2, W * .72);
+  g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,0.55)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+}
+const WIN = { x: 150, y: 80, w: 1620, h: 900, bar: 46 };
+function terminal(title, glowColor) {
+  const { x, y, w, h, bar } = WIN;
+  ctx.save();
+  ctx.shadowColor = glowColor || 'rgba(0,0,0,0.8)'; ctx.shadowBlur = glowColor ? 90 : 60; ctx.shadowOffsetY = glowColor ? 0 : 24;
+  rr(x, y, w, h, 18); ctx.fillStyle = C.win; ctx.fill();
+  ctx.restore();
+  rr(x, y, w, h, 18); ctx.strokeStyle = C.winEdge; ctx.lineWidth = 2; ctx.stroke();
+  ctx.save(); rr(x, y, w, h, 18); ctx.clip();
+  ctx.fillStyle = C.bar; ctx.fillRect(x, y, w, bar);
+  ctx.fillStyle = C.winEdge; ctx.fillRect(x, y + bar, w, 1);
+  ['#4a3a38', '#4a4536', '#36443a'].forEach((c, i) => {
+    ctx.beginPath(); ctx.arc(x + 28 + i * 24, y + bar / 2, 7, 0, Math.PI * 2); ctx.fillStyle = c; ctx.fill();
+  });
+  ctx.restore();
+  ctx.font = `400 20px ${MONO}`; ctx.fillStyle = C.muted; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(title, x + w / 2, y + bar / 2); ctx.textAlign = 'left';
+}
+function clipWindow() { const { x, y, w, h, bar } = WIN; rr(x, y + bar, w, h - bar, 18); ctx.clip(); }
+// 镜头：以 (fx, fy) 为中心缩放 + 平移
+function camera(s, fx = W / 2, fy = H / 2, dx = 0, dy = 0) { ctx.setTransform(s, 0, 0, s, fx - fx * s + dx, fy - fy * s + dy); }
+function cursor(x, y, size, on) { if (on) { ctx.fillStyle = C.fg; ctx.fillRect(x, y - size * .6, size * .6, size * 1.2); } }
+
+// ---------- Clawd（Claude Code 吉祥物）----------
+// 由 Claude Code 启动界面的块字 Logo 逐格换算：
+//    ▐▛███▜▌
+//   ▝▜█████▛▘
+//     ▘▘ ▝▝
+// 每个四分之一块 = 1 格宽 × 2 格高，得到 18 × 10 方格；O 身体 K 眼睛
+const CRAB = {
+  idle: [
+    '...OOOOOOOOOOOO...', '...OOOOOOOOOOOO...', '...OOKOOOOOOKOO...', '...OOKOOOOOOKOO...',
+    '.OOOOOOOOOOOOOOOO.', '.OOOOOOOOOOOOOOOO.', '...OOOOOOOOOOOO...', '...OOOOOOOOOOOO...',
+    '....O.O....O.O....', '....O.O....O.O....'],
+  // 抬头：眼睛上移一格，左手举起
+  curious: [
+    '...OOOOOOOOOOOO...', '...OOKOOOOOOKOO...', '.OOOOKOOOOOOKOO...', '.OOOOOOOOOOOOOO...',
+    '...OOOOOOOOOOOOOO.', '...OOOOOOOOOOOOOO.', '...OOOOOOOOOOOO...', '...OOOOOOOOOOOO...',
+    '....O.O....O.O....', '....O.O....O.O....'],
+  // 开心：眯眼（眼睛只剩下半格），双手举起
+  happy: [
+    '...OOOOOOOOOOOO...', '...OOOOOOOOOOOO...', '.OOOOOOOOOOOOOOOO.', '.OOOOKOOOOOOKOOOO.',
+    '...OOOOOOOOOOOO...', '...OOOOOOOOOOOO...', '...OOOOOOOOOOOO...', '...OOOOOOOOOOOO...',
+    '....O.O....O.O....', '....O.O....O.O....'],
+};
+const CRAB_COLOR = { O: C.claude, K: C.eye };
+// (x, y) 为脚底中心；px 每格像素；squash 落拍压缩
+function crab(pose, x, y, px, { squash = 0, socket = false, socketLit = 0 } = {}) {
+  const map = CRAB[pose], rows = map.length, cols = map[0].length;
+  const sy = 1 - squash, sx = 1 + squash * .6;
+  const pw = px * sx, ph = px * sy;
+  const ox = x - cols * pw / 2, oy = y - rows * ph;
+  // 同色像素合成一条路径一次填充，避免格间缝隙；格边取整到相邻格的同一像素
+  const X = (i) => Math.round(ox + i * pw), Y = (j) => Math.round(oy + j * ph);
+  for (const key of ['O', 'K']) {
+    ctx.save();
+    ctx.beginPath();
+    map.forEach((line, j) => [...line].forEach((ch, i) => {
+      if (ch === key) ctx.rect(X(i), Y(j), X(i + 1) - X(i), Y(j + 1) - Y(j));
+    }));
+    ctx.fillStyle = CRAB_COLOR[key];
+    if (key === 'O') { ctx.shadowColor = 'rgba(217,119,87,0.45)'; ctx.shadowBlur = px * 2.5; }
+    ctx.fill();
+    ctx.restore();
+  }
+  if (socket) {
+    // 插座在身体左侧、手臂下方
+    const sxp = ox + 3 * pw, syp = oy + 7 * ph;
+    ctx.save();
+    ctx.fillStyle = socketLit ? C.qiniu : '#2a3038';
+    if (socketLit) { ctx.shadowColor = C.qiniu; ctx.shadowBlur = 30 * socketLit; }
+    ctx.fillRect(sxp - pw * 1.2, syp - ph * .9, pw * 1.2, ph * 1.8);
+    ctx.restore();
+    return { x: sxp - pw * 1.2, y: syp };
+  }
+  // 脚下阴影
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.beginPath(); ctx.ellipse(x, y + px * .4, cols * pw * .34, px * .5, 0, 0, Math.PI * 2); ctx.fill();
+}
+
+// ---------- 七牛 Logo（取自 src/lib/wizard/ui/logo.ts）----------
+const LOGO = [
+  '  ██████  ██ ███    ██ ██ ██    ██',
+  ' ██    ██ ██ ████   ██ ██ ██    ██',
+  ' ██    ██ ██ ██ ██  ██ ██ ██    ██',
+  ' ██ ▄▄ ██ ██ ██  ██ ██ ██ ██    ██',
+  '  ██████  ██ ██   ████ ██  ██████ ',
+  '     ▀▀                           ',
+];
+function logo(x, y, cw, ch, lit) {
+  LOGO.forEach((line, j) => {
+    const a = lit[j];
+    ctx.save();
+    ctx.fillStyle = GRAD[j];
+    ctx.globalAlpha = lerp(0.07, 1, a);
+    if (a > 0) { ctx.shadowColor = GRAD[j]; ctx.shadowBlur = 28 * a; }
+    [...line].forEach((c, i) => {
+      const px = x + i * cw, py = y + j * ch;
+      if (c === '█') ctx.fillRect(px, py, cw + .5, ch + .5);
+      else if (c === '▄') ctx.fillRect(px, py + ch / 2, cw + .5, ch / 2 + .5);
+      else if (c === '▀') ctx.fillRect(px, py, cw + .5, ch / 2 + .5);
+    });
+    ctx.restore();
+  });
+}
+
+// ---------- 字幕（与 TREATMENT.md 旁白表一致）----------
+const CUES = [
+  [0.6, 4.6, '想让 Claude Code 跑在七牛的模型上？'],
+  [6.2, 9.6, '只需要一条命令。'],
+  [10.6, 15.0, '打开终端，输入 npx qiniu-coding-helper，不用安装。'],
+  [15.6, 20.0, '先选语言，再选线路：国内选 qnaigc，海外选 modelink。'],
+  [21.2, 27.0, '粘贴你的 API Key，工具会当场帮你验证。'],
+  [28.1, 34.6, '勾选要接入的编程助手，十三款工具随你挑。'],
+  [35.6, 42.2, '为 Haiku、Sonnet、Opus 各挑一个模型，也能直接搜索。'],
+  [43.1, 47.0, '写入之前，原文件会自动备份。'],
+  [50.6, 52.4, '全部接入。'],
+  [53.1, 59.0, '重启 Claude Code，还是熟悉的界面，跑的已经是七牛线路。'],
+  [63.1, 67.0, '有问题跑 doctor，想撤销就 restore。'],
+  [69.4, 74.6, 'npx qiniu-coding-helper，现在就试试。'],
+];
+function subtitle(t) {
+  const cue = CUES.find(([a, b]) => t >= a && t < b);
+  if (!cue) return;
+  const [a, b, s] = cue;
+  const alpha = clamp((t - a) / .15) * clamp((b - t) / .15);
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.font = `500 44px ${CJK}`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const w = ctx.measureText(s).width;
+  ctx.fillStyle = 'rgba(0,0,0,0.62)';
+  rr(W / 2 - w / 2 - 28, H - 104, w + 56, 66, 6); ctx.fill();
+  ctx.fillStyle = '#ffffff'; ctx.fillText(s, W / 2, H - 70);
+  ctx.restore();
+}
+
+// ---------- 分镜 ----------
+// S03 0:10–0:15  npx 启动，Logo 逐拍亮起，缓拉
+function S03(u) {
+  backdrop();
+  camera(lerp(1.12, 1.0, easeInOut(u / 5)), W / 2, H * .42);
+  terminal('~/my-project — zsh');
+  ctx.save(); clipWindow();
+  const X = WIN.x + 64, Y = WIN.y + WIN.bar + 56, S = 30, LH = 46;
+  text([['~/my-project', C.muted]], X, Y, S);
+  const cmd = 'npx qiniu-coding-helper';
+  const n = Math.floor(clamp((u - .15) / 1.0) * cmd.length);
+  const end = text([['❯ ', C.qiniu], [cmd.slice(0, n), C.white]], X, Y + LH, S);
+  cursor(X + end * S * .6 + 4, Y + LH, S, u < 1.3 && Math.floor(u / (BEAT / 2)) % 2 === 0);
+  // 命令高亮框
+  const hk = clamp((u - 1.3) / .25);
+  if (hk > 0) {
+    ctx.save(); ctx.globalAlpha = hk; ctx.strokeStyle = C.claude; ctx.lineWidth = 3;
+    ctx.shadowColor = C.claude; ctx.shadowBlur = 16;
+    rr(X + 2 * S * .6 - 12, Y + LH - 28, cmd.length * S * .6 + 24, 56, 6); ctx.stroke(); ctx.restore();
+  }
+  // Logo：第 5 小节第 3 拍起每拍亮一行
+  const lit = LOGO.map((_, j) => easeOut((u - (1.25 + j * BEAT)) / .18));
+  logo(X + 40, Y + LH * 2 + 40, 26, 44, lit);
+  const ak = clamp((u - (1.25 + 5 * BEAT + .3)) / .3);
+  const LY = Y + LH * 2 + 40 + 44 * 6 + 46;
+  text([['            Coding Helper', C.qiniu, { bold: true, alpha: ak, glow: 18 }]], X + 40, LY, 30);
+  text([['               v0.4.0', C.muted, { alpha: ak }]], X + 40, LY + 44, 26);
+  // Clawd 从右下探头，抬头看 Logo
+  const rise = easeOut((u - .8) / .8);
+  crab('curious', WIN.x + WIN.w - 260, WIN.y + WIN.h + lerp(40, -60, rise), 13);
+  ctx.restore();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+}
+
+// S09 0:47.5–0:52.5  静音一小节 → 插上线缆 → 状态表翻牌
+const TOOLS = [
+  ['Claude Code', 'v2.1.304', 1], ['Codex', 'v0.58.0', 1], ['OpenCode', 'v1.2.4', 1], ['Qwen Code', 'v0.9.1', 1],
+  ['Kimi Code CLI', 'v1.4.0', 1], ['Factory Droid', '未安装', 0], ['Grok CLI', '未安装', 0], ['OpenClaw', '未安装', 0],
+  ['MiniMax Code', '未安装', 0], ['GitHub Copilot CLI', '未安装', 0], ['CodeBuddy', 'v2.3.0', 1], ['WorkBuddy', '桌面应用', 0],
+  ['Hermes Agent', 'v0.7.2', 1],
+];
+const PLUG = 2.5; // 第 21 小节第 1 拍
+function bez(p, k) {
+  const m = 1 - k;
+  return [m * m * m * p[0][0] + 3 * m * m * k * p[1][0] + 3 * m * k * k * p[2][0] + k * k * k * p[3][0],
+          m * m * m * p[0][1] + 3 * m * m * k * p[1][1] + 3 * m * k * k * p[2][1] + k * k * k * p[3][1]];
+}
+function S09(u) {
+  backdrop();
+  const imp = u < PLUG ? 0 : (u - PLUG);
+  const kick = imp > 0 ? Math.exp(-imp * 6) * Math.sin(imp * 30) * .012 + .035 * easeOut(imp / .4) : 0;
+  const shake = imp > 0 && imp < .25 ? (hash(Math.floor(imp * 60)) - .5) * 14 * (1 - imp / .25) : 0;
+  camera(1 + kick, W * .62, H * .55, shake, shake * .5);
+  const lit = clamp(imp / .3);
+  terminal('coding-helper status', lit ? `rgba(0,180,230,${0.25 * lit})` : null);
+  ctx.save(); clipWindow();
+  const X = WIN.x + 56, Y = WIN.y + WIN.bar + 46, S = 25, LH = 36;
+  const pre = u < PLUG ? .55 : 1;
+  ctx.globalAlpha = pre;
+  text([['❯ ', C.qiniu], ['npx qiniu-coding-helper status', C.white]], X, Y, S);
+  text([['  ──────────────── 接入状态 ────────────────', C.muted]], X, Y + LH * 1.5, S);
+  text([['  线路       ', C.muted], ['https://api.qnaigc.com', C.fg]], X, Y + LH * 2.6, S);
+  text([['  API Key    ', C.muted], ['sk-••••••••••3f9a', C.fg]], X, Y + LH * 3.6, S);
+  const TY = Y + LH * 5;
+  const c1 = 20, c2 = 10, c3 = 14;
+  const hr = (l, m, r) => '  ' + l + '─'.repeat(c1) + m + '─'.repeat(c2) + m + '─'.repeat(c3) + r;
+  text([[hr('╭', '┬', '╮'), C.dim]], X, TY, S);
+  let col = text([['  │', C.dim], [pad(' 工具', c1), C.muted], ['│', C.dim], [pad(' 安装', c2), C.muted], ['│', C.dim], [pad(' 七牛', c3), C.muted], ['│', C.dim]], X, TY + LH, S);
+  text([[hr('├', '┼', '┤'), C.dim]], X, TY + LH * 2, S);
+  let k = 0;
+  TOOLS.forEach(([name, ver, inst], i) => {
+    const y = TY + LH * (3 + i);
+    const c0 = text([['  │', C.dim], [pad(' ' + name, c1), C.fg], ['│', C.dim], [pad(' ' + ver, c2), inst ? C.fg : C.muted], ['│', C.dim]], X, y, S);
+    // 翻牌：已安装的工具按八分音符依次翻
+    let p = 0;
+    if (inst) { p = clamp((u - (PLUG + k * BEAT / 2)) / .2); k++; }
+    const on = p >= .5;
+    const sy = Math.max(.04, Math.abs(Math.cos(Math.PI * p)));
+    ctx.save();
+    ctx.translate(0, y); ctx.scale(1, sy); ctx.translate(0, -y);
+    const cell = on ? [[' ● 已接入七牛', C.ok, { glow: 14, bold: true }]] : [[' ○ 未接入', C.muted]];
+    // 刚翻完的一行背景闪一下
+    if (on && p < 1.5) {
+      const fl = 1 - clamp((u - (PLUG + (k - 1) * BEAT / 2) - .1) / .5);
+      if (fl > 0) { ctx.fillStyle = `rgba(0,229,160,${0.10 * fl})`; ctx.fillRect(X + c0 * S * .6, y - LH / 2, c3 * S * .6, LH); }
+    }
+    text(cell, X, y, S, c0);
+    ctx.restore();
+    text([['│', C.dim]], X, y, S, c0 + c3);
+  });
+  text([[hr('╰', '┴', '╯'), C.dim]], X, TY + LH * (3 + TOOLS.length), S);
+  ctx.globalAlpha = 1;
+  ctx.restore();
+
+  // Clawd + 线缆（画在窗口之上，线缆从画面下方伸进来）
+  const CX0 = 1490, CY0 = 640, PX = 14;
+  const hop = imp > 0 ? Math.abs(Math.sin(Math.PI * clamp(imp / BEAT, 0, 1))) * (imp < BEAT ? 22 : 0) : 0;
+  const sock = crab(imp > .15 ? 'happy' : 'idle', CX0, CY0 - hop, PX, { socket: true, socketLit: lit });
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.beginPath(); ctx.ellipse(CX0, CY0 + 6, 18 * PX * .34, PX * .5, 0, 0, Math.PI * 2); ctx.fill();
+  const P = [[1060, 1140], [1120, 860], [1240, sock.y + 40], [sock.x - 34, sock.y]];
+  const reach = u < PLUG ? easeInOut(u / PLUG) * .985 : 1;
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.shadowColor = C.qiniu; ctx.shadowBlur = 10 + 30 * lit;
+  ctx.strokeStyle = C.qiniuDeep; ctx.lineWidth = 16;
+  ctx.beginPath();
+  for (let i = 0; i <= 60; i++) { const [px, py] = bez(P, reach * i / 60); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); }
+  ctx.stroke();
+  ctx.strokeStyle = lit ? C.qiniu : '#0a6f96'; ctx.lineWidth = 6; ctx.stroke();
+  ctx.restore();
+  // 插头
+  const [hx, hy] = bez(P, reach);
+  ctx.save(); ctx.fillStyle = '#d9e6ee'; ctx.shadowColor = C.qiniu; ctx.shadowBlur = 20 * lit;
+  rr(hx - 8, hy - 16, 38, 32, 5); ctx.fill(); ctx.restore();
+  // 通电后线缆上流动的光点
+  if (lit > 0) for (let i = 0; i < 5; i++) {
+    const k2 = ((u * .9 + i / 5) % 1);
+    const [px, py] = bez(P, k2);
+    ctx.save(); ctx.fillStyle = C.qiniuHi; ctx.shadowColor = C.qiniuHi; ctx.shadowBlur = 24; ctx.globalAlpha = lit;
+    ctx.beginPath(); ctx.arc(px, py, 5, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+  }
+  // 火花
+  if (imp > 0 && imp < .6) {
+    const life = imp / .6;
+    for (let i = 0; i < 22; i++) {
+      const a = hash(i) * Math.PI * 2, sp = 80 + hash(i + 50) * 220;
+      const r = sp * easeOut(life);
+      ctx.save(); ctx.globalAlpha = 1 - life; ctx.strokeStyle = i % 3 ? C.qiniuHi : '#ffffff'; ctx.lineWidth = 3;
+      ctx.shadowColor = C.qiniu; ctx.shadowBlur = 12;
+      ctx.beginPath(); ctx.moveTo(sock.x + Math.cos(a) * r * .55, sock.y + Math.sin(a) * r * .55);
+      ctx.lineTo(sock.x + Math.cos(a) * r, sock.y + Math.sin(a) * r); ctx.stroke(); ctx.restore();
+    }
+  }
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  // 插上瞬间的闪白
+  if (imp > 0 && imp < .15) { ctx.fillStyle = `rgba(200,240,255,${.22 * (1 - imp / .15)})`; ctx.fillRect(0, 0, W, H); }
+  if (u < PLUG) {
+    ctx.font = `400 20px ${MONO}`; ctx.fillStyle = 'rgba(255,255,255,0.0)'; // 静音段无额外字
+  }
+}
+
+// S10 0:52.5–1:02.5  Claude Code 欢迎框 → 提问 → 流式输出 → 跳切 /status
+const CODE = [
+  'def quick_sort(arr):',
+  '    if len(arr) <= 1:',
+  '        return arr',
+  '    pivot = arr[len(arr) // 2]',
+  '    left  = [x for x in arr if x < pivot]',
+  '    mid   = [x for x in arr if x == pivot]',
+  '    right = [x for x in arr if x > pivot]',
+  '    return quick_sort(left) + mid + quick_sort(right)',
+];
+const KW = /^(def|if|return|for|in|len)$/;
+function codeSegs(line) {
+  return line.split(/(\b\w+\b|\s+|[^\w\s]+)/).filter(Boolean).map((tok) => {
+    if (KW.test(tok)) return [tok, tok === 'len' ? '#7fd1ff' : '#e0a370'];
+    if (tok === 'quick_sort') return [tok, '#7fd1ff'];
+    if (/^\d+$/.test(tok)) return [tok, '#f7c66b'];
+    if (/^[^\w\s]+$/.test(tok)) return [tok, '#9aa4b2'];
+    return [tok, C.fg];
+  });
+}
+const SPIN = ['·', '✢', '✳', '✶', '✻', '✽'];
+function S10(u) {
+  backdrop();
+  if (u >= 7.5) return S10status(u - 7.5);
+  camera(lerp(1.0, 1.06, easeInOut(u / 7.5)), W * .45, H * .5);
+  terminal('claude — ~/my-project');
+  ctx.save(); clipWindow();
+  const X = WIN.x + 56, Y = WIN.y + WIN.bar + 44, S = 25, LH = 37, cw = S * .6;
+  text([['❯ ', C.qiniu], ['claude'.slice(0, Math.floor(clamp(u / .35) * 6)), C.white]], X, Y, S);
+  // 欢迎框
+  const wk = clamp((u - .55) / .2);
+  if (wk > 0) {
+    ctx.save(); ctx.globalAlpha = wk;
+    const bx = X, by = Y + LH * .9, bw = 60 * cw, bh = LH * 5.2;
+    rr(bx, by, bw, bh, 12); ctx.strokeStyle = C.claude; ctx.lineWidth = 2.5; ctx.stroke();
+    text([['✻ ', C.claude, { glow: 12 }], ['Welcome to Claude Code!', C.white, { bold: true }]], bx + 2 * cw, by + LH * .9, S);
+    text([['/help for help, /status for your current setup', C.muted]], bx + 4 * cw, by + LH * 2.5, S);
+    text([['cwd: /Users/you/my-project', C.muted]], bx + 4 * cw, by + LH * 4.0, S);
+    ctx.restore();
+  }
+  const q = '帮我写一个快速排序';
+  const sent = u >= 2.6;
+  let yy = Y + LH * 7;
+  if (sent) {
+    text([['> ', C.muted], [q, C.muted]], X, yy, S);
+    yy += LH * 1.3;
+    if (u < 4.0) {
+      const f = SPIN[Math.floor(u / .12) % SPIN.length];
+      text([[f + ' ', C.claude, { glow: 14 }], ['Thinking…', C.claude], ['  (esc to interrupt)', C.muted]], X, yy, S);
+    } else {
+      text([['⏺ ', C.white], ['好的，这是一个简洁的 Python 快速排序：', C.fg]], X, yy, S);
+      // 代码流式出现
+      const total = CODE.join('\n').length;
+      let left = Math.floor(clamp((u - 4.3) / 3.0) * total);
+      CODE.forEach((line, i) => {
+        if (left <= 0) return;
+        const shown = line.slice(0, left); left -= line.length + 1;
+        const y = yy + LH * (1.4 + i);
+        ctx.fillStyle = 'rgba(255,255,255,0.025)'; ctx.fillRect(X + 2 * cw - 10, y - LH / 2, 56 * cw, LH);
+        text(codeSegs(shown), X + 3 * cw, y, S);
+      });
+    }
+  }
+  // 底部输入框
+  const iy = WIN.y + WIN.h - 120;
+  rr(X, iy - LH * .75, 1508, LH * 1.5, 10); ctx.strokeStyle = '#4b5563'; ctx.lineWidth = 2; ctx.stroke();
+  const typed = sent ? '' : q.slice(0, Math.floor(clamp((u - 1.2) / 1.2) * q.length));
+  const ce = text([['> ', C.fg], [typed, C.white]], X + 20, iy, S);
+  cursor(X + 20 + ce * cw + 3, iy, S, Math.floor(u / (BEAT / 2)) % 2 === 0);
+  text([['? for shortcuts', C.muted]], X + 8, iy + LH * 1.35, 20);
+  ctx.restore();
+  // 角落里踩拍跳舞的 Clawd
+  const ph = (u % BEAT) / BEAT;
+  const hop = Math.sin(Math.PI * ph) * 26;
+  const squash = ph < .12 ? (1 - ph / .12) * .14 : 0;
+  ctx.save(); clipWindow();
+  crab('happy', WIN.x + WIN.w - 190, WIN.y + WIN.h - 190 - hop, 10, { squash });
+  ctx.restore();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+}
+// S10 跳切：/status 特写
+function S10status(v) {
+  camera(lerp(1.0, 1.03, v / 2.5), W * .5, H * .5);
+  terminal('claude — /status');
+  ctx.save(); clipWindow();
+  const X = WIN.x + 90, Y = WIN.y + WIN.bar + 90, S = 38, LH = 62, cw = S * .6;
+  text([['> ', C.muted], ['/status', C.white, { bold: true }]], X, Y, S);
+  text([['API Configuration', C.muted]], X, Y + LH * 1.6, S);
+  text([['  L Auth token: ', C.muted], ['ANTHROPIC_AUTH_TOKEN', C.fg]], X, Y + LH * 2.6, S);
+  const y = Y + LH * 3.6;
+  const c0 = text([['  L Anthropic base URL: ', C.muted]], X, y, S);
+  const url = 'https://api.qnaigc.com';
+  const hk = easeOut(v / .35);
+  ctx.save(); ctx.globalAlpha = hk; ctx.strokeStyle = C.qiniu; ctx.lineWidth = 3; ctx.shadowColor = C.qiniu; ctx.shadowBlur = 24;
+  rr(X + c0 * cw - 14, y - LH * .5, url.length * cw + 28, LH, 8); ctx.stroke(); ctx.restore();
+  text([[url, C.qiniu, { glow: 18, bold: true }]], X, y, S, c0);
+  text([['  L Setting source: ', C.muted], ['~/.claude/settings.json', C.fg]], X, Y + LH * 4.6, S);
+  text([['  L API timeout: ', C.muted], ['3000000 ms', C.fg]], X, Y + LH * 5.6, S);
+  ctx.restore();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+}
+
+// 尚未制作的镜头：场记板
+const SHOTS = [
+  ['S01', 0, 5], ['S02', 5, 10], ['S03', 10, 15, S03], ['S04', 15, 20], ['S05', 20, 27.5], ['S06', 27.5, 35],
+  ['S07', 35, 42.5], ['S08', 42.5, 47.5], ['S09', 47.5, 52.5, S09], ['S10', 52.5, 62.5, S10], ['S11', 62.5, 67.5], ['S12', 67.5, 75],
+];
+function slate(name, t) {
+  backdrop();
+  ctx.font = `700 120px ${MONO}`; ctx.fillStyle = C.dim; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(name, W / 2, H / 2 - 40);
+  ctx.font = `400 34px ${CJK}`; ctx.fillStyle = C.muted; ctx.fillText(`待制作 · ${t.toFixed(2)} s`, W / 2, H / 2 + 60);
+  ctx.textAlign = 'left';
+}
+
+// 角色设定稿
+function modelSheet() {
+  backdrop();
+  ctx.font = `700 56px ${CJK}`; ctx.fillStyle = C.white; ctx.textBaseline = 'middle';
+  ctx.fillText('Clawd · 角色设定', 120, 120);
+  ctx.font = `400 26px ${CJK}`; ctx.fillStyle = C.muted;
+  ctx.fillText('18 × 10 格（取自 Claude Code 启动 Logo）· 画面中每格 10–14 px · 只在整格上移动，镜头与光照逐帧平滑', 120, 180);
+  const poses = [['idle', '待机'], ['curious', '困惑 / 抬头'], ['happy', '开心 / 跳舞'], ['plug', '插座通电']];
+  poses.forEach(([p, label], i) => {
+    const x = 300 + i * 440, y = 620;
+    ctx.strokeStyle = C.winEdge; ctx.lineWidth = 1; rr(x - 190, 300, 380, 420, 12); ctx.stroke();
+    if (p === 'plug') {
+      const s = crab('idle', x, y, 20, { socket: true, socketLit: 1 });
+      ctx.save(); ctx.fillStyle = '#d9e6ee'; ctx.shadowColor = C.qiniu; ctx.shadowBlur = 18; rr(s.x - 46, s.y - 16, 38, 32, 5); ctx.fill(); ctx.restore();
+      ctx.save(); ctx.strokeStyle = C.qiniu; ctx.lineWidth = 6; ctx.shadowColor = C.qiniu; ctx.shadowBlur = 16;
+      ctx.beginPath(); ctx.moveTo(s.x - 46, s.y); ctx.bezierCurveTo(s.x - 120, s.y, s.x - 120, s.y + 120, s.x - 160, s.y + 130); ctx.stroke(); ctx.restore();
+    } else crab(p, x, y, 20);
+    if (p === 'curious') { ctx.font = `700 64px ${MONO}`; ctx.fillStyle = C.claude; ctx.fillText('?', x + 120, 360); }
+    ctx.font = `500 28px ${CJK}`; ctx.fillStyle = C.fg; ctx.textAlign = 'center';
+    ctx.fillText(label, x, 680); ctx.textAlign = 'left';
+  });
+  // 跳舞节奏：落拍压缩
+  ctx.font = `400 24px ${CJK}`; ctx.fillStyle = C.muted;
+  ctx.fillText('踩拍：每拍弹起一次，落拍瞬间压扁 14%', 120, 790);
+  [0, .06, .25, .5, .75, .95].forEach((ph, i) => {
+    const hop = Math.sin(Math.PI * ph) * 40, squash = ph < .12 ? (1 - ph / .12) * .14 : 0;
+    crab('happy', 220 + i * 190, 960 - hop, 8, { squash });
+  });
+  // 色板
+  const sw = [['#d97757', 'Clawd 橙'], ['#1a0f0b', '眼睛'], ['#00b4e6', '七牛蓝'], ['#005c99', '七牛深蓝'], ['#00e5a0', '已接入绿'], ['#0a0d12', '终端底']];
+  sw.forEach(([c, n], i) => {
+    const x = 1360 + (i % 2) * 230, y = 800 + Math.floor(i / 2) * 80;
+    ctx.fillStyle = c; rr(x, y, 52, 52, 8); ctx.fill(); ctx.strokeStyle = C.winEdge; ctx.stroke();
+    ctx.font = `400 22px ${CJK}`; ctx.fillStyle = C.fg; ctx.fillText(n, x + 68, y + 18);
+    ctx.font = `400 18px ${MONO}`; ctx.fillStyle = C.muted; ctx.fillText(c, x + 68, y + 40);
+  });
+  vignette();
+}
+
+window.DUR = 75;
+window.render = function (t) {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+  ctx.clearRect(0, 0, W, H);
+  if (new URLSearchParams(location.search).has('sheet')) return modelSheet();
+  const s = SHOTS.find(([, a, b]) => t >= a && t < b) || SHOTS[SHOTS.length - 1];
+  if (s[3]) s[3](t - s[1]); else slate(s[0], t);
+  vignette();
+  subtitle(t);
+};
+window.READY = false;
+Promise.all([`400 30px "JetBrains Mono"`, `700 30px "JetBrains Mono"`, `400 30px "WenQuanYi Zen Hei"`].map((f) => document.fonts.load(f)))
+  .finally(() => { window.READY = true; window.render(Number(new URLSearchParams(location.search).get('t') || 0)); });
+</script>
+</body>
+</html>

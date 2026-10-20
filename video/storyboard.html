@@ -104,7 +104,7 @@ footer code { font-family: var(--mono); color: var(--fg); }
   <header>
     <div class="eyebrow">qiniu-coding-helper · 教程短片 · 分镜 v0.1</div>
     <h1>一条命令，<br><span class="o">Claude Code</span> 接上<span class="c">七牛</span></h1>
-    <p class="lede">一只住在终端里的橙色像素小螃蟹想开工，却没有可用的 API 端点。跟着向导的五步，蓝色的七牛线路接进来，状态表一行行翻成「已接入」，最后它在熟悉的 Claude Code 界面里写出第一段代码。</p>
+    <p class="lede">Claude Code 的吉祥物 Clawd 住在终端里，它想开工，却没有可用的 API 端点。跟着向导的五步，蓝色的七牛线路接进来，状态表一行行翻成「已接入」，最后它在熟悉的 Claude Code 界面里写出第一段代码。</p>
     <div class="spec"><span>75 s</span><span>1920×1080 · 24 fps</span><span>96 BPM · 30 小节</span><span>中文旁白 + 硬字幕</span><span>−14 LUFS</span></div>
   </header>
 
@@ -124,26 +124,22 @@ footer code { font-family: var(--mono); color: var(--fg); }
 
   <footer>
     <div>界面文案取自本仓库 <code>src/locales/zh_CN.json</code> 与 CLI 实际输出；七牛 Logo 为项目内置 ASCII 块字。</div>
-    <div>小螃蟹是为本片画的原创「Claude Code 风格」形象，公开发布前请确认角色与品牌素材的使用方式。完整分镜表、旁白和卡点见 <code>video/TREATMENT.md</code>。</div>
+    <div>Clawd 按 Claude Code 启动界面的块字 Logo 逐格还原；公开或商用发布前请对照 Anthropic 的品牌使用规范确认。完整分镜表、旁白和卡点见 <code>video/TREATMENT.md</code>。</div>
   </footer>
 </div>
 
 <script>
-// 像素小螃蟹：O = 身体橙，D = 深橙，. = 透明
+// Clawd：由 Claude Code 启动 Logo 块字逐格换算，O = 身体，K = 眼睛
 const CRAB = [
-  "..O........O..",
-  ".OO........OO.",
-  ".O..OOOOOO..O.",
-  ".OOOO.OO.OOOO.",
-  "..OOOOOOOOOO..",
-  "...OOOOOOOO...",
-  "...D.D..D.D...",
+  "...OOOOOOOOOOOO...", "...OOOOOOOOOOOO...", "...OOKOOOOOOKOO...", "...OOKOOOOOOKOO...",
+  ".OOOOOOOOOOOOOOOO.", ".OOOOOOOOOOOOOOOO.", "...OOOOOOOOOOOO...", "...OOOOOOOOOOOO...",
+  "....O.O....O.O....", "....O.O....O.O....",
 ];
 function crab(x, y, w, extra = "") {
   const cols = CRAB[0].length, rows = CRAB.length;
   let r = "";
   CRAB.forEach((line, j) => [...line].forEach((ch, i) => {
-    if (ch !== ".") r += `<rect x="${i}" y="${j}" width="1.02" height="1.02" fill="${ch === "O" ? "#d97757" : "#9c4f35"}"/>`;
+    if (ch !== ".") r += `<rect x="${i}" y="${j}" width="1.03" height="1.03" fill="${ch === "O" ? "#d97757" : "#1a0f0b"}"/>`;
   }));
   return `<svg class="crab" viewBox="0 0 ${cols} ${rows}" style="left:${x}cqw;top:${y}cqw;width:${w}cqw" aria-hidden="true">${r}</svg>${extra}`;
 }
@@ -163,7 +159,7 @@ const SUB = (s) => `<div class="sub">${s}</div>`;
 const CAM = (s) => `<div class="cam">${s}</div>`;
 
 const shots = [
-  { n: "S01", t: "0:00–0:05", bars: [1, 2], title: "空终端，一只困惑的螃蟹",
+  { n: "S01", t: "0:00–0:05", bars: [1, 2], title: "空终端，一只困惑的Clawd",
     shot: "终端全屏 → 光标特写", move: "缓推 push-in",
     vo: "想让 Claude Code 跑在七牛的模型上？",
     sound: "风扇底噪；光标每拍「滴」；键盘单键",
@@ -173,7 +169,7 @@ const shots = [
       CAM("PUSH IN →") + SUB("想让 Claude Code 跑在七牛的模型上？") },
 
   { n: "S02", t: "0:05–0:10", bars: [3, 4], title: "没插头的线缆 + 片名",
-    shot: "中景，螃蟹居中", move: "静止 → 第 4 小节甩镜",
+    shot: "中景，Clawd居中", move: "静止 → 第 4 小节甩镜",
     vo: "只需要一条命令。",
     sound: "琶音；第 4 小节第 4 拍反向镲",
     why: "立题。橙色线缆的另一头悬空，等着第 9 镜被接上。",
@@ -247,7 +243,7 @@ const shots = [
     shot: "状态表全景", move: "静止 → 冲击推",
     vo: "（静音一小节）全部接入。",
     sound: "全静 → 插头「啪」（全片最响）→ 每拍一声翻牌",
-    why: "两条线在这里汇合：蓝色线缆插进螃蟹的插座，表格同时翻牌。",
+    why: "两条线在这里汇合：蓝色线缆插进Clawd的插座，表格同时翻牌。",
     frame: `<div class="silence">· 静 音 1 小 节 ·</div>` +
       T(`<span class="m">──────── 接入状态 ────────</span>\n\n  ╭──────────────┬──────────┬─────────────╮\n  │ 工具         │ 安装     │ 七牛        │\n  ├──────────────┼──────────┼─────────────┤\n  │ Claude Code  │ v2.1.304 │ <span class="g">● 已接入七牛</span> │\n  │ Codex        │ 0.58.0   │ <span class="g">● 已接入七牛</span> │\n  │ OpenCode     │ 1.2.4    │ <span class="g">● 已接入七牛</span> │\n  │ Qwen Code    │ 0.9.1    │ <span class="m">○ 未接入</span> → │\n  ╰──────────────┴──────────┴─────────────╯`).replace('class="term"', 'class="term" style="font-size:1.85cqw;top:8cqw"') +
       crab(80, 30, 9) + `<div class="cable" style="left:62cqw;top:47.5cqw;width:18cqw;background:linear-gradient(90deg,var(--qiniu-deep),var(--qiniu))"></div>` +
@@ -269,7 +265,7 @@ const shots = [
     frame: `<div class="split"><div><span class="c">❯</span> coding-helper doctor\n\n<span class="g">✔</span> 配置文件   通过\n<span class="g">✔</span> API Key    通过\n<span class="g">✔</span> 网络连接   连接正常\n<span class="g">✔</span> Git        已找到\n<span class="g">✔</span> Node.js    v22.11.0</div><div><span class="c">❯</span> coding-helper restore\n\n<span class="o">◀◀ REWIND</span>\n\n<span class="m">ANTHROPIC_BASE_URL</span>\n  <span class="m" style="text-decoration:line-through">api.qnaigc.com</span>\n  → 原值已写回</div></div>` +
       CAM("◀◀ REWIND") + SUB("有问题跑 doctor，想撤销就 restore。") },
 
-  { n: "S12", t: "1:07.5–1:15", bars: [28, 30], title: "呼应开场：这次螃蟹自己敲命令",
+  { n: "S12", t: "1:07.5–1:15", bars: [28, 30], title: "呼应开场：这次Clawd自己敲命令",
     shot: "与 S01 同机位", move: "缓拉，定格",
     vo: "npx qiniu-coding-helper，现在就试试。",
     sound: "第二处静音半小节；琶音 J-cut 提前进入；挥钳「嗖」",
