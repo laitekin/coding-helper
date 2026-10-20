@@ -1,0 +1,304 @@
+<title>接上七牛 · 分镜</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800&family=JetBrains+Mono:wght@400;700&family=Noto+Sans+SC:wght@400;500;700&display=swap">
+<style>
+/* 布局：一条竖向胶片带，每镜 = 16:9 画框 + 右侧场记信息；窄屏时上下堆叠 */
+:root {
+  --ink: #0d1014;          /* 页面底 */
+  --reel: #151a20;         /* 胶片带 */
+  --screen: #07090c;       /* 画框内终端底 */
+  --line: #262d36;
+  --fg: #e8ecf1;
+  --muted: #8a94a2;
+  --claude: #d97757;       /* Claude Code 橙 */
+  --qiniu: #00b4e6;        /* 七牛蓝 */
+  --qiniu-deep: #005c99;
+  --ok: #00e5a0;
+  --display: "Big Shoulders Display", "Arial Narrow", sans-serif;
+  --body: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--ink); color: var(--fg); font-family: var(--body); line-height: 1.6; }
+.wrap { max-width: 1180px; margin: 0 auto; padding-block: 40px 80px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+
+header { display: grid; gap: 14px; margin-bottom: 36px; }
+.eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .12em; color: var(--muted); text-transform: uppercase; }
+h1 { font-family: var(--display); font-weight: 800; font-size: clamp(40px, 7vw, 76px); line-height: .95; margin: 0; letter-spacing: .01em; text-wrap: balance; }
+h1 .o { color: var(--claude); } h1 .c { color: var(--qiniu); }
+.lede { color: var(--muted); max-width: 64ch; margin: 0; }
+.spec { display: flex; flex-wrap: wrap; gap: 8px; font-family: var(--mono); font-size: 12px; }
+.spec span { border: 1px solid var(--line); padding: 3px 10px; border-radius: 2px; color: var(--fg); }
+
+/* 节拍时间轴：30 小节，按段落着色 */
+.timeline { margin: 8px 0 44px; }
+.bars { display: grid; grid-template-columns: repeat(30, 1fr); gap: 2px; height: 34px; }
+.bar { background: var(--line); position: relative; }
+.bar.A { background: #3a2a24; } .bar.B { background: #1d3340; } .bar.S { background: transparent; outline: 1px dashed var(--line); outline-offset: -1px; }
+.bar.C { background: var(--qiniu-deep); } .bar.D { background: #3a2a24; }
+.bar.hit::after { content: ""; position: absolute; left: 0; top: -6px; bottom: -6px; width: 2px; background: var(--claude); }
+.shotmarks { display: grid; grid-template-columns: repeat(30, 1fr); gap: 2px; margin-top: 6px; font-family: var(--mono); font-size: 10px; color: var(--muted); }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 10px; font-size: 12px; color: var(--muted); }
+.legend i { display: inline-block; width: 10px; height: 10px; margin-right: 6px; vertical-align: -1px; }
+
+/* 每一镜 */
+.shot { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); gap: 28px; padding: 22px; background: var(--reel);
+  border-top: 1px solid var(--line); position: relative; }
+.shot:first-of-type { border-top: 0; }
+.reel { display: grid; gap: 0; border-radius: 4px; overflow: hidden; }
+@media (max-width: 760px) { .shot { grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 14px; } }
+.shot.turn { box-shadow: inset 4px 0 0 var(--qiniu); }
+
+.frame { aspect-ratio: 16 / 9; max-width: 100%; background: var(--screen); position: relative; overflow: hidden;
+  container-type: inline-size; border: 1px solid #1c232b; font-family: var(--mono); color: var(--fg); }
+.frame .term { position: absolute; inset: 6cqw 7cqw; font-size: 2.15cqw; line-height: 1.55; white-space: pre; }
+.frame .sub { position: absolute; left: 50%; bottom: 3.2cqw; transform: translateX(-50%); font-family: var(--body); font-weight: 500;
+  font-size: 2.3cqw; background: rgba(0,0,0,.62); padding: .35cqw 1.4cqw; white-space: nowrap; color: #fff; }
+.frame .cam { position: absolute; top: 1.6cqw; right: 1.8cqw; font-size: 1.5cqw; color: var(--claude); letter-spacing: .08em; }
+.frame .tc { position: absolute; top: 1.6cqw; left: 1.8cqw; font-size: 1.5cqw; color: #5d6773; }
+.o { color: var(--claude); } .c { color: var(--qiniu); } .g { color: var(--ok); } .m { color: #6b7280; } .b { font-weight: 700; } .w { color: #fff; }
+.hl { outline: .25cqw solid var(--claude); outline-offset: .3cqw; }
+.cursor { display: inline-block; width: .62em; height: 1.1em; background: var(--fg); vertical-align: -.18em; animation: blink 1.25s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .cursor, .spin { animation: none !important; } }
+.spin { display: inline-block; animation: spin 1.25s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.crab { position: absolute; image-rendering: pixelated; }
+.cable { position: absolute; height: .9cqw; border-radius: .45cqw; }
+.title-card { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; gap: 1.2cqw; }
+.title-card .t1 { font-size: 5.2cqw; font-weight: 700; letter-spacing: .02em; }
+.title-card .t2 { font-family: var(--body); font-size: 2cqw; color: var(--muted); }
+.split { position: absolute; inset: 6cqw 4cqw; display: grid; grid-template-columns: 1fr 1fr; gap: 3cqw; font-size: 1.8cqw; line-height: 1.6; white-space: pre; }
+.split > div { border: 1px solid #222a33; padding: 2cqw; overflow: hidden; }
+.cards3 { position: absolute; inset: 9cqw 5cqw 10cqw; display: grid; grid-template-columns: repeat(3, 1fr); gap: 2.2cqw; font-size: 1.75cqw; }
+.cards3 > div { border: 1px solid #2a323c; padding: 1.8cqw; display: grid; gap: .8cqw; align-content: start; white-space: pre; }
+.cards3 > div.on { border-color: var(--claude); transform: scale(1.06); background: #120d0b; }
+.cards3 .h { font-family: var(--body); font-weight: 700; font-size: 2cqw; }
+.ccbox { border: .18cqw solid var(--claude); border-radius: 1cqw; padding: 1.2cqw 2cqw; display: inline-block; }
+.inbox { border: .15cqw solid #4b5563; border-radius: .8cqw; padding: .6cqw 1.4cqw; display: block; }
+.packet { position: absolute; width: 1.6cqw; height: 1.6cqw; border-radius: 50%; background: var(--qiniu); box-shadow: 0 0 2.4cqw var(--qiniu); }
+.silence { position: absolute; top: 1.6cqw; left: 50%; transform: translateX(-50%); font-size: 1.4cqw; color: #5d6773; letter-spacing: .3em; }
+
+.meta { display: grid; gap: 12px; align-content: start; min-width: 0; }
+.meta .row1 { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+.num { font-family: var(--display); font-weight: 800; font-size: 44px; line-height: 1; color: var(--claude); }
+.shot.turn .num { color: var(--qiniu); }
+.when { font-family: var(--mono); font-size: 13px; color: var(--fg); }
+.bars-tag { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.meta h3 { margin: 0; font-size: 18px; font-weight: 700; text-wrap: balance; }
+dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 14px; margin: 0; font-size: 14px; }
+dt { color: var(--muted); font-size: 12px; letter-spacing: .08em; padding-top: 2px; }
+dd { margin: 0; }
+.vo { font-size: 15px; border-left: 2px solid var(--claude); padding: 2px 0 2px 12px; }
+.shot.turn .vo { border-color: var(--qiniu); }
+.why { color: var(--muted); font-size: 13px; }
+
+footer { margin-top: 40px; color: var(--muted); font-size: 13px; display: grid; gap: 6px; max-width: 72ch; }
+footer code { font-family: var(--mono); color: var(--fg); }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">qiniu-coding-helper · 教程短片 · 分镜 v0.1</div>
+    <h1>一条命令，<br><span class="o">Claude Code</span> 接上<span class="c">七牛</span></h1>
+    <p class="lede">一只住在终端里的橙色像素小螃蟹想开工，却没有可用的 API 端点。跟着向导的五步，蓝色的七牛线路接进来，状态表一行行翻成「已接入」，最后它在熟悉的 Claude Code 界面里写出第一段代码。</p>
+    <div class="spec"><span>75 s</span><span>1920×1080 · 24 fps</span><span>96 BPM · 30 小节</span><span>中文旁白 + 硬字幕</span><span>−14 LUFS</span></div>
+  </header>
+
+  <section class="timeline" aria-label="节拍时间轴">
+    <div class="bars" id="bars"></div>
+    <div class="shotmarks" id="marks"></div>
+    <div class="legend">
+      <span><i style="background:#3a2a24"></i>引子 / 收尾：芯片琶音</span>
+      <span><i style="background:#1d3340"></i>向导：鼓组 + 贝斯</span>
+      <span><i style="outline:1px dashed #8a94a2"></i>真静音</span>
+      <span><i style="background:var(--qiniu-deep)"></i>接入：全编制</span>
+      <span><i style="background:var(--claude)"></i>重拍卡点</span>
+    </div>
+  </section>
+
+  <div class="reel" id="reel"></div>
+
+  <footer>
+    <div>界面文案取自本仓库 <code>src/locales/zh_CN.json</code> 与 CLI 实际输出；七牛 Logo 为项目内置 ASCII 块字。</div>
+    <div>小螃蟹是为本片画的原创「Claude Code 风格」形象，公开发布前请确认角色与品牌素材的使用方式。完整分镜表、旁白和卡点见 <code>video/TREATMENT.md</code>。</div>
+  </footer>
+</div>
+
+<script>
+// 像素小螃蟹：O = 身体橙，D = 深橙，. = 透明
+const CRAB = [
+  "..O........O..",
+  ".OO........OO.",
+  ".O..OOOOOO..O.",
+  ".OOOO.OO.OOOO.",
+  "..OOOOOOOOOO..",
+  "...OOOOOOOO...",
+  "...D.D..D.D...",
+];
+function crab(x, y, w, extra = "") {
+  const cols = CRAB[0].length, rows = CRAB.length;
+  let r = "";
+  CRAB.forEach((line, j) => [...line].forEach((ch, i) => {
+    if (ch !== ".") r += `<rect x="${i}" y="${j}" width="1.02" height="1.02" fill="${ch === "O" ? "#d97757" : "#9c4f35"}"/>`;
+  }));
+  return `<svg class="crab" viewBox="0 0 ${cols} ${rows}" style="left:${x}cqw;top:${y}cqw;width:${w}cqw" aria-hidden="true">${r}</svg>${extra}`;
+}
+const LOGO = [
+  "  ██████  ██ ███    ██ ██ ██    ██",
+  " ██    ██ ██ ████   ██ ██ ██    ██",
+  " ██    ██ ██ ██ ██  ██ ██ ██    ██",
+  " ██ ▄▄ ██ ██ ██  ██ ██ ██ ██    ██",
+  "  ██████  ██ ██   ████ ██  ██████ ",
+  "     ▀▀                           ",
+];
+const GRAD = ["#00D4FF", "#00B4E6", "#0094CC", "#0078B3", "#005C99", "#004080"];
+const logo = LOGO.map((l, i) => `<span style="color:${GRAD[i]}">${l}</span>`).join("\n");
+
+const T = (s) => `<div class="term">${s}</div>`;
+const SUB = (s) => `<div class="sub">${s}</div>`;
+const CAM = (s) => `<div class="cam">${s}</div>`;
+
+const shots = [
+  { n: "S01", t: "0:00–0:05", bars: [1, 2], title: "空终端，一只困惑的螃蟹",
+    shot: "终端全屏 → 光标特写", move: "缓推 push-in",
+    vo: "想让 Claude Code 跑在七牛的模型上？",
+    sound: "风扇底噪；光标每拍「滴」；键盘单键",
+    why: "3 秒钩子：熟悉的终端 + 一个带问题的角色。",
+    frame: T(`<span class="m">~/my-project</span>\n<span class="c">❯</span> claude<span class="cursor"></span>`) +
+      crab(44, 30, 12, `<div style="position:absolute;left:52cqw;top:23cqw;font-size:4cqw" class="o b">?</div>`) +
+      CAM("PUSH IN →") + SUB("想让 Claude Code 跑在七牛的模型上？") },
+
+  { n: "S02", t: "0:05–0:10", bars: [3, 4], title: "没插头的线缆 + 片名",
+    shot: "中景，螃蟹居中", move: "静止 → 第 4 小节甩镜",
+    vo: "只需要一条命令。",
+    sound: "琶音；第 4 小节第 4 拍反向镲",
+    why: "立题。橙色线缆的另一头悬空，等着第 9 镜被接上。",
+    frame: crab(14, 24, 14) + `<div class="cable" style="left:27cqw;top:36cqw;width:22cqw;background:var(--claude)"></div>` +
+      `<div style="position:absolute;left:49cqw;top:34.4cqw;width:2.4cqw;height:4cqw;border:.4cqw solid var(--claude);border-left:0"></div>` +
+      `<div class="title-card" style="left:30cqw"><div class="t1">qiniu-coding-helper</div><div class="t2">AI 编程助手 · 七牛 API 端点一键配置</div></div>` +
+      CAM("HOLD · WHIP →") + SUB("只需要一条命令。") },
+
+  { n: "S03", t: "0:10–0:15", bars: [5, 6], title: "npx 启动，QINIU Logo 逐拍亮起",
+    shot: "终端全屏", move: "缓拉 pull-out",
+    vo: "打开终端，输入 npx qiniu-coding-helper，不用安装。",
+    sound: "打字串 + 回车；Logo 每亮一行一个音",
+    why: "教程第 0 步。Logo 6 行 = 6 拍，是七牛的招牌镜头。",
+    frame: T(`<span class="c">❯</span> <span class="hl">npx qiniu-coding-helper</span>\n\n${logo}\n<span class="c b">            Coding Helper</span>\n<span class="m">               v0.4.0</span>`) +
+      CAM("← PULL OUT") + SUB("打开终端，输入 npx qiniu-coding-helper，不用安装。") },
+
+  { n: "S04", t: "0:15–0:20", bars: [7, 8], title: "选语言、选线路",
+    shot: "选项区特写", move: "横移 truck",
+    vo: "先选语言，再选线路：国内选 qnaigc，海外选 modelink。",
+    sound: "选项移动「嘀」落在拍上",
+    why: "步骤 1–2，用右侧小图说明两条线路各自适合谁。",
+    frame: T(`<span class="g">✔</span> 请选择语言 <span class="c">中文</span>\n<span class="c">?</span> <span class="b">请选择 API 线路</span>\n<span class="c">❯ 国内线路 (api.qnaigc.com)</span>\n  海外线路 (api.modelink.ai)`) +
+      `<svg viewBox="0 0 100 60" style="position:absolute;right:6cqw;bottom:9cqw;width:28cqw" aria-hidden="true">
+        <circle cx="12" cy="30" r="4" fill="#d97757"/>
+        <path d="M16 30 C40 6, 60 6, 84 16" stroke="#00b4e6" stroke-width="1.6" fill="none"/>
+        <path d="M16 30 C40 54, 60 54, 84 44" stroke="#4b5563" stroke-width="1.2" fill="none" stroke-dasharray="3 2"/>
+        <circle cx="86" cy="16" r="3" fill="#00b4e6"/><circle cx="86" cy="44" r="3" fill="#4b5563"/>
+        <text x="62" y="8" fill="#00b4e6" font-size="6" font-family="monospace">国内</text>
+        <text x="62" y="58" fill="#8a94a2" font-size="6" font-family="monospace">海外</text></svg>` +
+      CAM("TRUCK →") + SUB("先选语言，再选线路：国内选 qnaigc，海外选 modelink。") },
+
+  { n: "S05", t: "0:20–0:27.5", bars: [9, 11], title: "粘贴 API Key，当场验证",
+    shot: "终端中景 → 数据包跟拍", move: "跟拍 follow",
+    vo: "粘贴你的 API Key，工具会当场帮你验证。",
+    sound: "粘贴「咔」；光点飞行嗖声；第 11 小节第 1 拍成功「叮」",
+    why: "把看不见的「验证」变成一颗飞出去再弹回来的光点。",
+    frame: T(`<span class="m">如需获取 API Key，请访问: https://portal.qiniu.com/ai-inference/api-key</span>\n<span class="g">✔</span> 请输入您的 API Key <span class="m">••••••••••••••••</span>\n<span class="o"><span class="spin">✻</span></span> 正在验证 API Key...\n<span class="g">✔ API Key 验证成功！</span>`) +
+      `<div class="packet" style="left:62cqw;top:38cqw"></div><div style="position:absolute;left:58cqw;top:42cqw;width:30cqw;border-top:.2cqw dashed #1f6f8b"></div>` +
+      `<div style="position:absolute;left:73cqw;top:44cqw;font-size:1.6cqw" class="c">/v2/stat/usage</div>` +
+      CAM("FOLLOW →") + SUB("粘贴你的 API Key，工具会当场帮你验证。") },
+
+  { n: "S06", t: "0:27.5–0:35", bars: [12, 14], title: "勾选 13 款编程助手",
+    shot: "列表全景", move: "竖摇 tilt down",
+    vo: "勾选要接入的编程助手，十三款工具随你挑。",
+    sound: "每拍一声勾选「咔」",
+    why: "步骤 4。列表本身就说明了支持面。",
+    frame: T(`<span class="c">?</span> <span class="b">选择要接入七牛的编码工具</span><span class="m">（空格勾选，回车确认）</span>\n<span class="c">❯ ● Claude Code</span>\n  <span class="g">●</span> Codex\n  <span class="g">●</span> OpenCode\n  <span class="g">●</span> Qwen Code\n  ○ Kimi Code CLI\n  ○ Factory Droid\n  ○ Grok CLI\n  <span class="m">↓ OpenClaw · MiniMax Code · Copilot CLI · CodeBuddy · WorkBuddy · Hermes</span>`) +
+      CAM("TILT ↓") + SUB("勾选要接入的编程助手，十三款工具随你挑。") },
+
+  { n: "S07", t: "0:35–0:42.5", bars: [15, 17], title: "Haiku / Sonnet / Opus 三档选模型",
+    shot: "三栏并排", move: "推近中间栏",
+    vo: "为 Haiku、Sonnet、Opus 各挑一个模型，也能直接搜索。",
+    sound: "搜索框打字；列表过滤的细碎「嘀」",
+    why: "步骤 5。三栏对应 CLI 里三个依次出现的问题，合在一屏更好懂。",
+    frame: `<div class="cards3">
+        <div><span class="h">Haiku</span><span class="m">快速 / 轻量</span>  claude-haiku-…\n  <span class="m">…</span></div>
+        <div class="on"><span class="h o">Sonnet</span><span class="m">平衡</span><span class="inbox">sonnet<span class="cursor"></span></span><span class="c">❯ claude-sonnet-…</span>  <span class="m">claude-sonnet-…</span></div>
+        <div><span class="h">Opus</span><span class="m">强大</span>  claude-opus-…\n  <span class="m">…</span></div></div>
+      <div class="term" style="inset:3.5cqw 5cqw auto;font-size:1.7cqw"><span class="c">?</span> 请选择 Sonnet 模型（平衡）<span class="m">（可输入搜索或自定义模型 ID）</span></div>` +
+      CAM("PUSH → CENTER") + SUB("为 Haiku、Sonnet、Opus 各挑一个模型，也能直接搜索。") },
+
+  { n: "S08", t: "0:42.5–0:47.5", bars: [18, 19], title: "写入配置，原文件先备份",
+    shot: "分屏：终端 / 文件", move: "静止",
+    vo: "写入之前，原文件会自动备份。",
+    sound: "写入「沙沙」；文件夹落下；打字声 L-cut 进入下一镜",
+    why: "交代改了哪些地方、出错能回滚，建立信任。",
+    frame: `<div class="split"><div><span class="o"><span class="spin">✻</span></span> 正在写入 Claude Code…\n\n<span class="m">已备份 1 个原文件到</span>\n<span class="c">~/.coding-helper/backups/</span>\n<span class="c">  20261020-142318/</span></div><div><span class="m">~/.claude/settings.json</span>\n{\n  "env": {\n    <span class="o">"ANTHROPIC_BASE_URL"</span>:\n      <span class="c">"https://api.qnaigc.com"</span>,\n    <span class="o">"ANTHROPIC_AUTH_TOKEN"</span>: <span class="m">"sk-••••"</span>,\n    "API_TIMEOUT_MS": "3000000",\n    "CLAUDE_CODE_DISABLE_…": "1"\n  }\n}</div></div>` +
+      CAM("LOCKED") + SUB("写入之前，原文件会自动备份。") },
+
+  { n: "S09", t: "0:47.5–0:52.5", bars: [20, 21], turn: true, title: "转折：静音一小节，然后整表翻牌",
+    shot: "状态表全景", move: "静止 → 冲击推",
+    vo: "（静音一小节）全部接入。",
+    sound: "全静 → 插头「啪」（全片最响）→ 每拍一声翻牌",
+    why: "两条线在这里汇合：蓝色线缆插进螃蟹的插座，表格同时翻牌。",
+    frame: `<div class="silence">· 静 音 1 小 节 ·</div>` +
+      T(`<span class="m">──────── 接入状态 ────────</span>\n\n  ╭──────────────┬──────────┬─────────────╮\n  │ 工具         │ 安装     │ 七牛        │\n  ├──────────────┼──────────┼─────────────┤\n  │ Claude Code  │ v2.1.304 │ <span class="g">● 已接入七牛</span> │\n  │ Codex        │ 0.58.0   │ <span class="g">● 已接入七牛</span> │\n  │ OpenCode     │ 1.2.4    │ <span class="g">● 已接入七牛</span> │\n  │ Qwen Code    │ 0.9.1    │ <span class="m">○ 未接入</span> → │\n  ╰──────────────┴──────────┴─────────────╯`).replace('class="term"', 'class="term" style="font-size:1.85cqw;top:8cqw"') +
+      crab(80, 30, 9) + `<div class="cable" style="left:62cqw;top:47.5cqw;width:18cqw;background:linear-gradient(90deg,var(--qiniu-deep),var(--qiniu))"></div>` +
+      CAM("IMPACT PUSH") + SUB("全部接入。") },
+
+  { n: "S10", t: "0:52.5–1:02.5", bars: [22, 25], turn: true, title: "高潮：熟悉的 Claude Code，跑在七牛线路上",
+    shot: "终端全屏 → 状态行特写", move: "慢推 + 1 次跳切",
+    vo: "重启 Claude Code，还是熟悉的界面，跑的已经是七牛线路。",
+    sound: "主旋律完整出现；流式输出细碎打字声",
+    why: "结果就是用户熟悉的界面，没有学习成本。跳切到 /status 给出证据。",
+    frame: T(`<span class="ccbox"><span class="o">✻</span> <span class="b">Welcome to Claude Code!</span>\n\n  <span class="m">/help for help, /status for your current setup</span>\n\n  <span class="m">cwd: ~/my-project</span></span>\n\n<span class="inbox">&gt; 帮我写一个快速排序</span><span class="o"><span class="spin">✻</span> Thinking…</span> <span class="m">(esc to interrupt)</span>\n\n<span class="m">/status ›</span> Anthropic base URL: <span class="c hl">https://api.qnaigc.com</span>`).replace('class="term"', 'class="term" style="font-size:1.85cqw;top:4.5cqw"') +
+      crab(82, 34, 8) + CAM("SLOW PUSH · JUMP CUT") + SUB("重启 Claude Code，还是熟悉的界面，跑的已经是七牛线路。") },
+
+  { n: "S11", t: "1:02.5–1:07.5", bars: [26, 27], title: "doctor 体检，restore 一键还原",
+    shot: "双画面快切", move: "倒带 rewind",
+    vo: "有问题跑 doctor，想撤销就 restore。",
+    sound: "检查项逐个「叮」；磁带倒带",
+    why: "打消顾虑：能诊断，也能撤销。",
+    frame: `<div class="split"><div><span class="c">❯</span> coding-helper doctor\n\n<span class="g">✔</span> 配置文件   通过\n<span class="g">✔</span> API Key    通过\n<span class="g">✔</span> 网络连接   连接正常\n<span class="g">✔</span> Git        已找到\n<span class="g">✔</span> Node.js    v22.11.0</div><div><span class="c">❯</span> coding-helper restore\n\n<span class="o">◀◀ REWIND</span>\n\n<span class="m">ANTHROPIC_BASE_URL</span>\n  <span class="m" style="text-decoration:line-through">api.qnaigc.com</span>\n  → 原值已写回</div></div>` +
+      CAM("◀◀ REWIND") + SUB("有问题跑 doctor，想撤销就 restore。") },
+
+  { n: "S12", t: "1:07.5–1:15", bars: [28, 30], title: "呼应开场：这次螃蟹自己敲命令",
+    shot: "与 S01 同机位", move: "缓拉，定格",
+    vo: "npx qiniu-coding-helper，现在就试试。",
+    sound: "第二处静音半小节；琶音 J-cut 提前进入；挥钳「嗖」",
+    why: "回到第一镜的光标，形成闭环；尾卡给出命令和获取 Key 的地址。",
+    frame: T(`<span class="m">~/my-project</span>\n<span class="c">❯</span> npx qiniu-coding-helper<span class="cursor"></span>`) +
+      crab(44, 26, 12, `<div style="position:absolute;left:57cqw;top:24cqw;font-size:3cqw" class="c">✦</div>`) +
+      `<div style="position:absolute;left:0;right:0;bottom:11cqw;text-align:center;font-family:var(--body);font-size:1.8cqw;color:#8a94a2">获取 API Key：portal.qiniu.com</div>` +
+      CAM("← PULL OUT · FREEZE") + SUB("npx qiniu-coding-helper，现在就试试。") },
+];
+
+// 时间轴
+const section = (b) => b <= 4 ? "A" : b <= 19 ? "B" : b === 20 ? "S" : b <= 25 ? "C" : "D";
+const hits = new Set([1, 5, 9, 11, 12, 15, 18, 21, 23, 26, 30]);
+document.getElementById("bars").innerHTML = Array.from({ length: 30 }, (_, i) =>
+  `<div class="bar ${section(i + 1)}${hits.has(i + 1) ? " hit" : ""}" title="第 ${i + 1} 小节"></div>`).join("");
+document.getElementById("marks").innerHTML = shots.map((s) =>
+  `<div style="grid-column:${s.bars[0]} / ${s.bars[1] + 1}">${s.n.slice(1)}</div>`).join("");
+
+// 胶片带
+document.getElementById("reel").innerHTML = shots.map((s) => `
+  <article class="shot${s.turn ? " turn" : ""}" id="${s.n.toLowerCase()}">
+    <div class="frame" role="img" aria-label="${s.n} 画面示意：${s.title}">${s.frame}<div class="tc">${s.n} · ${s.t}</div></div>
+    <div class="meta">
+      <div class="row1"><span class="num">${s.n}</span><span class="when">${s.t}</span>
+        <span class="bars-tag">第 ${s.bars[0]}${s.bars[1] !== s.bars[0] ? "–" + s.bars[1] : ""} 小节</span></div>
+      <h3>${s.title}</h3>
+      <dl><dt>景别</dt><dd>${s.shot}</dd><dt>运镜</dt><dd>${s.move}</dd><dt>声音</dt><dd>${s.sound}</dd></dl>
+      <div class="vo">${s.vo}</div>
+      <div class="why">${s.why}</div>
+    </div>
+  </article>`).join("");
+</script>
