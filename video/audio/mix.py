@@ -141,24 +141,48 @@ def reverse_cymbal(dur=1.25):
 
 
 # ---------- 配乐 ----------
+# v2 结构：A 引子 1–2 → B 律动 3–16（小牛落地进鼓）→ 17 真静音 → C 全编制 18–24（融合 + Claude Code）
+#          → D 轻律动 25–26 → E 收尾 27–30（不再断，尾和弦在第 30 小节第 1 拍一直响到淡出）
 CH = {  # 和弦（MIDI，根音在低八度）
     "Am": [57, 60, 64], "F": [53, 57, 60], "C": [48, 52, 55], "G": [55, 59, 62],
 }
-CHORDS = (["Am", "Am", "F", "F"]                     # A 引子 1–4
-          + ["Am", "F", "C", "G"] * 3 + ["Am", "F", "G"]  # B 向导 5–19
-          + [None]                                    # 20 真静音
-          + ["C", "G", "Am", "F", "G"]                # C 接入 21–25
-          + ["Am", "F", "C", "G", "C"])               # D 收尾 26–30
+CHORDS = (["Am", "Am"]                                # A 1–2
+          + ["Am", "F", "C", "G"] * 3 + ["Am", "G"]   # B 3–16
+          + [None]                                    # 17 真静音
+          + ["C", "G", "Am", "F", "C", "G", "F"]      # C 18–24
+          + ["Am", "G"]                               # D 25–26
+          + ["Am", "F", "G", "C"])                    # E 27–30
 assert len(CHORDS) == 30
 
-# C 段主旋律：(小节, 拍, MIDI, 拍长)
-LEAD = [
-    (21, 0, 76, 1), (21, 1, 79, .5), (21, 1.5, 81, .5), (21, 2, 79, 1), (21, 3, 76, 1),
-    (22, 0, 74, 1), (22, 1, 79, 1), (22, 2, 83, 1.5), (22, 3.5, 81, .5),
-    (23, 0, 84, 1.5), (23, 1.5, 83, .5), (23, 2, 81, 1), (23, 3, 76, 1),
-    (24, 0, 77, 1), (24, 1, 81, 1), (24, 2, 84, 1), (24, 3, 81, 1),
-    (25, 0, 83, 1), (25, 1, 86, 1), (25, 2, 84, 2),
+
+def section(bar: int) -> str:
+    return "A" if bar <= 2 else "B" if bar <= 16 else "S" if bar == 17 else "C" if bar <= 24 else "D" if bar <= 26 else "E"
+
+
+# 主旋律：(小节, 拍, MIDI, 拍长)；C 段完整一遍，E 段轻声重现前三小节
+MOTIF = [
+    (0, 0, 76, 1), (0, 1, 79, .5), (0, 1.5, 81, .5), (0, 2, 79, 1), (0, 3, 76, 1),
+    (1, 0, 74, 1), (1, 1, 79, 1), (1, 2, 83, 1.5), (1, 3.5, 81, .5),
+    (2, 0, 84, 1.5), (2, 1.5, 83, .5), (2, 2, 81, 1), (2, 3, 76, 1),
+    (3, 0, 77, 1), (3, 1, 81, 1), (3, 2, 84, 1), (3, 3, 81, 1),
+    (4, 0, 79, .5), (4, .5, 81, .5), (4, 1, 84, 1), (4, 2, 83, 1), (4, 3, 79, 1),
+    (5, 0, 81, 1), (5, 1, 79, .5), (5, 1.5, 76, .5), (5, 2, 74, 2),
+    (6, 0, 77, 1), (6, 1, 81, 1), (6, 2, 84, 2),
 ]
+
+
+def clap():
+    n = int(0.18 * SR)
+    t = np.arange(n) / SR
+    env = sum(np.exp(-np.clip(t - d, 0, None) * 60) * (t >= d) for d in (0, .008, .017))
+    return filt(noise(n), "band", [1000, 5000]) * env * 0.6
+
+
+def stab(m_list, dur):
+    # 反拍和弦短切（让律动「跳」起来）
+    n = int(dur * SR)
+    s = sum(pulse(mtof(m), n, 0.5) for m in m_list) / len(m_list)
+    return s * np.exp(-np.arange(n) / SR * 18)
 
 
 def score() -> Bus:
@@ -167,58 +191,66 @@ def score() -> Bus:
         ch = CHORDS[bar - 1]
         if ch is None:
             continue
+        sec = section(bar)
         root, tones = CH[ch][0], CH[ch]
         t0 = bar_t(bar)
-        sec = "A" if bar <= 4 else "B" if bar <= 19 else "C" if bar <= 25 else "D"
-        # 第 28 小节前半小节：第二处静音
-        half_silent = bar == 28
-        # 低频持续音（A、D 段）
-        if sec in "AD" and not half_silent:
-            b.add(note_tri(root - 12, BAR) * 0.9, t0, 0.20)
-        # 琶音
-        step = BEAT / 2 if sec in "AD" else BEAT / 4
-        cnt = int(round(BAR / step))
-        for i in range(cnt):
-            at = t0 + i * step
-            if half_silent and i < cnt // 2:
-                continue
-            if bar == 30 and i > 0:
+        last = bar == 30
+        # 低频持续音（A、E 段）
+        if sec in "AE" and not last:
+            b.add(note_tri(root - 12, BAR) * 0.9, t0, 0.18)
+        # 琶音：A/E 八分音符，其余十六分音符；C 段每三音升八度跳一下
+        step = BEAT / 2 if sec in "AE" else BEAT / 4
+        for i in range(int(round(BAR / step))):
+            if last and i > 0:
                 break
             m = tones[i % 3] + 24 + (12 if (i // 3) % 2 and sec == "C" else 0)
-            g = {"A": .10, "B": .075, "C": .085, "D": .10}[sec]
-            b.add(note_pulse(m, step * 0.9, 0.25), at, g, pan=-0.35 if i % 2 else 0.35)
-        # 贝斯（B、C 段，八分音符）
-        if sec in "BC":
-            for i in range(8):
-                m = root - 12 + (12 if sec == "C" and i % 2 else 0)
-                b.add(note_tri(m, BEAT / 2 * 0.85), t0 + i * BEAT / 2, 0.30)
+            g = {"A": .10, "B": .07, "C": .08, "D": .07, "E": .09}[sec]
+            b.add(note_pulse(m, step * 0.9, 0.25), t0 + i * step, g, pan=-0.35 if i % 2 else 0.35)
+        if last:
+            continue
+        # 贝斯：B/C/D 段用切分节奏（1、2+、3、4+），E 段四分音符
+        if sec in "BCD":
+            for beat, dl, up in ((0, .75, 0), (1.5, .5, 12), (2, .75, 0), (3.5, .5, 12)):
+                b.add(note_tri(root - 12 + up, BEAT * dl * 0.9), t0 + beat * BEAT, 0.32)
+        elif sec == "E":
+            for beat in range(4):
+                b.add(note_tri(root - 12, BEAT * .8), t0 + beat * BEAT, 0.24)
+        # 反拍和弦短切
+        if sec in "BCD":
+            for beat in (.5, 1.5, 2.5, 3.5):
+                b.add(stab([m + 12 for m in tones], BEAT * .3), t0 + beat * BEAT, 0.05 if sec != "C" else 0.065, 0.2)
         # 鼓组
-        if sec in "BC":
+        if sec in "BCDE":
             for beat in range(4):
                 at = t0 + beat * BEAT
                 if beat in (0, 2):
-                    b.add(kick(), at, 0.55)
+                    b.add(kick(), at, 0.55 if sec != "E" else 0.4)
                 else:
-                    b.add(snare(), at, 0.32, 0.05)
+                    b.add(snare(), at, 0.26 if sec != "E" else 0.18, 0.05)
+                    b.add(clap(), at, 0.22 if sec in "BC" else 0.12, -0.1)
                 if sec == "C" and beat == 3:
-                    b.add(kick(), at + BEAT / 2, 0.4)
-            hats = 8 if sec == "B" else 16
+                    b.add(kick(), at + BEAT / 2, 0.38)
+            hats = 16 if sec in "BC" else 8
             for i in range(hats):
-                b.add(hat(open_=(sec == "C" and i % 4 == 2)), t0 + i * BAR / hats, 0.09 if i % 2 else 0.13, 0.4)
-    # C 段主旋律（带一点颤音起伏）
-    for bar, beat, m, dl in LEAD:
-        b.add(note_pulse(m, dl * BEAT * 0.95, 0.5, vib=0.25), bar_t(bar, beat), 0.13, 0.0)
-    # 过渡：A→B 反向镲（第 4 小节第 4 拍甩镜），C 段起点镲片
-    b.add(reverse_cymbal(1.25), bar_t(5) - 1.25, 0.25, 0.1)
-    b.add(crash(), bar_t(21), 0.30, -0.1)
-    # 尾和弦：第 30 小节第 1 拍，C 大三和弦长音
+                # 十六分音符的后半拍稍微推后，带一点摇摆感
+                swing = BEAT / 4 * 0.18 if (hats == 16 and i % 2) else 0
+                b.add(hat(open_=(sec == "C" and i % 8 == 6)), t0 + i * BAR / hats + swing, 0.08 if i % 2 else 0.12, 0.4)
+    # 主旋律
+    for bar0, gain, count in ((18, 0.13, 7), (27, 0.08, 3)):
+        for k, beat, m, dl in MOTIF:
+            if k < count:
+                b.add(note_pulse(m, dl * BEAT * 0.95, 0.5, vib=0.25), bar_t(bar0 + k, beat), gain, 0.0)
+    # 过渡：小牛落地（第 3 小节第 2 拍）镲片；静音前一拍反向镲；跺脚（第 18 小节）镲片
+    b.add(crash(1.6), bar_t(3, 1), 0.22, 0.1)
+    b.add(reverse_cymbal(1.0), bar_t(18) - 1.0, 0.18, -0.1)
+    b.add(crash(), bar_t(18), 0.32, -0.1)
+    # 尾和弦：第 30 小节第 1 拍，C 大三和弦长音，一直响到片尾淡出
     for m in (60, 64, 67, 72):
-        n = int(3.2 * SR)
-        s = pulse(mtof(m), n, 0.5) * np.exp(-np.arange(n) / SR * 1.1)
+        n = int(3.0 * SR)
+        s = pulse(mtof(m), n, 0.5) * np.exp(-np.arange(n) / SR * 0.9)
         b.add(s, bar_t(30), 0.07, pan=(m - 66) / 12)
-    b.add(note_tri(36, 3.0), bar_t(30), 0.30)
+    b.add(note_tri(36, 2.8), bar_t(30), 0.30)
     b.add(crash(3.0), bar_t(30), 0.18)
-    # 整体柔化，去掉方波的刺耳高频
     b.x = filt(b.x.T, "low", 9000).T
     return b
 
@@ -309,82 +341,142 @@ def typing(b: Bus, start: float, chars: int, span: float, gain=0.22):
         b.add(key_click(), at, gain * RNG.uniform(.7, 1.0), RNG.uniform(-.2, .2))
 
 
+def boing(m=72, dur=0.16):
+    # 角色起跳的「啵嘤」：上扬的短音
+    n = int(dur * SR)
+    t = np.arange(n) / SR
+    f = mtof(m) * (1 + 0.8 * t / dur)
+    return np.sin(2 * np.pi * np.cumsum(f) / SR) * np.exp(-t * 18)
+
+
+def pop(m=84):
+    n = int(0.06 * SR)
+    t = np.arange(n) / SR
+    return np.sin(2 * np.pi * mtof(m) * t * (1 + 2 * t)) * np.exp(-t * 60)
+
+
+def fall_whistle(dur):
+    n = int(dur * SR)
+    t = np.arange(n) / SR
+    f = 1800 * (1 - 0.7 * t / dur)
+    return np.sin(2 * np.pi * np.cumsum(f) / SR) * np.minimum(1, t / .05) * 0.6
+
+
+SLOT_T = [0, .94, 1.875, 2.81, 3.75, 4.69]
+PENTA = [0, 2, 4, 7, 9]
+
+
 def sfx() -> Bus:
     b = Bus()
-    # S01 0–5：风扇底噪、光标「滴」、敲 claude、回车、「?」弹出
-    b.add(fan(10.0), 0, 0.05)
-    for i in range(2):
-        b.add(blip(96, 0.03), i * BEAT, 0.05)
-    typing(b, 1.25, 6, 0.5)
-    b.add(enter_key(), 2.1, 0.3)
-    b.add(blip(79, .09) + 0.6 * np.pad(blip(84, .09), (int(.06 * SR), 0))[:int(.09 * SR)], BAR + BEAT, 0.16)
-    # S02 5–10：片名逐字亮起（升调小音），甩镜呼呼声
+    # S01 0–5：底噪；Clawd 蹦进来（四跳）、打 claude、回车、「?」；四位探头
+    b.add(fan(10.0), 0, 0.04)
+    for i, at in enumerate([.1, .1 + BEAT / 2, .1 + BEAT, .1 + BEAT * 1.5]):
+        b.add(boing(67 + i * 2), at, 0.07)
+    typing(b, 1.35, 6, 0.55)
+    b.add(enter_key(), 2.05, 0.28)
+    b.add(blip(79, .09) + 0.6 * np.pad(blip(84, .09), (int(.06 * SR), 0))[:int(.09 * SR)], BAR + BEAT, 0.15)
+    for i in range(4):
+        b.add(pop(76 + PENTA[i]), 3.3 + i * BEAT / 4, 0.09, -0.5 + i / 3)
+    # S02 5–10：小牛下落哨音、落地重击、大家被震起；片名逐字；转场甩镜
+    b.add(fall_whistle(.6), 5.02, 0.10)
+    b.add(plug_hit(), 5.625, 0.7)
+    for i in range(5):
+        b.add(boing(70 + i), 5.675 + i * .06, 0.05, -0.6 + i * .15)
     for i in range(19):
-        b.add(blip(84 + [0, 2, 4, 7, 9][i % 5] + 12 * (i // 10), 0.04, 0.25), 5 + 0.6 + i * BEAT / 4, 0.035, -0.5 + i / 19)
-    b.add(whoosh(0.7, rise=True), 5 + 4.2, 0.35)
-    # S03 10–15：打命令、回车、Logo 每行一个音
-    typing(b, 10.15, 23, 1.0)
-    b.add(enter_key(), 11.3, 0.3)
-    for j, m in enumerate([72, 74, 76, 79, 81, 84]):
-        b.add(chime(m, 0.5), 10 + 1.25 + j * BEAT, 0.12)
-    b.add(chime(88, 1.2), 10 + 1.25 + 5 * BEAT + .3, 0.06)
-    # S04 15–20：语言确认、线路切换「嘀」、确认
-    b.add(blip(81, .06), 15 + 2 * BEAT, 0.12)
-    for at in (17.5, 18.125):
-        b.add(blip(86, .05, .25), at, 0.10)
-    b.add(chime(84, 0.4), 15 + BAR + 2 * BEAT, 0.12)
-    # S05 20–27.5：粘贴、回车、光点去程/回程、成功、已保存
-    b.add(key_click() * 1.5, 21.0, 0.35)
-    b.add(enter_key(), 21.875, 0.3)
-    b.add(whoosh(1.5, True), 22.0, 0.22, 0.4)
-    b.add(whoosh(1.4, False), 23.6, 0.22, -0.2)
-    b.add(chime(88, 0.9) + chime(84, 0.9) * .6, 25.0, 0.18)
-    b.add(blip(91, .05), 25.625, 0.07)
-    # S06 27.5–35：光标下移、勾选
-    inst = [1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 0, 1]
-    for i, on in enumerate(inst):
-        at = 27.5 + 1.25 + i * BEAT / 2
-        b.add(blip(88, .025, .25), at, 0.05)
-        if on:
-            b.add(key_click() * 1.3 + 0.6 * blip(91, .045), at, 0.22)
-    b.add(enter_key(), 27.5 + 6.25, 0.3)
-    # S07 35–42.5：三次确认、输入 sonnet
-    for at in (36.25, 39.375, 41.25):
-        b.add(chime(84, 0.35), at, 0.10)
-    typing(b, 36.9, 6, 1.0)
-    # S08 42.5–47.5：逐个写入成功、高亮、文件夹飞入
-    for i in range(7):
-        b.add(blip(79 + [0, 2, 4, 7, 9, 12, 14][i], .05, .25), 42.5 + .3 + i * BEAT / 2 + .28, 0.07)
-    for at in (43.1, 43.75, 44.375, 45.0):
-        b.add(blip(72, .04, .5), at, 0.05, 0.4)
-    b.add(whoosh(0.6, False), 45.5, 0.18, -0.3)
-    b.add(blip(76, .08), 46.1, 0.08)
-    # S09 47.5–52.5：静音一小节里只有一声回车；插上「啪」；翻牌
-    b.add(enter_key(), 48.75, 0.35)
-    b.add(plug_hit(), 50.0, 0.65)
-    for k in range(7):
-        b.add(flip(), 50.0 + k * BEAT / 2, 0.30, -0.3 + k * 0.1)
-    # S10 52.5–62.5：打 claude、欢迎框、提问、思考、流式输出、跳切
-    typing(b, 52.5, 6, 0.35)
-    b.add(enter_key(), 52.9, 0.28)
-    b.add(chime(81, 0.5), 53.05, 0.08)
-    typing(b, 53.7, 9, 1.2)
-    b.add(enter_key(), 55.1, 0.28)
-    b.add(shimmer(1.3), 55.3, 0.035)
-    for i in range(60):
-        b.add(key_click(), 56.8 + i * 0.05, 0.06, RNG.uniform(-.3, .3))
-    b.add(whoosh(0.35, True), 59.75, 0.25)
-    b.add(chime(91, 0.8), 60.0, 0.07)
-    # S11 62.5–67.5：体检打勾、倒带、还原完成
+        b.add(pop(84 + PENTA[i % 5] + 12 * (i // 10)), 6.25 + i * BEAT / 4, 0.04, -0.5 + i / 19)
+    b.add(whoosh(0.5, True), 9.78, 0.32)
+    # S03 10–17.5：一条命令；打字、粘贴 Key、标注弹出、回车、三个 ✔、插线、欢呼
+    typing(b, 10.2, 24, 0.7)
+    typing(b, 11.05, 7, 0.35)
+    b.add(key_click() * 1.4 + 0.5 * shimmer(.2)[:int(.045 * SR)], 11.7, 0.3)
+    typing(b, 12.0, 26, 1.1, 0.18)
+    for at, m in ((12.25, 79), (12.55, 83), (13.2, 86)):
+        b.add(pop(m), at, 0.10)
+    b.add(enter_key(), 13.75, 0.32)
+    for i, m in enumerate((84, 88, 91)):
+        b.add(chime(m, 0.5), 14.06 + i * BEAT / 2, 0.12)
+    b.add(plug_hit(), 14.74, 0.35)
+    b.add(boing(74), 14.82, 0.09)
+    # S04 17.5–25：老虎机滚动与落定；角色冒出；all 全员到齐
+    b.add(whoosh(0.4, False), 17.32, 0.22)
+    for i, st in enumerate(SLOT_T):
+        if i == 0:
+            continue
+        for k in range(4):
+            b.add(blip(96, .02, .25), 17.5 + st - .22 + k * .055, 0.04)
+        b.add(chime(79 + PENTA[i % 5], 0.35), 17.5 + st, 0.10)
+        b.add(boing(70 + i * 2), 17.5 + st + .05, 0.06)
+    for i in range(8):
+        b.add(pop(84 + PENTA[i % 5] + (12 if i > 4 else 0)), 17.5 + 4.74 + i * BEAT / 4, 0.07, -0.6 + i * .17)
+    # S05 25–37.5：向导串场；卡片推移、Logo 逐行、线路切换、Key 校验、勾选、选模型
+    b.add(whoosh(0.4, True), 24.82, 0.22)
+    typing(b, 25.0, 23, 0.35, 0.15)
+    for j in range(6):
+        b.add(chime(72 + PENTA[j % 5] + (12 if j == 5 else 0), 0.4), 25.45 + j * BEAT / 4, 0.08)
+    b.add(boing(72), 26.55, 0.07)
+    for at in (27.2, 29.7, 32.2, 34.7):
+        b.add(whoosh(0.35, True), at, 0.16)
+    for at in (28.4, 28.85):
+        b.add(blip(86, .05, .25), at, 0.09)
+    b.add(chime(84, 0.4), 29.35, 0.11)
+    b.add(key_click() * 1.4, 30.25, 0.3)
+    b.add(whoosh(0.6, True), 30.35, 0.18, 0.4)
+    b.add(whoosh(0.6, False), 30.95, 0.18, -0.2)
+    b.add(chime(88, 0.7) + chime(84, 0.7) * .6, 31.55, 0.15)
+    for i in range(13):
+        if i == 11:
+            continue
+        b.add(key_click() * 1.2 + 0.5 * blip(91, .045), 32.75 + i * BEAT / 4, 0.16)
+    for i, at in enumerate((35.5, 36.1, 36.7)):
+        b.add(chime(84 + PENTA[i + 1], 0.35), at, 0.11)
+    # S06 37.5–40：diff 逐行、文件夹飞、备份徽章
+    b.add(whoosh(0.4, False), 37.32, 0.2)
+    for i in range(3):
+        b.add(blip(76 + PENTA[i], .05), 37.65 + i * BEAT / 2, 0.08)
+    b.add(whoosh(0.65, False), 38.4, 0.16, -0.3)
+    b.add(chime(84, 0.5), 39.05, 0.11)
+    b.add(boing(72), 39.1, 0.07)
+    # S07 40–50：静音一小节（只有小牛起跳前的一点动静）→ 跺脚 → 线缆逐个点亮 → Logo
+    b.add(whoosh(0.4, True), 39.82, 0.18)
+    b.add(boing(60, .2), 42.3, 0.06)
+    b.add(plug_hit(), 42.5, 0.75)
+    for i in range(13):
+        b.add(flip() + 0.5 * pop(79 + PENTA[i % 5] + 12 * (i // 5)), 42.62 + i * BEAT / 4, 0.18, -0.6 + i * .1)
+    for j in range(6):
+        b.add(chime(84 + PENTA[j % 5], 0.5), 44.8 + j * BEAT / 4, 0.07)
+    # S08 50–60：Claude Code
+    b.add(whoosh(0.4, True), 49.82, 0.18)
+    typing(b, 50.0, 6, 0.35)
+    b.add(enter_key(), 50.4, 0.25)
+    b.add(chime(81, 0.5), 50.55, 0.08)
+    typing(b, 51.1, 9, 1.1)
+    b.add(enter_key(), 52.4, 0.25)
+    b.add(shimmer(1.2), 52.4, 0.035)
+    for i in range(56):
+        b.add(key_click(), 53.9 + i * 0.05, 0.05, RNG.uniform(-.3, .3))
+    b.add(whoosh(0.35, True), 57.3, 0.22)
+    b.add(chime(91, 0.8), 57.5, 0.07)
+    b.add(boing(74), 57.85, 0.08)
+    b.add(chime(96, 0.5) + chime(91, 0.5), 58.12, 0.07)
+    # S09 60–65：体检、确认、倒带、还原
+    b.add(whoosh(0.4, False), 59.82, 0.2)
     for i in range(6):
-        b.add(chime(84 + [0, 2, 4, 7, 9, 12][i], 0.35), 62.5 + .3 + i * BEAT / 2, 0.08, 0.2)
-    b.add(rewind(1.7), 65.0, 0.18)
-    b.add(chime(88, 0.7), 66.7, 0.12)
-    # S12 67.5–75：风扇回来、Clawd 打字、挥手、尾卡
-    b.add(fan(7.5), 67.5, 0.05)
-    typing(b, 68.75, 23, 1.6)
-    b.add(whoosh(0.3, True), 71.25, 0.15, 0.3)
-    b.add(whoosh(0.3, False), 71.6, 0.12, 0.3)
+        b.add(chime(84 + PENTA[i % 5], 0.3), 60.25 + i * BEAT / 2, 0.08, -0.3)
+    b.add(blip(81, .06), 61.9, 0.08, 0.3)
+    b.add(rewind(1.6), 62.4, 0.16, 0.3)
+    b.add(chime(88, 0.6), 64.0, 0.11, 0.3)
+    b.add(boing(72), 64.05, 0.07, 0.3)
+    # S10 65–75：呼应开场，一条命令配好全部；全员冒出欢呼；尾卡
+    b.add(whoosh(0.4, False), 64.82, 0.2)
+    b.add(fan(10.0), 65.0, 0.03)
+    typing(b, 65.35, 41, 1.6, 0.18)
+    b.add(enter_key(), 67.3, 0.3)
+    for i, m in enumerate((84, 88, 91)):
+        b.add(chime(m, 0.45), 67.5 + i * BEAT / 2, 0.11)
+    b.add(boing(74, .2), 68.3, 0.09)
+    for i in range(13):
+        b.add(pop(79 + PENTA[i % 5] + 12 * (i // 5)), 68.2 + i * BEAT / 8, 0.05, -0.6 + i * .1)
+    b.add(reverse_cymbal(0.8), 69.6 - 0.8 + 0.4, 0.12)
     return b
 
 

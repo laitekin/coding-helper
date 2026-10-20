@@ -96,7 +96,9 @@ def minimax(text: str, voice: str, line: dict) -> bytes:
         "model": os.environ.get("MINIMAX_TTS_MODEL", "speech-2.8-hd"),
         "text": text,
         "stream": False,
-        "voice_setting": {"voice_id": voice, "speed": line.get("speed", 1.0), "vol": 1, "pitch": 0},
+        "voice_setting": {"voice_id": voice, "speed": line.get("speed", float(os.environ.get("MINIMAX_SPEED", 1.0))), "vol": 1, "pitch": 0,
+                          # 情绪：逐句可在 lines.json 里用 emotion 覆盖，否则取环境变量；为空时由模型自动判断
+                          **({"emotion": e} if (e := line.get("emotion", os.environ.get("MINIMAX_EMOTION"))) else {})},
         "audio_setting": {"sample_rate": 32000, "bitrate": 128000, "format": "mp3", "channel": 1},
     }
     host = os.environ.get("MINIMAX_HOST", "https://api.minimaxi.com")
