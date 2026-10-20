@@ -208,3 +208,26 @@ test('profile commands, @profile in one command, --context, and restore', async 
   assert.equal(fs.existsSync(path.join(home, '.codex')), false);
   assert.equal(fs.existsSync(path.join(home, '.config/opencode/opencode.json')), false);
 });
+
+test('findCommand finds tools outside PATH, e.g. Claude Code local install behind a shell alias', async () => {
+  const { findCommand } = await import('../dist/utils/find-command.js');
+  const { ClaudeCodeTool } = await import('../dist/lib/tools/claude-code-tool.js');
+  const dir = path.join(os.homedir(), '.claude', 'local');
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, 'claude');
+  fs.writeFileSync(file, '#!/bin/sh\necho "9.8.7 (Claude Code)"\n', { mode: 0o755 });
+  const savedPath = process.env.PATH;
+  process.env.PATH = '/nonexistent';
+  try {
+    assert.equal(findCommand('claude'), undefined);
+    const tool = new ClaudeCodeTool();
+    assert.equal(findCommand('claude', tool.searchPaths), file);
+    if (process.platform !== 'win32') {
+      assert.equal(tool.isInstalled(), true);
+      assert.equal(tool.getVersion(), '9.8.7');
+    }
+  } finally {
+    process.env.PATH = savedPath;
+    fs.rmSync(path.join(os.homedir(), '.claude'), { recursive: true, force: true });
+  }
+});

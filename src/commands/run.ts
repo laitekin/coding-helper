@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { findCommand } from '../utils/find-command.js';
 import { t, i18n } from '../lib/i18n.js';
 import { configManager } from '../lib/config.js';
 import { toolManager } from '../lib/tool-manager.js';
@@ -57,7 +58,9 @@ export async function runCommand(toolName: string, args: string[]): Promise<void
 
   // 兼容 `run claude -- --continue` 写法：去掉分隔用的 --
   const passArgs = rest[0] === '--' ? rest.slice(1) : rest;
-  const child = spawn(tool.command, passArgs, {
+  // Windows 下 .cmd 需走 shell，直接用命令名
+  const file = process.platform === 'win32' ? tool.command : findCommand(tool.command, tool.searchPaths) ?? tool.command;
+  const child = spawn(file, passArgs, {
     stdio: 'inherit',
     env: { ...process.env, ...env },
     shell: process.platform === 'win32',

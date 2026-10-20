@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { findCommand, commandVersion } from '../../utils/find-command.js';
 import type { ITool } from './base-tool.js';
 import { configManager, type ModelConfig } from '../config.js';
 import { marketModelService } from '../market-model-service.js';
@@ -54,22 +54,12 @@ export abstract class OpenAICompatTool implements ITool {
   requiresModelSelection = true;
 
   isInstalled(): boolean {
-    try {
-      execSync(process.platform === 'win32' ? `where ${this.command}` : `which ${this.command}`, { stdio: 'pipe' });
-      return true;
-    } catch {
-      return false;
-    }
+    return !!findCommand(this.command);
   }
 
   getVersion(): string | null {
-    try {
-      const output = execSync(`${this.command} --version`, { stdio: 'pipe', encoding: 'utf-8', timeout: 5000 }).trim();
-      const match = output.match(/(\d+\.\d+\.\d+)/);
-      return match ? match[1] : output;
-    } catch {
-      return null;
-    }
+    const file = findCommand(this.command);
+    return file ? commandVersion(file) : null;
   }
 
   // 本工具使用的模型：单独选择过的优先，否则用通用默认模型

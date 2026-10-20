@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 * 结果页：接入成功的工具角色排成一排并打勾，结果表列出模型与启动命令，最后给出下一步与撤销方式
 
 ### 修复
+* 检测已安装的编程助手不再依赖 `which`：会额外查找常见安装目录（`~/.local/bin`、`/opt/homebrew/bin` 等）和 Claude Code 本地安装位置（`~/.claude/local/claude`，这种安装只在 shell 里配了别名，子进程找不到，之前会显示「未安装」）；启动时也用找到的完整路径
 * 还原 Codex 时，原本不存在的 `config.toml` 不再留下空文件
 
 ## [0.5.0] - 2026-10-20

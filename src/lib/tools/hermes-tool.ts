@@ -1,8 +1,8 @@
+import { findCommand, commandVersion } from '../../utils/find-command.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import yaml from 'js-yaml';
-import { execSync } from 'node:child_process';
 import type { ITool } from './base-tool.js';
 import { configManager, type ModelConfig } from '../config.js';
 import { t } from '../i18n.js';
@@ -36,23 +36,12 @@ export class HermesTool implements ITool {
   updateCommand = 'hermes update';
 
   getVersion(): string | null {
-    try {
-      const output = execSync('hermes --version', { stdio: 'pipe', encoding: 'utf-8' }).trim();
-      const match = output.match(/(\d+\.\d+\.\d+)/);
-      return match ? match[1] : output;
-    } catch {
-      return null;
-    }
+    const file = findCommand(this.command);
+    return file ? commandVersion(file) : null;
   }
 
   isInstalled(): boolean {
-    try {
-      const command = process.platform === 'win32' ? 'where hermes' : 'which hermes';
-      execSync(command, { stdio: 'pipe' });
-      return true;
-    } catch {
-      return false;
-    }
+    return !!findCommand(this.command);
   }
 
   getConfig(): Record<string, unknown> {

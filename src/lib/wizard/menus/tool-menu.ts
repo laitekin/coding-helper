@@ -1,5 +1,6 @@
 import chalk from 'chalk';
 import { t } from '../../i18n.js';
+import { findCommand } from '../../../utils/find-command.js';
 import { configManager } from '../../config.js';
 import { promptHelper } from '../ui/prompt-helper.js';
 import { uiRenderer } from '../ui/ui-renderer.js';
@@ -349,7 +350,9 @@ async function launchTool(tool: ITool): Promise<void> {
   logger.info(t('tool_launching', { tool: tool.displayName }));
   const { execSync } = await import('node:child_process');
   try {
-    execSync(tool.command, { stdio: 'inherit' });
+    // 用找到的完整路径启动：命令可能只在 shell 别名或常见安装目录里
+    const file = findCommand(tool.command, tool.searchPaths);
+    execSync(file ? `"${file}"` : tool.command, { stdio: 'inherit' });
   } catch {
     // 用户退出工具时正常
   }

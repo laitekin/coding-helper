@@ -16,6 +16,9 @@ export interface ITool {
   // npm 包名（用于查询最新版本）
   npmPackageName?: string;
 
+  // PATH 之外的安装位置（完整路径），如 Claude Code 本地安装
+  searchPaths?: string[];
+
   // 检查工具是否已安装
   // 返回 null 表示无法检测（如桌面应用）
   isInstalled(): boolean | null;
