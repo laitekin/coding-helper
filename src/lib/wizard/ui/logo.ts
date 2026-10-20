@@ -15,8 +15,8 @@ const LOGO_LINES = [
   '     ▀▀                           ',
 ];
 
-// Logo 与小牛之间留 5 列
-const LOGO_GAP = 5;
+// Logo 与小牛之间留 4 列
+const LOGO_GAP = 4;
 // 像素 Logo + 小牛需要的最小终端宽度
 const PIXEL_MIN_COLUMNS = 2 + LOGO_WIDTH + LOGO_GAP + SPRITE_WIDTH + 4;
 
@@ -27,16 +27,12 @@ function renderTagline(): void {
   );
 }
 
-// 渲染七牛 Logo：宽终端用像素字 + 小牛 + 已接入工具的角色（放不下的省略），否则用文字 Logo
-export function renderLogo(connected: string[] = []): void {
+// 渲染七牛 Logo：宽终端用像素字 + 小牛，否则用文字 Logo
+export function renderLogo(): void {
   logger.newLine();
-  const columns = process.stdout.columns || 0;
-  if (pixelsSupported() && columns >= PIXEL_MIN_COLUMNS) {
-    const room = Math.max(0, Math.floor((columns - PIXEL_MIN_COLUMNS) / (SPRITE_WIDTH + 1)));
-    const sprites = ['qiniu', ...connected.slice(0, room)];
-    const blocks = [renderGrid(logoGrid()), ...sprites.map((id) => renderSprite(id))];
-    const widths = [LOGO_WIDTH + LOGO_GAP - 1, ...sprites.map(() => SPRITE_WIDTH)];
-    for (const line of joinBlocks(blocks, widths, 1)) logger.log(`  ${line}`);
+  if (pixelsSupported() && (process.stdout.columns || 0) >= PIXEL_MIN_COLUMNS) {
+    const blocks = [renderGrid(logoGrid()), renderSprite('qiniu')];
+    for (const line of joinBlocks(blocks, [LOGO_WIDTH + LOGO_GAP - 1, SPRITE_WIDTH], 1)) logger.log(`  ${line}`);
     logger.newLine();
     renderTagline();
     logger.newLine();

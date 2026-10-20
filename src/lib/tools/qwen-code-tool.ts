@@ -117,7 +117,7 @@ export class QwenCodeTool extends OpenAICompatTool {
       stateStore.recordPriors(this.name, priors);
     }
 
-    const limits = await fetchModelLimits(baseUrl, apiKey, model);
+    const limits = await fetchModelLimits(baseUrl, apiKey, model, this.name);
     safeWriteFile(this.envFile(), setDotenvValue(env, QWEN_ENV_KEY, apiKey));
     writeJson(this.settingsFile(), applyQwenSettings(settings, baseUrl, model, limits.contextWindow));
   }

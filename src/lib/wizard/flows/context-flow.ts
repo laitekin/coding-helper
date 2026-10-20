@@ -3,11 +3,12 @@ import { configManager } from '../../config.js';
 import { uiRenderer } from '../ui/ui-renderer.js';
 import { menuPrompt } from '../ui/prompts.js';
 import { promptHelper } from '../ui/prompt-helper.js';
-import { syncAfterChange } from '../ui/tool-view.js';
+import { connectedToolNames } from '../ui/ui-renderer.js';
+import { confirmAndWrite, selectTargets, type PlanItem } from '../ui/write-plan.js';
+import type { ITool } from '../../tools/base-tool.js';
 import { formatContextSize, parseContextSize } from '../../core/quick-args.js';
 import { toolManager } from '../../tool-manager.js';
 import { logger } from '../../../utils/logger.js';
-import { theme } from '../ui/theme.js';
 
 // 不能设置上下文大小的工具（由工具自己管理）
 export const CONTEXT_UNSUPPORTED_TOOLS = ['claude-code', 'hermes', 'copilot'];
@@ -18,32 +19,43 @@ export function contextLabel(tokens = configManager.getContextWindow()): string 
   return tokens ? formatContextSize(tokens) : t('context_auto');
 }
 
-// 上下文大小：自动（模型上限）/ 预设 / 自定义；修改后同步到已接入的工具
+// 某个工具的上下文显示值
+function toolContextLabel(tool: ITool): string {
+  return contextLabel(configManager.getContextWindow(tool.name));
+}
+
+// 已接入工具的上下文：都相同时显示该值，不同时显示「各不相同」
+export function contextMenuHint(connected: string[]): string {
+  const tools = toolManager.getAll().filter((tool) => connected.includes(tool.name) && !CONTEXT_UNSUPPORTED_TOOLS.includes(tool.name));
+  const values = [...new Set(tools.map((tool) => toolContextLabel(tool)))];
+  if (values.length === 1) return values[0];
+  if (values.length > 1) return t('context_mixed');
+  return contextLabel(undefined);
+}
+
+// 上下文大小：选大小 → 勾选要应用的工具（默认不勾）→ 确认页 → 只写入选中的工具
 export async function runContextFlow(): Promise<void> {
   uiRenderer.renderHeader();
-  uiRenderer.renderTitle(t('context_title'));
-  uiRenderer.renderHint(t('context_hint'));
+  uiRenderer.renderTitle(t('context_title'), t('context_hint'));
   const unsupported = toolManager.getAll().filter((tool) => CONTEXT_UNSUPPORTED_TOOLS.includes(tool.name));
   uiRenderer.renderHint(t('context_unsupported', { tools: unsupported.map((tool) => tool.displayName).join('、') }));
   logger.newLine();
 
-  const current = configManager.getContextWindow();
   const { value, action } = await menuPrompt<number | 'custom' | 0>({
     message: t('context_prompt'),
-    default: current && PRESETS.includes(current) ? current : current ? 'custom' : 0,
     escape: true,
     items: [
       { value: 0, key: '1', label: t('context_auto'), hint: t('context_auto_hint') },
       ...PRESETS.map((tokens, i) => ({ value: tokens, key: String(i + 2), label: formatContextSize(tokens), hint: t(`context_hint_${tokens}`) })),
-      { value: 'custom' as const, key: 'c', label: t('context_custom'), hint: current && !PRESETS.includes(current) ? formatContextSize(current) : t('context_custom_hint') },
+      { value: 'custom' as const, key: 'c', label: t('context_custom'), hint: t('context_custom_hint') },
     ],
     footer: [['↑↓', t('ui_key_move')], ['⏎', t('ui_key_confirm')], ['c', t('context_custom')], ['esc', t('ui_key_back')]],
   });
   if (action === 'escape') return;
 
-  let tokens: number | undefined = value === 0 ? undefined : value === 'custom' ? undefined : value;
+  let tokens: number | undefined = typeof value === 'number' && value > 0 ? value : undefined;
   if (value === 'custom') {
-    const input = await promptHelper.input(t('context_custom_prompt'), current ? formatContextSize(current) : '');
+    const input = await promptHelper.input(t('context_custom_prompt'));
     try {
       tokens = parseContextSize(input);
     } catch {
@@ -52,11 +64,25 @@ export async function runContextFlow(): Promise<void> {
       return;
     }
   }
-  if (tokens === current) return;
 
-  configManager.setContextWindow(tokens);
-  uiRenderer.renderSuccess(t('context_saved', { value: contextLabel(tokens) }));
-  logger.log(`  ${theme.subtle(t('context_capped_hint'))}`);
-  await syncAfterChange('sync_start_generic');
-  await promptHelper.pressEnter();
+  const connected = connectedToolNames();
+  const candidates = toolManager.getAll().filter((tool) => connected.includes(tool.name) && !CONTEXT_UNSUPPORTED_TOOLS.includes(tool.name));
+  if (candidates.length === 0) {
+    uiRenderer.renderHint(t('context_no_tools'));
+    await promptHelper.pressEnter();
+    return;
+  }
+  uiRenderer.renderHeader();
+  uiRenderer.renderTitle(t('context_title'), t('context_targets_hint', { value: contextLabel(tokens) }));
+  const targets = await selectTargets(t('targets_prompt'), candidates, { detail: (tool) => t('context_current', { value: toolContextLabel(tool) }) });
+  if (targets.length === 0) return;
+
+  const items: PlanItem[] = targets.map((tool) => ({
+    tool,
+    context: tokens ?? null,
+    changes: [{ label: t('plan_context'), before: toolContextLabel(tool), after: contextLabel(tokens) }],
+  }));
+  const untouched = toolManager.getAll().filter((tool) => connected.includes(tool.name) && !targets.includes(tool));
+  const results = await confirmAndWrite(t('context_title'), items, untouched);
+  if (results) await promptHelper.pressEnter();
 }

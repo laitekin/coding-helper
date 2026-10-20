@@ -5,16 +5,15 @@ import { menuPrompt } from '../ui/prompts.js';
 import { runLanguageFlow } from '../flows/language-flow.js';
 import { runEndpointSelectionFlow } from '../flows/endpoint-selection-flow.js';
 import { runApiKeyFlow } from '../flows/api-key-flow.js';
-import { runContextFlow, contextLabel } from '../flows/context-flow.js';
+import { runContextFlow, contextMenuHint } from '../flows/context-flow.js';
 import { runProfileMenu } from '../flows/profile-flow.js';
-import { runModelPickFlow } from '../flows/model-pick-flow.js';
 import { showToolSelector } from './tool-menu.js';
 import { toolManager } from '../../tool-manager.js';
 import { configManager, type ModelConfig } from '../../config.js';
 import { savedModelFor } from '../../core/model-mapping.js';
 import { logger } from '../../../utils/logger.js';
 import { selectTools, setupTools } from '../flows/tool-setup-flow.js';
-import { applyToolsWithProgress, renderResultSummary } from '../ui/tool-view.js';
+import { selectTargets } from '../ui/write-plan.js';
 import { doctorCommand } from '../../../commands/doctor.js';
 import { restoreCommand } from '../../../commands/setup.js';
 
@@ -38,7 +37,7 @@ type MainMenuAction =
 export async function showMainMenu(): Promise<void> {
   let last: MainMenuAction | undefined;
   while (true) {
-    uiRenderer.renderHeader();
+    uiRenderer.renderHeader({ full: true });
 
     const connected = connectedToolNames();
     // 只检测是否安装，不查版本（查版本要逐个启动工具，太慢）
@@ -55,7 +54,7 @@ export async function showMainMenu(): Promise<void> {
         { value: 'setup_all', key: '1', label: t('menu_setup_all'), hint: pending > 0 ? t('menu_hint_pending', { count: String(pending) }) : t('menu_hint_all_connected') },
         { value: 'tools', key: '2', label: t('menu_configure_tools'), hint: t('menu_hint_connected', { count: String(connected.length), total: String(total) }) },
         { value: 'model', key: '3', label: t('menu_switch_model'), hint: currentModelHint(connected, models) },
-        { value: 'context', key: '4', label: t('menu_context'), hint: contextLabel() },
+        { value: 'context', key: '4', label: t('menu_context'), hint: contextMenuHint(connected) },
         { value: 'profile', key: '5', label: t('menu_profiles'), hint: configManager.getActiveProfile() ?? t('menu_hint_profile_none') },
         { value: 'endpoint', key: '6', label: t('menu_configure_endpoint'), hint: uiRenderer.endpointLabel() },
         { value: 'apikey', key: '7', label: t('menu_configure_apikey'), hint: apiKey ? uiRenderer.maskApiKey(apiKey) : t('config_view_not_set') },
@@ -100,10 +99,7 @@ export async function showMainMenu(): Promise<void> {
         await promptHelper.pressEnter();
         break;
       case 'restore':
-        uiRenderer.renderHeader();
-        await restoreCommand(undefined, {});
-        process.exitCode = 0;
-        await promptHelper.pressEnter();
+        await restoreSelected();
         break;
       case 'language':
         await runLanguageFlow();
@@ -140,26 +136,40 @@ async function runSetupAll(): Promise<void> {
   await setupTools(tools);
 }
 
-// 切换模型：对已接入的工具统一换模型并重新写入
+// 切换模型：勾选要换的工具（默认不勾）→ 选模型 → 确认页 → 只写入选中的工具
 async function switchModel(): Promise<void> {
-  const tools = toolManager.getAll().filter((tool) => connectedToolNames().includes(tool.name));
+  const connected = connectedToolNames();
+  const tools = toolManager.getAll().filter((tool) => connected.includes(tool.name) && !tool.launchOnly);
+  uiRenderer.renderHeader();
+  uiRenderer.renderTitle(t('menu_switch_model'), t('switch_model_subtitle'));
   if (tools.length === 0) {
-    uiRenderer.renderHeader();
     uiRenderer.renderHint(t('menu_switch_model_none'));
     await promptHelper.pressEnter();
     return;
   }
-  const result = await runModelPickFlow(tools);
-  if (result === 'cancelled') return;
-  if (result === 'per_tool') {
-    for (const tool of tools) await tool.runModelConfigFlow();
+  const models = configManager.getModels();
+  const targets = await selectTargets(t('targets_prompt'), tools, {
+    detail: (tool) => savedModelFor(tool, models) ?? tool.defaultModel ?? '—',
+  });
+  if (targets.length === 0) return;
+  await setupTools(targets, undefined, t('menu_switch_model'));
+}
+
+// 还原：勾选要还原的工具（默认不勾）后确认
+async function restoreSelected(): Promise<void> {
+  const connected = connectedToolNames();
+  const tools = toolManager.getAll().filter((tool) => connected.includes(tool.name));
+  uiRenderer.renderHeader();
+  uiRenderer.renderTitle(t('menu_restore'), t('restore_subtitle'));
+  if (tools.length === 0) {
+    uiRenderer.renderHint(t('restore_nothing'));
+    await promptHelper.pressEnter();
+    return;
   }
-  uiRenderer.renderHeader();
-  uiRenderer.renderTitle(t('setup_title'));
-  const results = await applyToolsWithProgress(tools);
-  uiRenderer.renderHeader();
-  uiRenderer.renderTitle(t('setup_title'));
-  renderResultSummary(results);
+  const targets = await selectTargets(t('targets_prompt_restore'), tools);
+  if (targets.length === 0) return;
+  await restoreCommand(targets.map((tool) => tool.name).join(','), { yes: false });
+  process.exitCode = 0;
   await promptHelper.pressEnter();
 }
 

@@ -104,11 +104,25 @@ test('profiles: save, switch, pin a tool, remove', () => {
   assert.deepEqual(configManager.listProfiles().map((p) => p.name), ['work']);
 });
 
-test('context window setting is stored and cleared', () => {
-  configManager.setContextWindow(64000);
-  assert.equal(configManager.getContextWindow(), 64000);
-  configManager.setContextWindow(undefined);
-  assert.equal(configManager.getContextWindow(), undefined);
+test('context window is stored per tool and only for the tools given', () => {
+  configManager.setContextWindow(64000, ['opencode', 'grok']);
+  assert.equal(configManager.getContextWindow('opencode'), 64000);
+  assert.equal(configManager.getContextWindow('grok'), 64000);
+  assert.equal(configManager.getContextWindow('codex'), undefined, 'tools not selected are untouched');
+  configManager.setContextWindow(undefined, ['grok']);
+  assert.equal(configManager.getContextWindow('grok'), undefined);
+  assert.equal(configManager.getContextWindow('opencode'), 64000);
+});
+
+test('settings snapshot restores models and context exactly', () => {
+  configManager.setModels({ toolModels: { grok: 'a' }, codexModel: 'c1' });
+  const snap = configManager.snapshotToolSettings();
+  configManager.setModels({ toolModels: { opencode: 'b' }, codexModel: 'c2' });
+  configManager.setContextWindow(32000, ['codex']);
+  configManager.restoreToolSettings(snap);
+  assert.deepEqual(configManager.getModels().toolModels, { grok: 'a' });
+  assert.equal(configManager.getModels().codexModel, 'c1');
+  assert.equal(configManager.getContextWindow('codex'), undefined);
 });
 
 test('Codex profiles: one provider per profile in config.toml, selection in qn-<name>.config.toml', () => {
@@ -182,7 +196,8 @@ test('profile commands, @profile in one command, --context, and restore', async 
   assert.equal(JSON.parse(r.stdout).profile, 'personal');
   const codexConfig = fs.readFileSync(path.join(home, '.codex/config.toml'), 'utf8');
   assert.match(codexConfig, /\/intl\/bypass\/openai\/v1/);
-  assert.match(codexConfig, /^model_context_window = 64000$/m);
+  // --context 只作用于那条命令里的工具（opencode），Codex 不受影响
+  assert.doesNotMatch(codexConfig, /model_context_window/);
   assert.equal(JSON.parse(fs.readFileSync(path.join(home, '.codex/auth.json'), 'utf8')).OPENAI_API_KEY, 'sk-intl-me');
   assert.ok(fs.existsSync(path.join(home, '.codex/qn-work.config.toml')));
   assert.ok(fs.existsSync(path.join(home, '.codex/qn-personal.config.toml')));
@@ -192,8 +207,14 @@ test('profile commands, @profile in one command, --context, and restore', async 
   assert.deepEqual(list.profiles.find((p) => p.name === 'personal').tools, ['codex']);
   assert.ok(list.profiles.every((p) => !p.apiKey.includes('work') || p.apiKey.includes('…')), 'keys are masked');
 
-  // 切换当前配置档：已接入的工具都改用它，单独绑定解除
+  // 非交互切换配置档：只切换，不改任何工具
   r = await cli(home, ['profile', 'use', 'personal']);
+  assert.equal(r.code, 0, r.stdout + r.stderr);
+  const opencodeUnchanged = JSON.parse(fs.readFileSync(path.join(home, '.config/opencode/opencode.json'), 'utf8'));
+  assert.equal(Object.values(opencodeUnchanged.provider)[0].options.apiKey, 'sk-cn-work');
+
+  // --sync：已接入的工具改用当前配置档
+  r = await cli(home, ['profile', 'use', 'personal', '--sync']);
   assert.equal(r.code, 0, r.stdout + r.stderr);
   const opencodeAfter = JSON.parse(fs.readFileSync(path.join(home, '.config/opencode/opencode.json'), 'utf8'));
   assert.equal(Object.values(opencodeAfter.provider)[0].options.apiKey, 'sk-intl-me');

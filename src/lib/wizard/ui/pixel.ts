@@ -86,8 +86,10 @@ export function spriteColor(id: string): string {
   return SPRITES[id]?.pal.a ?? '#19C2F0';
 }
 
-// 能否画像素：交互终端、至少 256 色
+// 能否画像素：交互终端、至少 256 色，且没有用 CODING_HELPER_ART=0 关闭
 export function pixelsSupported(): boolean {
+  const art = process.env.CODING_HELPER_ART?.toLowerCase();
+  if (art === '0' || art === 'off' || art === 'false') return false;
   return chalk.level >= 2 && !!process.stdout.isTTY;
 }
 

@@ -21,13 +21,13 @@ export interface ModelLimits {
 const FALLBACK_LIMITS: ModelLimits = { contextWindow: 128000, maxOutputTokens: 8192 };
 
 // 用户设置了上下文大小时，不超过模型上限
-export function capContextWindow(modelMax: number): number {
-  const setting = configManager.getContextWindow();
+export function capContextWindow(modelMax: number, toolName?: string): number {
+  const setting = configManager.getContextWindow(toolName);
   return setting ? Math.min(setting, modelMax) : modelMax;
 }
 
 // 尽力从模型市场获取上下文与输出上限，失败时使用保守的默认值；上下文按用户设置收窄
-export async function fetchModelLimits(baseUrl: string, apiKey: string, model: string): Promise<ModelLimits> {
+export async function fetchModelLimits(baseUrl: string, apiKey: string, model: string, toolName?: string): Promise<ModelLimits> {
   let limits = FALLBACK_LIMITS;
   try {
     const models = await marketModelService.fetchModels(baseUrl.replace(/\/+$/, ''), apiKey);
@@ -39,7 +39,7 @@ export async function fetchModelLimits(baseUrl: string, apiKey: string, model: s
   } catch {
     // 使用默认值
   }
-  return { ...limits, contextWindow: capContextWindow(limits.contextWindow) };
+  return { ...limits, contextWindow: capContextWindow(limits.contextWindow, toolName) };
 }
 
 // 通用 OpenAI 兼容客户端的公共部分：命令检测、模型选择与展示

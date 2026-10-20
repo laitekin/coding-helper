@@ -94,7 +94,7 @@ export async function quickCommand(target: string, rest: string[], options: Quic
 
     if (options.context !== undefined) {
       try {
-        configManager.setContextWindow(parseContextSize(options.context));
+        configManager.setContextWindow(parseContextSize(options.context), tools.map((tool) => tool.name));
       } catch {
         throw new QuickError(t('context_invalid', { value: options.context }));
       }

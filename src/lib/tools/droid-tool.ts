@@ -75,7 +75,7 @@ export class DroidTool extends OpenAICompatTool {
   async loadConfig(apiKey: string, baseUrl: string, models: ModelConfig): Promise<void> {
     const model = this.resolveModel(models);
     const settings = readJsonObjectStrict(droidSettingsFile());
-    const limits = await fetchModelLimits(baseUrl, apiKey, model);
+    const limits = await fetchModelLimits(baseUrl, apiKey, model, this.name);
     writeJson(droidSettingsFile(), applyDroidSettings(settings, baseUrl, apiKey, model, limits));
   }
 

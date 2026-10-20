@@ -47,7 +47,7 @@ export function findCommand(command: string, extra: string[] = []): string | und
 // 运行「命令 --version」并取出语义化版本号
 export function commandVersion(file: string): string | null {
   try {
-    const output = execSync(`"${file}" --version`, { stdio: 'pipe', encoding: 'utf-8', timeout: 5000 }).trim();
+    const output = execSync(`"${file}" --version`, { stdio: 'pipe', encoding: 'utf-8', timeout: 10000 }).trim();
     const match = output.match(/(\d+\.\d+\.\d+)/);
     return match ? match[1] : output;
   } catch {

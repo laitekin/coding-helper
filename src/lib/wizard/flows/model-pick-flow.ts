@@ -1,19 +1,20 @@
 import ora from 'ora';
 import { t } from '../../i18n.js';
-import { configManager } from '../../config.js';
+import { configManager, type ModelConfig } from '../../config.js';
 import { marketModelService, getModelCapabilities, type MarketModelInfo } from '../../market-model-service.js';
 import { RECOMMENDED_MODELS, formatContextSize } from '../../core/quick-args.js';
 import { modelConfigFor, savedModelFor } from '../../core/model-mapping.js';
 import type { ITool } from '../../tools/base-tool.js';
 import { uiRenderer } from '../ui/ui-renderer.js';
 import { menuPrompt, type MenuItem } from '../ui/prompts.js';
+import type { PlanChange, PlanItem } from '../ui/write-plan.js';
 import { theme } from '../ui/theme.js';
 import { logger } from '../../../utils/logger.js';
 import { contextLabel } from './context-flow.js';
 
 const PER_TOOL = '__per_tool__';
 
-export type ModelPickResult = 'saved' | 'per_tool' | 'cancelled';
+export type ModelChoice = { model: string } | 'per_tool' | 'cancelled';
 
 function modelRow(m: MarketModelInfo, current: string | undefined, tools: ITool[]): MenuItem<string> {
   const caps = getModelCapabilities(m);
@@ -39,8 +40,8 @@ function sortModels(models: MarketModelInfo[]): MarketModelInfo[] {
   return [...models].sort((a, b) => rank(a.id) - rank(b.id) || a.id.localeCompare(b.id));
 }
 
-// 所有工具统一选一个模型；Codex 等工具不兼容时改用它自己的默认模型。返回 per_tool 表示改为按工具分别选
-export async function runModelPickFlow(tools: ITool[], step?: { current: number; total: number }): Promise<ModelPickResult> {
+// 为这些工具选一个模型（只选，不保存）；返回 per_tool 表示改为按工具分别选
+export async function chooseModel(tools: ITool[], step?: { current: number; total: number }): Promise<ModelChoice> {
   const apiKey = configManager.getApiKey();
   if (!apiKey) {
     uiRenderer.renderError(t('apikey_not_set'));
@@ -96,23 +97,32 @@ export async function runModelPickFlow(tools: ITool[], step?: { current: number;
     if (value === PER_TOOL) return 'per_tool';
     const model = action === 'custom' ? query!.trim() : value;
     if (!model) continue;
-    await saveForTools(tools, model);
-    return 'saved';
+    return { model };
   }
 }
 
-// 逐个工具确认兼容性并保存；不兼容的工具用它自己的默认模型
-async function saveForTools(tools: ITool[], model: string): Promise<void> {
+function claudeSlots(models: ModelConfig): { main?: string; fallback?: string } {
+  const c = models.claudeCode;
+  return { main: c?.sonnetModel, fallback: c?.haikuModel };
+}
+
+// 为每个工具生成写入计划：Codex 等先检测兼容性，不兼容时改用它自己的默认模型；
+// Claude Code 的主模型（Sonnet · Opus）与兜底模型（Haiku · Subagent）一起切换
+export async function buildModelPlan(tools: ITool[], model: string): Promise<PlanItem[]> {
   const apiKey = configManager.getApiKey()!;
   const baseUrl = configManager.baseUrl;
+  const saved = configManager.getModels();
+  const items: PlanItem[] = [];
   logger.newLine();
   for (const tool of tools) {
     let chosen = model;
+    let note = '';
     if (tool.checkModel) {
       const spinner = ora({ text: t('model_checking', { tool: tool.displayName, model }), indent: 2 }).start();
       const reason = await tool.checkModel(model, { apiKey, baseUrl });
       if (reason && tool.defaultModel) {
         chosen = tool.defaultModel;
+        note = t('plan_model_fallback_note', { model });
         spinner.warn(t('model_fallback', { tool: tool.displayName, model, fallback: chosen }));
       } else if (reason) {
         spinner.fail(t(reason, { tool: tool.displayName, model }));
@@ -121,7 +131,15 @@ async function saveForTools(tools: ITool[], model: string): Promise<void> {
         spinner.succeed(t('model_compatible', { tool: tool.displayName, model }));
       }
     }
-    configManager.setModels(modelConfigFor(tool, chosen));
+    const changes: PlanChange[] = tool.name === 'claude-code'
+      ? [
+          { label: t('plan_claude_main'), before: claudeSlots(saved).main, after: chosen },
+          { label: t('plan_claude_fallback'), before: claudeSlots(saved).fallback, after: chosen },
+        ]
+      : [{ label: t('plan_model'), before: tool.isConfigured() ? savedModelFor(tool, saved) ?? tool.defaultModel : undefined, after: note ? `${chosen}  ${theme.subtle(note)}` : chosen }];
+    items.push({ tool, models: modelConfigFor(tool, chosen), changes });
   }
-  configManager.setModels({ defaultModel: model });
+  // 只在第一次记下默认模型（供之后的菜单默认选中），不会拿它去改其他工具
+  if (!saved.defaultModel) configManager.setModels({ defaultModel: model });
+  return items;
 }

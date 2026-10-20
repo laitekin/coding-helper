@@ -87,8 +87,9 @@ export function createProgram(): Command {
   profile
     .command('use <name> [tools]')
     .description('Switch the active profile, or bind only the given tools (comma separated) to it')
-    .action(async (name: string, tools?: string) => {
-      await profileUseCommand(name, tools);
+    .option('--sync', 'also rewrite every connected tool with the new profile (default: ask in a terminal, otherwise only switch)')
+    .action(async (name: string, tools: string | undefined, options: { sync?: boolean }) => {
+      await profileUseCommand(name, tools, options);
     });
   profile
     .command('remove <name>')
@@ -154,8 +155,9 @@ export function createProgram(): Command {
   program
     .command('auth [token]')
     .description('Manage API Key')
-    .action(async (token?: string) => {
-      await authCommand(token);
+    .option('--sync', 'also rewrite connected tools with the new key (default: ask in a terminal, otherwise only save)')
+    .action(async (token: string | undefined, options: { sync?: boolean }) => {
+      await authCommand(token, options);
     });
 
   // doctor - 健康检查

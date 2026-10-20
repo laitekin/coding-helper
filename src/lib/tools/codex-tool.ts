@@ -232,7 +232,7 @@ const MANAGED_TOP_LEVEL_KEYS = ['model', 'model_provider', 'model_catalog_json',
 
 // 上下文大小：用户设置了就写 model_context_window（不超过模型上限），改回「自动」时还原原值
 export function applyContextWindow(content: string, model: string, priors: PriorValues): string {
-  const setting = configManager.getContextWindow();
+  const setting = configManager.getContextWindow('codex');
   if (setting) {
     const max = GPT_MODELS.find((m) => m.id === model)?.context_length;
     return upsertTopLevelTomlKey(content, 'model_context_window', String(max ? Math.min(setting, max) : setting));

@@ -83,7 +83,7 @@ export class GrokTool extends OpenAICompatTool {
         'models.default': getTomlTableValue(existing, 'models', 'default') ?? null,
       });
     }
-    const limits = await fetchModelLimits(baseUrl, apiKey, model);
+    const limits = await fetchModelLimits(baseUrl, apiKey, model, this.name);
     safeWriteFile(file, applyGrokConfig(existing, baseUrl, apiKey, model, limits.contextWindow));
   }
 

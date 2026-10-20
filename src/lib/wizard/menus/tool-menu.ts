@@ -10,7 +10,6 @@ import { fetchLatestVersion, isNewerVersion } from '../../version-service.js';
 import { applyToolsWithProgress, formatConfiguredBadge, formatInstallState, renderResultSummary, toolIcon } from '../ui/tool-view.js';
 import { detectAllTools, detectTool, hasSavedToolModelConfig, removeTool, type ToolDetection } from '../../core/tool-service.js';
 import { menuPrompt, type MenuEntry } from '../ui/prompts.js';
-import { renderSprite, joinBlocks, pixelsSupported, SPRITE_WIDTH } from '../ui/pixel.js';
 import { savedModelFor } from '../../core/model-mapping.js';
 import { toolManager } from '../../tool-manager.js';
 import { setupTools } from '../flows/tool-setup-flow.js';
@@ -19,6 +18,7 @@ import { padVisible } from '../../../utils/string-width.js';
 
 // 工具菜单操作
 type ToolMenuAction =
+  | 'switch'
   | 'models'
   | 'load'
   | 'profile'
@@ -99,7 +99,7 @@ export async function showToolSelector(): Promise<void> {
     const tool = toolManager.get(value);
     if (!tool) continue;
     if (action === 'm') {
-      if (await tool.runModelConfigFlow()) await applyConfig(tool);
+      await setupTools([tool], undefined, t('menu_switch_model'));
     } else if (action === 's') await launchTool(tool);
     else if (action === 'r') await unloadWithConfirm(tool);
     else await showToolMenu(tool);
@@ -118,17 +118,15 @@ function renderToolCard(tool: ITool, latestLine: string): void {
     `${uiTheme.subtle(t('tool_detail_model'))} ${model ? chalk.hex('#8BE9FF')(model) : uiTheme.subtle('—')}`,
     `${uiTheme.subtle(t('tool_detail_connection'))} ${uiTheme.value(profile ? `${t('profile_label')} ${profile}` : uiRenderer.endpointLabel())}`,
   ];
-  if (pixelsSupported()) {
-    for (const line of joinBlocks([renderSprite(tool.name, !detection.configured), info], [SPRITE_WIDTH, 0], 3)) logger.log(`  ${line}`);
-  } else {
-    for (const line of info) logger.log(`  ${line}`);
-  }
+  logger.log(`  ${toolIcon(tool.name, detection.installed === false)} ${info[0]}   ${info[1]}`);
+  for (const line of info.slice(2)) logger.log(`    ${line}`);
   logger.newLine();
 }
 
 function latestVersionLine(installed: string | null, latest: string | null, fetchCompleted: boolean, npmPackageName?: string): string {
   if (!npmPackageName || !installed) return '';
-  if (!latest) return uiTheme.subtle(t(getMissingLatestVersionDisplayKey(fetchCompleted)));
+  // 查不到最新版本（如离线）时不显示
+  if (!latest) return fetchCompleted ? '' : uiTheme.subtle(t(getMissingLatestVersionDisplayKey(fetchCompleted)));
   return isNewerVersion(installed, latest)
     ? chalk.yellow(`${t('tool_version_latest')} ${latest} · ${t('tool_version_update_hint')}`)
     : chalk.green(t('tool_version_up_to_date'));
@@ -217,7 +215,8 @@ export async function showToolMenu(tool: ITool): Promise<void> {
         escape: true,
         items: [
           { value: 'load', key: '1', label: t('tool_load_config'), hint: detectTool(tool).configured ? t('tool_hint_rewrite') : '' },
-          { value: 'models', key: 'm', label: t('tool_configure_models') },
+          { value: 'switch', key: 'm', label: t('menu_switch_model'), hint: currentModel(detectTool(tool)) ?? '' },
+          { value: 'models', key: 'a', label: t('tool_configure_models_advanced') },
           ...(hasProfiles ? [{ value: 'profile' as const, key: 'p', label: t('tool_use_profile'), hint: configManager.getToolProfile(tool.name) ?? t('tool_profile_following') }] : []),
           { value: 'launch', key: 's', label: t('tool_launch'), hint: tool.command },
           { value: 'unload', key: 'r', label: t('tool_unload_config') },
@@ -238,8 +237,13 @@ export async function showToolMenu(tool: ITool): Promise<void> {
     }
 
     switch (action) {
+      case 'switch':
+        await setupTools([tool], undefined, t('menu_switch_model'));
+        break;
+
       case 'models':
-        await tool.runModelConfigFlow();
+        // 高级设置（如 Claude Code 的 4 个模型槽位分别设置）：只写入这一个工具
+        if (await tool.runModelConfigFlow()) await applyConfig(tool);
         break;
 
       case 'load':

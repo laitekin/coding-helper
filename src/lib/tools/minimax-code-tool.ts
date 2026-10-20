@@ -66,7 +66,7 @@ export class MinimaxCodeTool extends OpenAICompatTool {
       const current = this.getConfig().defaultModel;
       stateStore.recordPriors(this.name, { defaultModel: typeof current === 'string' ? current : null });
     }
-    const limits = await fetchModelLimits(baseUrl, apiKey, model);
+    const limits = await fetchModelLimits(baseUrl, apiKey, model, this.name);
     backupFile(getMinimaxConfigFile());
     try {
       execFileSync(this.command, [

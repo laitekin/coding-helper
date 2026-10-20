@@ -37,49 +37,50 @@ export const uiRenderer = {
     process.stdout.write('\x1Bc');
   },
 
-  // 渲染七牛 Logo；connected 为已接入工具名，显示在小牛旁边
-  renderLogo(connected: string[] = []): void {
-    renderLogoArt(connected);
+  // 渲染七牛 Logo（只在主菜单与首次向导使用）
+  renderLogo(): void {
+    renderLogoArt();
   },
 
-  // 统一页面头部：清屏 + Logo + 一行状态条（线路 · Key · 已接入数）
-  renderHeader(): void {
+  // 页头。full：像素 Logo + 状态行（主菜单、首次向导）；否则一行品牌 + 面包屑 + 状态，内容页保持安静
+  renderHeader(options: { full?: boolean; crumb?: string } = {}): void {
     this.clearScreen();
-    this.renderLogo(connectedToolNames());
+    if (options.full) {
+      this.renderLogo();
+      this.renderStatusBar();
+      return;
+    }
+    logger.newLine();
+    const brand = `${theme.brandBold('QINIU')} ${chalk.bold.hex('#E8F6FF')('Coding Helper')}`;
+    const crumb = options.crumb ? `${theme.subtle('  ›  ')}${theme.value(options.crumb)}` : '';
+    logger.log(`  ${brand}${crumb}`);
     this.renderStatusBar();
   },
 
-  // 状态条：● 线路 国内 api.qnaigc.com │ ● Key sk-c…70c7 │ ● 已接入 4/13
+  // 状态行：● 国内线路 (api.qnaigc.com) · Key sk-c…70c7 · 已接入 6 / 12 · 配置档 work
   renderStatusBar(): void {
-    const endpointText = this.endpointLabel();
     const apiKey = configManager.getApiKey();
     const tools = registeredTools().filter((tool) => !tool.launchOnly);
     const applied = connectedToolNames().length;
 
-    const dot = (ok: boolean): string => (ok ? theme.success('●') : theme.subtle('○'));
-    const sep = theme.border(' │ ');
+    const sep = theme.subtle('  ·  ');
     const segments = [
-      `${dot(true)} ${theme.label(t('config_view_endpoint'))} ${theme.value(endpointText)}`,
-      `${dot(!!apiKey)} ${theme.label('Key')} ${apiKey ? theme.value(this.maskApiKey(apiKey)) : theme.subtle(t('config_view_not_set'))}`,
-      `${applied > 0 ? theme.brand('●') : theme.subtle('○')} ${theme.label(t('status_applied'))} ${theme.brandBold(String(applied))}${theme.subtle(` / ${tools.length}`)}`,
+      `${theme.success('●')} ${theme.subtle(this.endpointLabel())}`,
+      `${theme.subtle('Key')} ${apiKey ? theme.subtle(this.maskApiKey(apiKey)) : theme.warning(t('config_view_not_set'))}`,
+      `${theme.subtle(t('status_applied'))} ${theme.brand(String(applied))}${theme.subtle(` / ${tools.length}`)}`,
     ];
     const profile = configManager.getActiveProfile();
-    if (profile) segments.push(`${theme.label(t('profile_label'))} ${theme.brandBold(profile)}`);
+    if (profile) segments.push(`${theme.subtle(t('profile_label'))} ${theme.brand(profile)}`);
 
-    const line = segments.join(sep);
     const columns = process.stdout.columns || 100;
-    // 放得下时加边框；窄终端去掉边框，每段一行以免折行错位
-    if (visibleWidth(line) + 6 <= columns) {
-      const width = visibleWidth(line) + 2;
-      logger.log(`  ${theme.border('╭' + '─'.repeat(width) + '╮')}`);
-      logger.log(`  ${theme.border('│')} ${line} ${theme.border('│')}`);
-      logger.log(`  ${theme.border('╰' + '─'.repeat(width) + '╯')}`);
-    } else if (visibleWidth(segments.slice(0, 2).join(sep)) + 4 <= columns) {
+    const line = segments.join(sep);
+    if (visibleWidth(line) + 4 <= columns) {
+      logger.log(`  ${line}`);
+    } else {
       logger.log(`  ${segments.slice(0, 2).join(sep)}`);
       logger.log(`  ${segments.slice(2).join(sep)}`);
-    } else {
-      for (const segment of segments) logger.log(`  ${segment}`);
     }
+    logger.log(`  ${theme.border('─'.repeat(Math.min(columns - 4, 72)))}`);
     logger.newLine();
   },
 
@@ -101,15 +102,10 @@ export const uiRenderer = {
     logger.newLine();
   },
 
-  // 渲染标题 — 左右等长灰色线条 + 中间亮色标题
-  renderTitle(title: string): void {
-    const titleWidth = stringWidth(title);
-    const totalWidth = 50;
-    const sideLen = Math.max(2, Math.floor((totalWidth - titleWidth - 2) / 2));
-    const leftLine = '─'.repeat(sideLen);
-    const rightLine = '─'.repeat(sideLen);
-    logger.newLine();
-    logger.log(`  ${theme.subtle(leftLine)} ${theme.heading(title)} ${theme.subtle(rightLine)}`);
+  // 页面标题：粗体标题 + 可选的一行说明
+  renderTitle(title: string, subtitle?: string): void {
+    logger.log(`  ${chalk.bold.hex('#E8F6FF')(title)}`);
+    if (subtitle) logger.log(`  ${theme.subtle(subtitle)}`);
     logger.newLine();
   },
 

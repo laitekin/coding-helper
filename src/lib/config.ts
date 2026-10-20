@@ -63,7 +63,8 @@ interface Config {
   profiles?: Record<string, ProfileEntry>;
   // 单独绑定到其他配置档的工具：工具名 → 配置档名
   tool_profiles?: Record<string, string>;
-  // 上下文大小上限（token），不设置时使用模型上限
+  // 上下文大小上限（token）：按工具设置；context_window 为旧版的全局值，作为兜底
+  context_windows?: Record<string, number>;
   context_window?: number;
   claudeCode?: ClaudeCodeConfig;
   codeBuddyModels?: string[];
@@ -242,15 +243,44 @@ class ConfigManager {
 
   // ─── 上下文大小 ───
 
-  getContextWindow(): number | undefined {
+  // 某个工具的上下文上限；不传工具名时返回全局值
+  getContextWindow(toolName?: string): number | undefined {
     this.load();
-    return this.config.context_window || undefined;
+    const own = toolName ? this.config.context_windows?.[toolName] : undefined;
+    return own || this.config.context_window || undefined;
   }
 
-  setContextWindow(tokens: number | undefined): void {
+  // 只设置指定的工具；undefined 表示改回「自动」（模型上限）
+  setContextWindow(tokens: number | undefined, toolNames: string[]): void {
     this.load();
-    if (tokens) this.config.context_window = tokens;
-    else delete this.config.context_window;
+    const map = { ...this.config.context_windows };
+    for (const name of toolNames) {
+      if (tokens) map[name] = tokens;
+      else delete map[name];
+    }
+    // 旧版全局值迁移成按工具保存，避免它继续影响没选中的工具
+    if (this.config.context_window) {
+      delete this.config.context_window;
+    }
+    this.config.context_windows = Object.keys(map).length ? map : undefined;
+    if (!this.config.context_windows) delete this.config.context_windows;
+    this.save();
+  }
+
+  // 写入前的快照：模型与上下文，用于「查看改动」预演后恢复
+  snapshotToolSettings(): string {
+    this.load();
+    const { claudeCode, codeBuddyModels, workbuddyModels, hermesModel, codexModel, toolModels, defaultModel, context_windows, context_window } = this.config;
+    return JSON.stringify({ claudeCode, codeBuddyModels, workbuddyModels, hermesModel, codexModel, toolModels, defaultModel, context_windows, context_window });
+  }
+
+  restoreToolSettings(snapshot: string): void {
+    this.load();
+    const saved = JSON.parse(snapshot) as Partial<Config>;
+    for (const key of ['claudeCode', 'codeBuddyModels', 'workbuddyModels', 'hermesModel', 'codexModel', 'toolModels', 'defaultModel', 'context_windows', 'context_window'] as const) {
+      if (saved[key] === undefined) delete this.config[key];
+      else (this.config as Record<string, unknown>)[key] = saved[key];
+    }
     this.save();
   }
 

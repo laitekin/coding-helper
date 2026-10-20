@@ -12,7 +12,7 @@ import os from 'node:os';
 import chalk from 'chalk';
 import { configManager } from '../../config.js';
 import { savedModelFor } from '../../core/model-mapping.js';
-import { renderSprite, joinBlocks, pixelsSupported, spriteColor, SPRITE_WIDTH } from './pixel.js';
+import { spriteColor } from './pixel.js';
 import {
   applyTool,
   getSyncTargets,
@@ -60,27 +60,10 @@ function formatReason(result: ToolResult): string {
   return theme.subtle(truncate(reasonText(result), 60));
 }
 
-// 列表里的工具色块（未安装时变灰）
+// 工具的小圆点：品牌色只出现在这里；未安装时为灰色空心圆
 export function toolIcon(toolName: string, dim = false): string {
-  if (chalk.level < 2) return dim ? '··' : '■■';
-  return chalk.hex(dim ? '#3A4450' : spriteColor(toolName))('██');
-}
-
-// 接入成功的工具：像素角色排成一排，头顶打勾；终端放不下时换行
-function renderSuccessSprites(results: ToolResult[]): void {
-  const ok = results.filter((r) => r.status === 'success');
-  if (ok.length === 0 || !pixelsSupported()) return;
-  const perRow = Math.max(1, Math.floor(((process.stdout.columns || 80) - 4) / (SPRITE_WIDTH + 2)));
-  for (let i = 0; i < ok.length; i += perRow) {
-    const row = ok.slice(i, i + perRow);
-    const blocks = row.map((r) => [
-      `${' '.repeat(5)}${theme.success('✔')}`,
-      ...renderSprite(r.tool.name),
-      theme.subtle(truncate(r.tool.displayName, SPRITE_WIDTH)),
-    ]);
-    for (const line of joinBlocks(blocks, row.map(() => SPRITE_WIDTH), 2)) logger.log(`  ${line}`);
-    logger.newLine();
-  }
+  if (dim) return theme.subtle('○');
+  return chalk.level >= 2 ? chalk.hex(spriteColor(toolName))('●') : '●';
 }
 
 function launchHint(tool: ITool): string {
@@ -90,8 +73,8 @@ function launchHint(tool: ITool): string {
 // 结果页：亮起的像素角色 + 结果表 + 下一步（怎么启动、怎么撤销）+ 备份位置
 export function renderResultSummary(results: ToolResult[], options: { restore?: boolean } = {}): void {
   if (results.length === 0) return;
-  logger.newLine();
   if (options.restore) {
+    logger.newLine();
     uiRenderer.renderTable(
       [t('setup_col_tool'), t('setup_col_result'), t('setup_col_detail')],
       results.map((r) => [theme.value(r.tool.displayName), formatResultStatus(r), theme.subtle(truncate(reasonText(r), 48))]),
@@ -100,13 +83,18 @@ export function renderResultSummary(results: ToolResult[], options: { restore?: 
     logger.newLine();
     return;
   }
-  renderSuccessSprites(results);
+  const ok = results.filter((r) => r.status === 'success');
+  const headline = ok.length === results.length
+    ? theme.success(`✔ ${t('result_headline_ok', { count: String(ok.length) })}`)
+    : theme.warning(`! ${t('result_headline_partial', { ok: String(ok.length), total: String(results.length) })}`);
+  logger.log(`  ${headline}`);
+  logger.newLine();
 
   const models = configManager.getModels();
   uiRenderer.renderTable(
     [t('setup_col_tool'), t('setup_col_result'), t('result_col_model'), t('result_col_launch')],
     results.map((r) => [
-      theme.value(r.tool.displayName),
+      `${toolIcon(r.tool.name)} ${theme.value(r.tool.displayName)}`,
       formatResultStatus(r),
       r.status === 'success' ? theme.subtle(truncate(savedModelFor(r.tool, models) ?? r.tool.defaultModel ?? '—', 34)) : theme.subtle(truncate(reasonText(r), 34)),
       r.status === 'success' ? theme.brand(launchHint(r.tool)) : '',
@@ -120,7 +108,6 @@ export function renderResultSummary(results: ToolResult[], options: { restore?: 
     logger.log(`    ${theme.subtle(reasonText(r))}`);
   }
 
-  const ok = results.filter((r) => r.status === 'success');
   logger.newLine();
   if (ok.length > 0 && !isDryRun()) {
     const commands = ok.filter((r) => r.tool.isInstalled() !== null).map((r) => theme.value(r.tool.command));
@@ -160,19 +147,33 @@ export async function applyToolsWithProgress(tools: ITool[]): Promise<ToolResult
   return results;
 }
 
-// API Key 或线路变更后，同步到已接入的客户端
-export async function syncAfterChange(messageKey = 'sync_start'): Promise<ToolResult[]> {
+// Key、线路或配置档变更后：列出仍指向七牛的工具，由用户勾选要更新哪些（默认勾选跟随当前连接的工具）；
+// 不勾选 = 只保存到 coding-helper，不改工具配置。非交互终端不改动任何工具
+export async function syncAfterChange(messageKey = 'sync_select_prompt'): Promise<ToolResult[]> {
   const targets = getSyncTargets();
-  if (targets.length === 0) return [];
+  if (targets.length === 0 || !process.stdin.isTTY) return [];
   logger.newLine();
-  uiRenderer.renderHint(t(messageKey, { count: String(targets.length) }));
-  const results = await applyToolsWithProgress(targets);
+  const following = targets.filter((tool) => !configManager.getToolProfile(tool.name)).map((tool) => tool.name);
+  const { selectTargets } = await import('./write-plan.js');
+  const selected = await selectTargets(t(messageKey), targets, {
+    preselect: following,
+    detail: (tool) => {
+      const profile = configManager.getToolProfile(tool.name);
+      return profile ? t('sync_detail_pinned', { name: profile }) : t('sync_detail_following');
+    },
+    footer: [['space', t('ui_key_toggle')], ['a', t('ui_key_select_all_short')], ['n', t('ui_key_select_none')], ['⏎', t('sync_key_confirm')]],
+  });
+  if (selected.length === 0) {
+    uiRenderer.renderHint(t('sync_skipped'));
+    return [];
+  }
+  const results = await applyToolsWithProgress(selected);
   renderResultSummary(results);
   return results;
 }
 
 // --dry-run：逐个文件展示将要发生的变更，API Key 打码
-export function renderPlannedChanges(changes: PlannedChange[], apiKey: string | undefined): void {
+export function renderPlannedChanges(changes: PlannedChange[], apiKey: string | undefined, options: { footer?: boolean } = {}): void {
   const mask = (text: string): string =>
     apiKey ? text.split(apiKey).join(uiRenderer.maskApiKey(apiKey)) : text;
   const display = (file: string): string => file.replace(os.homedir(), '~');
@@ -199,5 +200,5 @@ export function renderPlannedChanges(changes: PlannedChange[], apiKey: string | 
     }
     logger.newLine();
   }
-  uiRenderer.renderHint(t('dry_run_footer'));
+  if (options.footer !== false) uiRenderer.renderHint(t('dry_run_footer'));
 }

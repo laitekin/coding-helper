@@ -7,7 +7,7 @@ import { applyTool, getSyncTargets, exitCodeFor, type ToolResult } from '../lib/
 import { toolManager } from '../lib/tool-manager.js';
 import { uiRenderer } from '../lib/wizard/ui/ui-renderer.js';
 import { theme } from '../lib/wizard/ui/theme.js';
-import { applyToolsWithProgress, renderResultSummary } from '../lib/wizard/ui/tool-view.js';
+import { applyToolsWithProgress, renderResultSummary, syncAfterChange } from '../lib/wizard/ui/tool-view.js';
 import { toolsUsingProfile } from '../lib/wizard/flows/profile-flow.js';
 import { normalizeCustomBaseUrl } from '../lib/wizard/flows/endpoint-selection-flow.js';
 import { modelService } from '../lib/model-service.js';
@@ -85,12 +85,12 @@ export async function profileAddCommand(
   if (result.valid) uiRenderer.renderSuccess(t('profile_test_ok', { name, endpoint: uiRenderer.endpointLabel(profile.endpoint, profile.baseUrl) }));
   else uiRenderer.renderWarning(t('profile_saved_unverified', { name }) + (result.error ? ` (${result.error})` : ''));
 
-  if (options.use || !configManager.getActiveProfile()) await profileUseCommand(name, undefined);
+  if (options.use || !configManager.getActiveProfile()) await profileUseCommand(name, undefined, { sync: false });
   else logger.log(theme.subtle(`  ${t('profile_use_hint', { name })}`));
 }
 
 // profile use <name> [tools]：不带工具时切换当前配置档并同步全部已接入工具；带工具时只把这些工具绑定到它
-export async function profileUseCommand(name: string, tools: string | undefined): Promise<void> {
+export async function profileUseCommand(name: string, tools: string | undefined, options: { sync?: boolean } = {}): Promise<void> {
   i18n.init();
   if (!configManager.getProfile(name)) return fail(t('quick_profile_not_found', { name }));
 
@@ -99,8 +99,16 @@ export async function profileUseCommand(name: string, tools: string | undefined)
     modelService.clearCache();
     marketModelService.clearCache();
     uiRenderer.renderSuccess(t('profile_switched', { name }));
-    const results = await applyToolsWithProgress(getSyncTargets());
-    if (results.length) renderResultSummary(results);
+    // 只改用户确认的工具：--sync 更新全部；交互终端里勾选；否则只切换配置档
+    let results: ToolResult[] = [];
+    if (options.sync) {
+      results = await applyToolsWithProgress(getSyncTargets());
+      if (results.length) renderResultSummary(results);
+    } else if (process.stdin.isTTY) {
+      results = await syncAfterChange();
+    } else if (getSyncTargets().length) {
+      uiRenderer.renderHint(t('sync_cli_hint'));
+    }
     process.exitCode = results.length ? exitCodeFor(results) : 0;
     return;
   }
@@ -130,12 +138,11 @@ export async function profileRemoveCommand(name: string): Promise<void> {
   const pinned = toolManager.getAll().filter((tool) => configManager.getToolProfile(tool.name) === name);
   configManager.removeProfile(name);
   uiRenderer.renderSuccess(t('profile_deleted', { name }));
-  // 绑定在它上面的工具改用当前连接
-  for (const tool of pinned) {
-    try {
-      if (tool.isConfigured()) await applyTool(tool);
-    } catch {
-      // 读不了配置文件的工具交给 doctor 报告
-    }
+  // 绑定在它上面的工具不自动改写，提示用户自己决定
+  if (pinned.length) {
+    uiRenderer.renderHint(t('profile_removed_pinned_hint', {
+      tools: pinned.map((tool) => tool.displayName).join(', '),
+      command: `coding-helper auth reload ${pinned[0].name}`,
+    }));
   }
 }

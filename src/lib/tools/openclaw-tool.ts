@@ -103,7 +103,7 @@ export class OpenClawTool extends OpenAICompatTool {
       const legacy = isQiniuBaseUrl(getPath(config, `models.providers.${PROVIDER_ID}.baseUrl`));
       stateStore.recordPriors(this.name, { [PRIMARY_PATH]: legacy ? null : getPath(config, PRIMARY_PATH) ?? null });
     }
-    const limits = await fetchModelLimits(baseUrl, apiKey, model);
+    const limits = await fetchModelLimits(baseUrl, apiKey, model, this.name);
     writeJson(getOpenClawConfigFile(), applyOpenClawConfig(config, baseUrl, apiKey, model, limits));
   }
 
