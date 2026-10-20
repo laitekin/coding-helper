@@ -26,7 +26,7 @@
 | 把本机装好的编程助手全部接入七牛 | `npx qiniu-coding-helper setup`，勾选后一次写完，最后给出汇总表 |
 | 不想动配置文件，只临时用七牛跑一次 | `npx qiniu-coding-helper run claude`，只对这次启动生效 |
 | 先看看会改哪些文件 | `npx qiniu-coding-helper setup --dry-run`，逐文件展示差异，Key 打码，不写入 |
-| 换了 Key 或线路 | 在菜单或 `auth` 里改一次，已接入的编程助手自动同步 |
+| 换了 Key 或线路 | 在菜单里改一次，勾选要同步的编程助手；命令行用 `auth sk-xxx --sync` |
 | 看哪些编程助手已经接入 | `npx qiniu-coding-helper status` |
 | 不用了，恢复原样 | `npx qiniu-coding-helper restore`，删掉七牛条目并写回原来的值 |
 | 配好了却不生效 | `npx qiniu-coding-helper doctor`，检查 Key、账户余额状态、网络和环境变量覆盖 |

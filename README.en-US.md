@@ -26,7 +26,7 @@ Running Claude Code, Codex and friends on the Qiniu API normally means opening e
 | Connect every installed coding assistant to Qiniu | `npx qiniu-coding-helper setup` — pick the tools, everything is written in one go, then a summary table |
 | Use Qiniu for one session without touching config files | `npx qiniu-coding-helper run claude` |
 | See what would change first | `npx qiniu-coding-helper setup --dry-run` — a per-file diff with the key masked, nothing written |
-| Change your key or endpoint | Change it once in the menu or with `auth`; connected tools are synced automatically |
+| Change your key or endpoint | Change it once in the menu and pick which tools to update; on the CLI use `auth sk-xxx --sync` |
 | See which tools are connected | `npx qiniu-coding-helper status` |
 | Go back to how things were | `npx qiniu-coding-helper restore` — removes Qiniu entries and writes back the old values |
 | Find out why it isn't working | `npx qiniu-coding-helper doctor` — key, account billing status, network, env-var overrides |
@@ -64,12 +64,16 @@ Prefer to choose step by step? Run `npx qiniu-coding-helper` for the 5-step wiza
 |---|---|---|
 | <img src="docs/images/wtools.png" alt="Two-column multi-select"> | <img src="docs/images/wmodel.png" alt="Recommended first, / to search"> | <img src="docs/images/wdone.png" alt="Connected tools light up"> |
 
+**Only the tools you choose change.** Switching models, context size and restore all start by selecting tools (none pre-selected, `a` selects all). Before anything is written a confirmation page lists each tool's old → new values, the files that will change and the tools left untouched; `d` previews the per-file diff. After changing the key, endpoint or profile you choose which tools to update.
+
+<p align="center"><img src="docs/images/confirm.png" width="640" alt="Confirmation page before writing"></p>
+
 Interface highlights:
-- **Pixel style:** Qiniu's calf and every coding assistant have a pixel character; connected ones light up. Below 256 colors, in narrow terminals or with `NO_COLOR`, it falls back to plain text.
+- **Restrained pixel art:** the pixel QINIU logo and calf appear only on the main menu; other pages use a one-line header and status line, with tools marked by a brand-colored dot. `CODING_HELPER_ART=0` turns the art off; below 256 colors, in narrow terminals or with `NO_COLOR` it falls back to plain text.
 - **Shortcuts:** the number or letter in front of a menu item jumps straight to it; `/` searches lists; the bottom bar always shows the available keys.
 - **Tools page:** grouped into installed / not installed; the selected tool shows its model, connection and config path; `m` model, `s` launch, `r` restore, `a` connect all.
 - **API key:** only the first and last 4 characters are shown; on Enter it checks format, key, account and models, and switches region if the key belongs to the other one.
-- **Model:** one model for all tools; Codex and other incompatible tools fall back to their own default automatically. Press `p` to pick per tool.
+- **Model:** one model for the selected tools; Claude Code's main and fallback models switch together, and Codex and other incompatible tools fall back to their own default. Press `p` to pick per tool.
 
 **Restart any coding assistant that is already running** and you're done.
 
@@ -264,7 +268,7 @@ Default is Auto: each model is written with its real maximum from Qiniu's model 
 coding-helper codex,opencode --context 64k
 ```
 
-or choose Auto / 128K / 64K / 32K / Custom in the main menu. Values above a model's maximum are capped to it. Changes sync to connected tools.
+or choose Auto / 128K / 64K / 32K / Custom in the main menu and then the tools to apply it to. The setting is stored per tool and only affects the tools you select; values above a model's maximum are capped. `--context` only affects the tools in that command.
 
 | Written to | Assistants |
 |---|---|
@@ -272,9 +276,9 @@ or choose Auto / 128K / 64K / 32K / Custom in the main menu. Values above a mode
 | Their own context / input limit field | OpenCode, Qwen Code, Kimi Code CLI, Factory Droid, Grok CLI, OpenClaw, MiniMax Code, CodeBuddy, WorkBuddy |
 | Not configurable (managed by the tool) | Claude Code, Hermes Agent, Copilot CLI |
 
-### 🔄 Automatic sync after changing key or endpoint
+### 🔄 After changing the key, endpoint or profile
 
-When you change the API key or endpoint from the main menu, `auth <token>` or the wizard, every tool still pointing to Qiniu is rewritten and the result is shown — no more `auth reload` per tool. A tool you have switched to another provider by hand is left alone.
+In the menu, the tools still using the old settings are listed and you pick which to update (tools following the active connection are pre-selected; select none to only save). On the command line `auth <token>` and `profile use <name>` only save by default; add `--sync` to update connected tools, or run `auth reload <tool>` for one. Tools you have switched to another provider are never listed.
 
 ## 🔒 Safety
 
