@@ -3,7 +3,7 @@ import path from 'node:path';
 import type { ModelConfig } from '../config.js';
 import { t } from '../i18n.js';
 import { isQiniuBaseUrl } from '../endpoints.js';
-import { ConfigParseError, readJsonObjectStrict, safeWriteFile, writeJsonOrRemove } from '../core/safe-write.js';
+import { ConfigParseError, readJsonObjectStrict, safeWriteFile, writeJson, writeJsonOrRemove } from '../core/safe-write.js';
 import { stateStore, type PriorValues } from '../core/state-store.js';
 import {
   OpenAICompatTool,
@@ -104,7 +104,7 @@ export class OpenClawTool extends OpenAICompatTool {
       stateStore.recordPriors(this.name, { [PRIMARY_PATH]: legacy ? null : getPath(config, PRIMARY_PATH) ?? null });
     }
     const limits = await fetchModelLimits(baseUrl, apiKey, model);
-    safeWriteFile(getOpenClawConfigFile(), JSON.stringify(applyOpenClawConfig(config, baseUrl, apiKey, model, limits), null, 2) + '\n');
+    writeJson(getOpenClawConfigFile(), applyOpenClawConfig(config, baseUrl, apiKey, model, limits));
   }
 
   unloadConfig(): void {

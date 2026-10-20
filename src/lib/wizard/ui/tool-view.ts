@@ -46,10 +46,14 @@ function formatResultStatus(result: ToolResult): string {
 }
 
 // 跳过原因是 i18n key，失败原因是错误信息
-function formatReason(result: ToolResult): string {
+function reasonText(result: ToolResult): string {
   if (!result.reason) return '';
   const translated = t(result.reason);
-  return theme.subtle(translated === result.reason ? result.reason : translated);
+  return translated === result.reason ? result.reason : translated;
+}
+
+function formatReason(result: ToolResult): string {
+  return theme.subtle(truncate(reasonText(result), 60));
 }
 
 // 汇总表 + 备份位置提示
@@ -58,8 +62,15 @@ export function renderResultSummary(results: ToolResult[]): void {
   logger.newLine();
   uiRenderer.renderTable(
     [t('setup_col_tool'), t('setup_col_result'), t('setup_col_detail')],
-    results.map((r) => [theme.value(r.tool.displayName), formatResultStatus(r), formatReason(r)]),
+    results.map((r) => [theme.value(r.tool.displayName), formatResultStatus(r), theme.subtle(truncate(reasonText(r), 48))]),
   );
+
+  // 失败原因可能很长，表格里截断，完整信息列在表格下方
+  for (const r of results.filter((x) => x.status === 'failed' && reasonText(x).length > 48)) {
+    logger.newLine();
+    logger.log(`  ${theme.danger('✖')} ${theme.value(r.tool.displayName)}`);
+    logger.log(`    ${theme.subtle(reasonText(r))}`);
+  }
 
   const backups = getSessionBackups();
   if (backups.length > 0) {

@@ -7,6 +7,7 @@ import type { ModelConfig } from '../config.js';
 import { t } from '../i18n.js';
 import { isQiniuBaseUrl } from '../endpoints.js';
 import { ConfigParseError, backupFile, isDryRun, readTextFile, safeWriteFile } from '../core/safe-write.js';
+import { stateStore, type PriorValues } from '../core/state-store.js';
 import { OpenAICompatTool, fetchModelLimits, getPath, isRecord, openAIBaseUrl } from './openai-compat-tool.js';
 
 const PROVIDER_ID = 'qiniu';
@@ -18,12 +19,19 @@ export function getMinimaxConfigFile(): string {
   return path.join(dir, 'config.yaml');
 }
 
-// 移除 custom_provider.qiniu，其他 provider 与设置原样保留
-export function removeMinimaxProvider(content: string): string {
+// 移除 custom_provider.qiniu，并把 --use 改掉的 defaultModel 按原值还原；其他设置原样保留
+export function removeMinimaxProvider(content: string, priors: PriorValues = {}): string {
   const config = yaml.load(content);
-  if (!isRecord(config) || !isRecord(config.custom_provider)) return content;
-  delete config.custom_provider[PROVIDER_ID];
-  if (Object.keys(config.custom_provider).length === 0) delete config.custom_provider;
+  if (!isRecord(config)) return content;
+  if (isRecord(config.custom_provider)) {
+    delete config.custom_provider[PROVIDER_ID];
+    if (Object.keys(config.custom_provider).length === 0) delete config.custom_provider;
+  }
+  if (typeof config.defaultModel === 'string' && config.defaultModel.startsWith(`${PROVIDER_ID}/`)) {
+    const prior = priors.defaultModel;
+    if (typeof prior === 'string') config.defaultModel = prior;
+    else delete config.defaultModel;
+  }
   return Object.keys(config).length > 0 ? yaml.dump(config, { lineWidth: -1, noRefs: true }) : '';
 }
 
@@ -53,6 +61,11 @@ export class MinimaxCodeTool extends OpenAICompatTool {
   async loadConfig(apiKey: string, baseUrl: string, models: ModelConfig): Promise<void> {
     const model = this.resolveModel(models);
     if (isDryRun()) return;
+    // --use 会把 defaultModel 切到七牛模型，先记录原值以便还原
+    if (!stateStore.getPriors(this.name) && !this.isConfigured()) {
+      const current = this.getConfig().defaultModel;
+      stateStore.recordPriors(this.name, { defaultModel: typeof current === 'string' ? current : null });
+    }
     const limits = await fetchModelLimits(baseUrl, apiKey, model);
     backupFile(getMinimaxConfigFile());
     try {
@@ -85,7 +98,7 @@ export class MinimaxCodeTool extends OpenAICompatTool {
     if (!fs.existsSync(file) || !this.isConfigured()) return;
     const content = readTextFile(file) ?? '';
     try {
-      safeWriteFile(file, removeMinimaxProvider(content));
+      safeWriteFile(file, removeMinimaxProvider(content, stateStore.getPriors(this.name) ?? {}));
     } catch (err) {
       throw new ConfigParseError(file, err);
     }

@@ -95,24 +95,34 @@ const args = process.argv.slice(2); const get = (f) => args[args.indexOf(f) + 1]
 const file = path.join(process.env.HOME, '.minimax', 'config.yaml');
 const cfg = fs.existsSync(file) ? yaml.load(fs.readFileSync(file, 'utf8')) || {} : {};
 cfg.custom_provider = cfg.custom_provider || {};
-cfg.custom_provider[get('--name')] = { api: get('--api-format'), options: { apiKey: process.env[get('--api-key-env')], baseURL: get('--base-url') }, models: { [get('--model')]: {} } };
+cfg.custom_provider[get('--name')] = { name: get('--name'), kind: 'custom', api: get('--api-format'), options: { apiKey: process.env[get('--api-key-env')], baseURL: get('--base-url') }, models: { [get('--model')]: null } };
+if (args.includes('--use')) cfg.defaultModel = get('--name') + '/' + get('--model');
 fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, yaml.dump(cfg));
 `, { mode: 0o755 });
   process.env.PATH = `${bin}${path.delimiter}${process.env.PATH}`;
 
   const file = getMinimaxConfigFile();
-  write(file, yaml.dump({ theme: 'dark', custom_provider: { relay: { options: { baseURL: 'https://relay' } } } }));
+  write(file, yaml.dump({ defaultModel: 'minimax/MiniMax-M3', theme: 'dark', custom_provider: { relay: { options: { baseURL: 'https://relay' } } } }));
   const tool = new MinimaxCodeTool();
   await tool.loadConfig('sk-qiniu', QINIU, MODELS);
   const loaded = yaml.load(read(file));
   assert.equal(loaded.custom_provider.qiniu.options.apiKey, 'sk-qiniu');
   assert.equal(loaded.custom_provider.qiniu.options.baseURL, 'https://api.qnaigc.com/v1');
   assert.equal(loaded.custom_provider.qiniu.api, 'openai-completions');
+  assert.equal(loaded.defaultModel, 'qiniu/deepseek-v3');
   assert.equal(tool.isConfigured(), true);
 
   tool.unloadConfig();
-  assert.deepEqual(yaml.load(read(file)), { theme: 'dark', custom_provider: { relay: { options: { baseURL: 'https://relay' } } } });
+  assert.deepEqual(yaml.load(read(file)), { defaultModel: 'minimax/MiniMax-M3', theme: 'dark', custom_provider: { relay: { options: { baseURL: 'https://relay' } } } });
   assert.equal(removeMinimaxProvider(''), '');
+});
+
+test('JSON is written in the style of the original file', async () => {
+  const { formatJsonLike } = await import('../dist/lib/core/safe-write.js');
+  assert.equal(formatJsonLike('{"a":1}\n', { a: 1, b: 2 }), '{"a":1,"b":2}\n');
+  assert.equal(formatJsonLike('{\n    "a": 1\n}', { a: 1 }), '{\n    "a": 1\n}');
+  assert.equal(formatJsonLike('{\n\t"a": 1\n}\n', { a: 1 }), '{\n\t"a": 1\n}\n');
+  assert.equal(formatJsonLike(undefined, { a: 1 }), '{\n  "a": 1\n}\n');
 });
 
 test('toml table key helpers', () => {

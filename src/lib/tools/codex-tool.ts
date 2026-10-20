@@ -8,7 +8,7 @@ import { DEFAULT_ENDPOINT, getBaseUrl } from '../endpoints.js';
 import { t } from '../i18n.js';
 import { uiRenderer } from '../wizard/ui/ui-renderer.js';
 import { promptHelper } from '../wizard/ui/prompt-helper.js';
-import { readJsonObjectStrict, safeWriteFile, writeJsonOrRemove } from '../core/safe-write.js';
+import { readJsonObjectStrict, safeWriteFile, writeJsonOrRemove, writeJson } from '../core/safe-write.js';
 import { stateStore, type PriorValues } from '../core/state-store.js';
 import {
   escapeTomlString,
@@ -106,7 +106,7 @@ export class CodexTool implements ITool {
     this.recordPriors(existingConfig, existingAuth);
 
     // 备份 + 原子写入；只增删七牛条目，用户的 MCP、沙箱策略、其他 provider 原样保留
-    safeWriteFile(CODEX_AUTH_FILE, buildCodexAuthJson(JSON.stringify(existingAuth), apiKey));
+    writeJson(CODEX_AUTH_FILE, JSON.parse(buildCodexAuthJson(JSON.stringify(existingAuth), apiKey)));
     safeWriteFile(CODEX_CATALOG_FILE, buildCodexModelCatalog(GPT_MODELS));
     safeWriteFile(
       CODEX_CONFIG_FILE,

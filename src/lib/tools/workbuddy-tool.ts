@@ -9,7 +9,7 @@ import {
   type MarketModelInfo,
 } from '../market-model-service.js';
 import { t } from '../i18n.js';
-import { readJsonObjectStrict, safeWriteFile } from '../core/safe-write.js';
+import { readJsonObjectStrict, safeWriteFile, writeJson } from '../core/safe-write.js';
 import { runWorkBuddyModelSelectionFlow } from '../wizard/flows/workbuddy-model-selection-flow.js';
 import { uiRenderer } from '../wizard/ui/ui-renderer.js';
 import { promptHelper } from '../wizard/ui/prompt-helper.js';
@@ -183,7 +183,7 @@ export class WorkBuddyTool implements ITool {
     merged.models = models;
     merged.availableModels = models.map(m => m.id);
 
-    safeWriteFile(WORKBUDDY_MODELS_FILE, JSON.stringify(merged, null, 2) + '\n');
+    writeJson(WORKBUDDY_MODELS_FILE, merged);
   }
 
   private deduplicateModels(models: WorkBuddyModel[]): WorkBuddyModel[] {

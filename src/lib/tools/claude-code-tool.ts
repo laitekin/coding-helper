@@ -5,7 +5,7 @@ import type { ITool } from './base-tool.js';
 import { configManager, type ModelConfig } from '../config.js';
 import { t } from '../i18n.js';
 import { isQiniuBaseUrl } from '../endpoints.js';
-import { readJsonObjectStrict, safeWriteFile, writeJsonOrRemove } from '../core/safe-write.js';
+import { readJsonObjectStrict, safeWriteFile, writeJson, writeJsonOrRemove } from '../core/safe-write.js';
 import { stateStore, type PriorValues } from '../core/state-store.js';
 import { runModelSelectionFlow } from '../wizard/flows/model-selection-flow.js';
 import { uiRenderer } from '../wizard/ui/ui-renderer.js';
@@ -94,7 +94,7 @@ export class ClaudeCodeTool implements ITool {
     else delete settings.env;
     restoreValue(settings, 'companyAnnouncements', priors.companyAnnouncements);
     restoreValue(settings, 'attribution', priors.attribution);
-    this.writeSettings(settings);
+    writeJsonOrRemove(CLAUDE_SETTINGS_FILE, settings);
 
     const onboardingKey = 'claudeJson.hasCompletedOnboarding';
     if (onboardingKey in priors) {
@@ -132,7 +132,7 @@ export class ClaudeCodeTool implements ITool {
 
     // 写入 ~/.claude.json，设置 onboarding 完成标记
     claudeJson.hasCompletedOnboarding = true;
-    safeWriteFile(CLAUDE_JSON_FILE, JSON.stringify(claudeJson, null, 2) + '\n');
+    writeJson(CLAUDE_JSON_FILE, claudeJson);
   }
 
   // 启动器模式：与写入 settings.json 的变量一致，只作用于本次启动
@@ -177,7 +177,7 @@ export class ClaudeCodeTool implements ITool {
 
   // 写入 settings.json（备份 + 原子写入）
   private writeSettings(settings: Record<string, unknown>): void {
-    safeWriteFile(CLAUDE_SETTINGS_FILE, JSON.stringify(settings, null, 2) + '\n');
+    writeJson(CLAUDE_SETTINGS_FILE, settings);
   }
 }
 

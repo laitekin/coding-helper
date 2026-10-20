@@ -3,7 +3,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import type { ModelConfig } from '../config.js';
 import { isQiniuBaseUrl } from '../endpoints.js';
-import { readJsonObjectStrict, safeWriteFile, writeJsonOrRemove } from '../core/safe-write.js';
+import { readJsonObjectStrict, safeWriteFile, writeJson, writeJsonOrRemove } from '../core/safe-write.js';
 import { stateStore, type PriorValues } from '../core/state-store.js';
 import {
   OpenAICompatTool,
@@ -95,7 +95,7 @@ export class OpenCodeTool extends OpenAICompatTool {
       });
     }
     const limits = await fetchModelLimits(baseUrl, apiKey, model);
-    safeWriteFile(file, JSON.stringify(applyOpenCodeConfig(config, baseUrl, apiKey, model, limits), null, 2) + '\n');
+    writeJson(file, applyOpenCodeConfig(config, baseUrl, apiKey, model, limits));
   }
 
   unloadConfig(): void {

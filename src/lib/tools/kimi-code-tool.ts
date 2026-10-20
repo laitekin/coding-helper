@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { ModelConfig } from '../config.js';
+import { t } from '../i18n.js';
 import { readTextFile, safeWriteFile, writeTextOrRemove } from '../core/safe-write.js';
 import { stateStore, type PriorValues } from '../core/state-store.js';
 import {
@@ -78,7 +79,9 @@ export class KimiCodeTool extends OpenAICompatTool {
   name = 'kimi-code';
   displayName = 'Kimi Code CLI';
   command = 'kimi';
-  installCommand = 'brew install kimi-code';
+  installCommand = 'npm install -g @moonshot-ai/kimi-code';
+  updateCommand = 'npm install -g @moonshot-ai/kimi-code@latest';
+  npmPackageName = '@moonshot-ai/kimi-code';
   aliases = ['kimi'];
 
   getConfig(): Record<string, unknown> {
@@ -91,6 +94,11 @@ export class KimiCodeTool extends OpenAICompatTool {
 
   async loadConfig(apiKey: string, baseUrl: string, models: ModelConfig): Promise<void> {
     const model = this.resolveModel(models);
+    // 旧版 kimi-cli（1.x，pip 安装）读的是 ~/.kimi，不认这里写的 ~/.kimi-code
+    const version = this.getVersion();
+    if (version && Number(version.split('.')[0]) < 2) {
+      throw new Error(t('kimi_legacy_cli', { version, command: this.installCommand }));
+    }
     const file = getKimiConfigFile();
     const existing = readTextFile(file) ?? '';
     if (!stateStore.getPriors(this.name) && !hasManagedKimiConfig(existing)) {

@@ -174,10 +174,24 @@ export function safeWriteFile(file: string, content: string, mode = 0o600): void
   atomicWriteFile(file, content, mode);
 }
 
+// 按原文件的风格序列化 JSON：单行保持单行，缩进沿用原文件，末尾换行与原文件一致
+export function formatJsonLike(original: string | undefined, data: unknown): string {
+  if (original === undefined || !original.trim()) return JSON.stringify(data, null, 2) + '\n';
+  const trailing = original.endsWith('\n') ? '\n' : '';
+  if (!original.trim().includes('\n')) return JSON.stringify(data) + trailing;
+  const indent = original.split('\n').find((line) => /^\s+\S/.test(line))?.match(/^\s+/)?.[0] ?? '  ';
+  return JSON.stringify(data, null, indent) + trailing;
+}
+
+// 写入 JSON，保持原文件风格
+export function writeJson(file: string, data: unknown): void {
+  safeWriteFile(file, formatJsonLike(readTextFile(file), data));
+}
+
 // 写回 JSON 对象；还原后为空对象时删除文件（文件本就是我们创建的，或原本为空）
 export function writeJsonOrRemove(file: string, data: Record<string, unknown>): void {
   if (Object.keys(data).length > 0) {
-    safeWriteFile(file, JSON.stringify(data, null, 2) + '\n');
+    writeJson(file, data);
     return;
   }
   if (fs.existsSync(file)) {

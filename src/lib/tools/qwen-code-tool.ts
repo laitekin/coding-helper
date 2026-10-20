@@ -2,7 +2,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { ModelConfig } from '../config.js';
 import { isQiniuBaseUrl } from '../endpoints.js';
-import { readJsonObjectStrict, readTextFile, safeWriteFile, writeJsonOrRemove, writeTextOrRemove } from '../core/safe-write.js';
+import { readJsonObjectStrict, readTextFile, safeWriteFile, writeJson, writeJsonOrRemove, writeTextOrRemove } from '../core/safe-write.js';
 import { getDotenvValue, removeDotenvValue, setDotenvValue } from '../core/dotenv-edit.js';
 import { stateStore, type PriorValues } from '../core/state-store.js';
 import {
@@ -119,7 +119,7 @@ export class QwenCodeTool extends OpenAICompatTool {
 
     const limits = await fetchModelLimits(baseUrl, apiKey, model);
     safeWriteFile(this.envFile(), setDotenvValue(env, QWEN_ENV_KEY, apiKey));
-    safeWriteFile(this.settingsFile(), JSON.stringify(applyQwenSettings(settings, baseUrl, model, limits.contextWindow), null, 2) + '\n');
+    writeJson(this.settingsFile(), applyQwenSettings(settings, baseUrl, model, limits.contextWindow));
   }
 
   unloadConfig(): void {

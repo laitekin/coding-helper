@@ -2,7 +2,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { ModelConfig } from '../config.js';
 import { isQiniuBaseUrl } from '../endpoints.js';
-import { readJsonObjectStrict, safeWriteFile, writeJsonOrRemove } from '../core/safe-write.js';
+import { readJsonObjectStrict, safeWriteFile, writeJson, writeJsonOrRemove } from '../core/safe-write.js';
 import { OpenAICompatTool, fetchModelLimits, isRecord, openAIBaseUrl } from './openai-compat-tool.js';
 
 // 七牛条目以此前缀命名，卸载时只删自己的
@@ -76,7 +76,7 @@ export class DroidTool extends OpenAICompatTool {
     const model = this.resolveModel(models);
     const settings = readJsonObjectStrict(droidSettingsFile());
     const limits = await fetchModelLimits(baseUrl, apiKey, model);
-    safeWriteFile(droidSettingsFile(), JSON.stringify(applyDroidSettings(settings, baseUrl, apiKey, model, limits), null, 2) + '\n');
+    writeJson(droidSettingsFile(), applyDroidSettings(settings, baseUrl, apiKey, model, limits));
   }
 
   unloadConfig(): void {

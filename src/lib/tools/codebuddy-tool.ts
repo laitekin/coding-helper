@@ -10,7 +10,7 @@ import {
   type MarketModelInfo,
 } from '../market-model-service.js';
 import { t } from '../i18n.js';
-import { readJsonObjectStrict, safeWriteFile } from '../core/safe-write.js';
+import { readJsonObjectStrict, safeWriteFile, writeJson } from '../core/safe-write.js';
 import { runCodeBuddyModelSelectionFlow } from '../wizard/flows/codebuddy-model-selection-flow.js';
 import { uiRenderer } from '../wizard/ui/ui-renderer.js';
 import { promptHelper } from '../wizard/ui/prompt-helper.js';
@@ -192,7 +192,7 @@ export class CodeBuddyTool implements ITool {
     merged.models = models;
     merged.availableModels = models.map(m => m.id);
 
-    safeWriteFile(CODEBUDDY_MODELS_FILE, JSON.stringify(merged, null, 2) + '\n');
+    writeJson(CODEBUDDY_MODELS_FILE, merged);
   }
 
   private deduplicateModels(models: CodeBuddyModel[]): CodeBuddyModel[] {
