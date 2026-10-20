@@ -90,7 +90,7 @@ export async function useProfile(name: string): Promise<void> {
   marketModelService.clearCache();
   uiRenderer.renderHeader();
   uiRenderer.renderSuccess(t('profile_switched', { name }));
-  await syncAfterChange();
+  await syncAfterChange('sync_start_generic');
   await promptHelper.pressEnter();
 }
 
@@ -141,7 +141,7 @@ async function createOrEditProfile(existing?: Profile): Promise<void> {
     configManager.useProfile(name);
     uiRenderer.renderHint(t('profile_now_active', { name }));
   } else if (existing && configManager.getActiveProfile() === name) {
-    await syncAfterChange();
+    await syncAfterChange('sync_start_generic');
   }
   await promptHelper.pressEnter();
 }
@@ -168,6 +168,6 @@ async function deleteProfile(p: Profile): Promise<void> {
   configManager.removeProfile(p.name);
   uiRenderer.renderSuccess(t('profile_deleted', { name: p.name }));
   // 原来绑定在它上面的工具改用当前连接
-  if (tools.length) await syncAfterChange();
+  if (tools.length) await syncAfterChange('sync_start_generic');
   await promptHelper.pressEnter();
 }

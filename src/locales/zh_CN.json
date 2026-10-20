@@ -400,5 +400,9 @@
   "profile_col_tools": "使用中的工具",
   "profile_add_key_missing": "缺少 API Key：作为参数传入、用 --key-stdin，或设置 QINIU_API_KEY",
   "profile_use_hint": "切换到它：coding-helper profile use {{name}}",
-  "profile_tool_bound": "{{tool}} 已改用配置档 {{name}}"
+  "profile_tool_bound": "{{tool}} 已改用配置档 {{name}}",
+
+  "menu_hint_models_mixed": "{{count}} 个工具用了不同模型",
+
+  "sync_start_generic": "正在同步到 {{count}} 个已接入的工具…"
 }

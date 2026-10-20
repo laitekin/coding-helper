@@ -387,5 +387,9 @@
   "profile_col_tools": "Used by",
   "profile_add_key_missing": "Missing API key: pass it as an argument, use --key-stdin, or set QINIU_API_KEY",
   "profile_use_hint": "Switch to it: coding-helper profile use {{name}}",
-  "profile_tool_bound": "{{tool}} now uses profile {{name}}"
+  "profile_tool_bound": "{{tool}} now uses profile {{name}}",
+
+  "menu_hint_models_mixed": "{{count}} different models",
+
+  "sync_start_generic": "Syncing {{count}} connected tools…"
 }

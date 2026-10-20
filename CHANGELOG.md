@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### 新增
+* 配置档：一组 API Key + 线路（国内 / 海外 / 自定义地址）。`profile add / list / use / remove`，可切换当前配置档，或用 `profile use <名称> <工具>` 只让某个工具使用它；一条命令里用 `@名称` 指定，`run <工具> @名称` 只对这次启动生效
+* Codex 多配置：每个配置档写一个自带 Key 的 provider 和 `~/.codex/qn-<名称>.config.toml`，可直接 `codex -p qn-<名称>` 切换（Codex 0.134+ 配置档格式，已用 codex-cli 0.163.0 实测）
+* 上下文大小：`--context 128k` 或主菜单设置，各工具按「设置与模型上限的较小值」写入；Codex 写 `model_context_window` 并在还原时写回原值
+* 自定义线路地址（私有化部署、代理网关）
+* 像素风终端界面：像素 QINIU Logo、七牛小牛与 13 个编程助手的像素角色（半块字符 + 24 位真彩色），接入成功的工具角色亮起；不支持 256 色、终端过窄或设置 `NO_COLOR` 时退回文字界面
+* 新菜单组件：右侧显示当前值、数字 / 字母快捷键、底部快捷键条、`/` 搜索；窄终端自动收起右侧列与换行
+* 主菜单新增：切换模型、上下文大小、配置档、健康检查、还原配置
+* 工具页按已安装 / 未安装分组，选中项显示模型、连接与配置路径，`m` 换模型、`s` 启动、`r` 还原、`a` 全部接入；工具详情页显示大号像素角色，`p` 绑定配置档
+* 向导改为 5 步：语言 → 线路 → API Key → 工具 → 模型。Key 只显示首尾 4 位，逐条校验格式、Key、账户与可用模型，Key 属于另一条线路时自动切换；工具两列多选；所有工具统一选模型，Codex 等不兼容时自动改用自己的默认模型
+* 结果页：接入成功的工具角色排成一排并打勾，结果表列出模型与启动命令，最后给出下一步与撤销方式
+
+### 修复
+* 还原 Codex 时，原本不存在的 `config.toml` 不再留下空文件
+
 ## [0.5.0] - 2026-10-20
 
 ### 新增

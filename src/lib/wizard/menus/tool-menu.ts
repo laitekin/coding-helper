@@ -3,12 +3,11 @@ import { t } from '../../i18n.js';
 import { configManager } from '../../config.js';
 import { promptHelper } from '../ui/prompt-helper.js';
 import { uiRenderer } from '../ui/ui-renderer.js';
-import { theme } from '../ui/theme.js';
 import type { ITool } from '../../tools/base-tool.js';
 import { logger } from '../../../utils/logger.js';
 import { fetchLatestVersion, isNewerVersion } from '../../version-service.js';
 import { applyToolsWithProgress, formatConfiguredBadge, formatInstallState, renderResultSummary, toolIcon } from '../ui/tool-view.js';
-import { detectAllTools, detectTool, hasSavedToolModelConfig, removeTool, applyTool, type ToolDetection } from '../../core/tool-service.js';
+import { detectAllTools, detectTool, hasSavedToolModelConfig, removeTool, type ToolDetection } from '../../core/tool-service.js';
 import { menuPrompt, type MenuEntry } from '../ui/prompts.js';
 import { renderSprite, joinBlocks, pixelsSupported, SPRITE_WIDTH } from '../ui/pixel.js';
 import { savedModelFor } from '../../core/model-mapping.js';
@@ -293,54 +292,6 @@ async function runInitialToolSetup(tool: ITool): Promise<void> {
   const completed = await tool.runModelConfigFlow();
   if (!completed) return;
   await applyConfig(tool);
-}
-
-// 渲染版本信息区域
-function renderVersionInfo(
-  installed: string | null,
-  latest: string | null,
-  fetchCompleted: boolean,
-  npmPackageName?: string,
-  isDesktop = false,
-): void {
-  // 桌面应用不显示版本信息
-  if (isDesktop) {
-    return;
-  }
-
-  // 当前版本
-  const installedDisplay = installed
-    ? chalk.white(installed)
-    : chalk.yellow(t('tool_version_not_installed'));
-  uiRenderer.renderConfigItem(t('tool_version_installed'), installedDisplay);
-
-  if (!npmPackageName) {
-    logger.newLine();
-    return;
-  }
-
-  // 最新版本
-  if (latest) {
-    const hasUpdate = installed ? isNewerVersion(installed, latest) : false;
-    if (hasUpdate) {
-      uiRenderer.renderConfigItem(
-        t('tool_version_latest'),
-        `${chalk.green(latest)}  ${chalk.yellow(t('tool_version_update_hint'))}`,
-      );
-    } else {
-      uiRenderer.renderConfigItem(
-        t('tool_version_latest'),
-        `${chalk.white(latest)}  ${chalk.green(t('tool_version_up_to_date'))}`,
-      );
-    }
-  } else {
-    uiRenderer.renderConfigItem(
-      t('tool_version_latest'),
-      chalk.dim(t(getMissingLatestVersionDisplayKey(fetchCompleted))),
-    );
-  }
-
-  logger.newLine();
 }
 
 export function getMissingLatestVersionDisplayKey(fetchCompleted: boolean): string {

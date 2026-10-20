@@ -67,10 +67,19 @@ export const uiRenderer = {
     if (profile) segments.push(`${theme.label(t('profile_label'))} ${theme.brandBold(profile)}`);
 
     const line = segments.join(sep);
-    const width = visibleWidth(line) + 2;
-    logger.log(`  ${theme.border('╭' + '─'.repeat(width) + '╮')}`);
-    logger.log(`  ${theme.border('│')} ${line} ${theme.border('│')}`);
-    logger.log(`  ${theme.border('╰' + '─'.repeat(width) + '╯')}`);
+    const columns = process.stdout.columns || 100;
+    // 放得下时加边框；窄终端去掉边框，每段一行以免折行错位
+    if (visibleWidth(line) + 6 <= columns) {
+      const width = visibleWidth(line) + 2;
+      logger.log(`  ${theme.border('╭' + '─'.repeat(width) + '╮')}`);
+      logger.log(`  ${theme.border('│')} ${line} ${theme.border('│')}`);
+      logger.log(`  ${theme.border('╰' + '─'.repeat(width) + '╯')}`);
+    } else if (visibleWidth(segments.slice(0, 2).join(sep)) + 4 <= columns) {
+      logger.log(`  ${segments.slice(0, 2).join(sep)}`);
+      logger.log(`  ${segments.slice(2).join(sep)}`);
+    } else {
+      for (const segment of segments) logger.log(`  ${segment}`);
+    }
     logger.newLine();
   },
 

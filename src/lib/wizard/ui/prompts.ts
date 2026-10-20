@@ -32,14 +32,31 @@ function isEscape(key: KeypressEvent): boolean {
   return key.name === 'escape';
 }
 
+// 快捷键条：放不下时按整组换行，不把一组拆开
 export function renderKeyHints(hints: KeyHint[]): string {
-  return hints
-    .map(([k, text]) => `${chalk.hex('#C9D3DC').bgHex('#1C2733')(` ${k} `)} ${theme.subtle(text)}`)
-    .join('  ');
+  const max = terminalWidth() - 4;
+  const lines: string[] = [];
+  let line = '';
+  for (const [k, text] of hints) {
+    const part = `${chalk.hex('#C9D3DC').bgHex('#1C2733')(` ${k} `)} ${theme.subtle(text)}`;
+    if (line && visibleWidth(line) + 2 + visibleWidth(part) > max) {
+      lines.push(line);
+      line = part;
+    } else {
+      line = line ? `${line}  ${part}` : part;
+    }
+  }
+  if (line) lines.push(line);
+  return lines.join('\n  ');
 }
 
 function terminalWidth(): number {
   return Math.max(40, Math.min(process.stdout.columns || 100, 140));
+}
+
+// 右侧值放不下时整列隐藏（选中项的说明里仍有完整信息）
+function hintFits(prefix: number, labelWidth: number, hintWidth: number): boolean {
+  return prefix + labelWidth + 4 + hintWidth <= terminalWidth() - 2;
 }
 
 // 选中行：整行铺底色
@@ -182,10 +199,13 @@ const menuView = createPrompt(<T,>(config: MenuConfig<T>, done: (result: MenuRes
 
   const all = config.items.filter((e): e is MenuItem<T> => !isSeparator(e));
   const labelWidth = Math.max(0, ...all.map((e) => visibleWidth(e.label)));
+  const iconWidth = Math.max(0, ...all.map((e) => (e.icon ? visibleWidth(e.icon) + 1 : 0)));
+  const showHints = hintFits(7 + iconWidth, labelWidth, Math.max(0, ...all.map((e) => visibleWidth(e.hint ?? ''))));
+  const hintOf = (item: MenuItem<unknown>): string => (showHints ? item.hint ?? '' : '');
   // 选中行底色铺满：前缀「 ❯  k  」7 列 + 图标 + 标签 + 4 列间距 + 右侧值 + 2 列留白
   const width = Math.min(terminalWidth() - 2, Math.max(
     48,
-    ...all.map((e) => 7 + (e.icon ? visibleWidth(e.icon) + 1 : 0) + labelWidth + 4 + visibleWidth(e.hint ?? '') + 2),
+    ...all.map((e) => 7 + iconWidth + labelWidth + 4 + visibleWidth(hintOf(e)) + 2),
   ));
 
   const page = usePagination({
@@ -198,13 +218,13 @@ const menuView = createPrompt(<T,>(config: MenuConfig<T>, done: (result: MenuRes
       const key = item.key ? item.key : ' ';
       const icon = item.icon ? `${item.icon} ` : '';
       if (item.disabled) {
-        return `    ${theme.subtle(key)}  ${icon}${theme.subtle(padVisible(item.label, labelWidth))}    ${theme.subtle(item.hint ?? '')}`;
+        return `    ${theme.subtle(key)}  ${icon}${theme.subtle(padVisible(item.label, labelWidth))}    ${theme.subtle(hintOf(item))}`;
       }
       if (isActive) {
-        const text = ` ${theme.brandBold('❯')}  ${theme.brand(key)}  ${icon}${chalk.bold.hex('#E8F6FF')(padVisible(item.label, labelWidth))}    ${chalk.hex('#8BE9FF')(item.hint ?? '')}`;
+        const text = ` ${theme.brandBold('❯')}  ${theme.brand(key)}  ${icon}${chalk.bold.hex('#E8F6FF')(padVisible(item.label, labelWidth))}    ${chalk.hex('#8BE9FF')(hintOf(item))}`;
         return highlightRow(text, width);
       }
-      return `    ${theme.subtle(key)}  ${icon}${theme.value(padVisible(item.label, labelWidth))}    ${theme.subtle(item.hint ?? '')}`;
+      return `    ${theme.subtle(key)}  ${icon}${theme.value(padVisible(item.label, labelWidth))}    ${theme.subtle(hintOf(item))}`;
     },
   });
 

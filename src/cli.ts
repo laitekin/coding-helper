@@ -4,8 +4,10 @@
 import './lib/preflight.js';
 
 // CLI 入口依赖动态加载，确保低版本 Node 先执行 preflight 并给出可读提示
-Promise.all([import('./lib/command.js'), import('./utils/logger.js')])
-  .then(async ([{ createProgram }, { logger }]) => {
+Promise.all([import('./lib/command.js'), import('./utils/logger.js'), import('chalk')])
+  .then(async ([{ createProgram }, { logger }, { default: chalk }]) => {
+    // 遵循 NO_COLOR 约定（no-color.org）：关闭颜色，像素图同时退回文字
+    if (process.env.NO_COLOR) chalk.level = 0;
     const program = createProgram();
     try {
       await program.parseAsync(process.argv);

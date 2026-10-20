@@ -56,6 +56,9 @@ export async function setupTools(tools: ITool[], step?: { current: number; total
   uiRenderer.renderHeader();
   uiRenderer.renderTitle(t('setup_title'));
   const results = await applyToolsWithProgress(ready);
+  // 写入后重画页头，状态条显示最新的接入数
+  uiRenderer.renderHeader();
+  uiRenderer.renderTitle(t('setup_title'));
   renderResultSummary(results);
   await promptHelper.pressEnter();
 }

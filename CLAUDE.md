@@ -54,10 +54,15 @@ node dist/cli.js lang show
 - 测试可用 `CODING_HELPER_BASE_URL_CHINA` / `_INTERNATIONAL` 把线路指向本地模拟服务（见 `tests/quick-command.test.mjs`）
 - `tool-service.ts` — `applyTool` / `removeTool` / `syncAppliedTools`，向导、`auth`、`setup`、`restore` 共用；改 Key 或线路后自动同步仍指向七牛的工具（`getSyncTargets`），`restore` 覆盖有装载记录或指向七牛的工具（`getRestoreTargets`）
 
+**配置档与上下文**: `configManager` 的顶层 `api_key` / `endpoint` 始终是当前配置档（`profile`）的副本；`profiles` 存全部配置档，`tool_profiles` 记录单独绑定到其他配置档的工具。写工具配置一律经 `applyTool`，它用 `configManager.getConnection(tool.name)` 取该工具实际使用的 Key 与地址。`endpoint: custom` 时地址在 `base_url`，由 `registerCustomBaseUrls` 登记为七牛线路（用于识别、同步与还原）。`context_window` 为上下文上限，`capContextWindow` 按 min(设置, 模型上限) 用于各工具；Claude Code、Hermes、Copilot 不支持。Codex 的配置档写成 provider（`qnaigc-<名>`，`experimental_bearer_token`）+ `~/.codex/qn-<名>.config.toml`，不要再写 `[profiles.x]` 表（Codex 0.134+ 在 `--profile` 时会报错）
+
 **向导系统** (`src/lib/wizard/`):
-- `flows/` — 独立配置流程（语言、线路、API Key、模型选择）
-- `menus/` — 主菜单和工具配置菜单（循环交互）
-- `ui/` — `promptHelper` 封装 inquirer，`uiRenderer` 统一终端渲染
+- `flows/` — 独立配置流程（语言、线路、API Key、统一选模型 `model-pick-flow`、上下文 `context-flow`、配置档 `profile-flow`）
+- `menus/` — 主菜单、工具列表（`showToolSelector`）与工具详情菜单
+- `ui/prompts.ts` — 基于 `@inquirer/core` 的 `menuPrompt`（右侧值、快捷键、`/` 搜索、`actions` 作用于选中项）、`checkPrompt`（两列多选）、`secretPrompt`（首尾 4 位掩码）；`promptHelper.select/confirm` 也走 `menuPrompt`
+- `ui/pixel.ts` — 像素角色（12×10，键为工具名，`qiniu` 为小牛）与 QINIU Logo，`renderGrid` 用半块字符渲染；`pixelsSupported()` 为假时一律退回文字
+- `ui/` — `uiRenderer` 统一终端渲染（页头 = Logo + 已接入工具角色 + 状态条）；界面层通过 `tool-registry.ts` 取工具列表，避免与 `tool-manager` 循环引用
+- 界面截图：`docs/images/`（用 xterm.js 渲染真实终端输出生成）
 
 **配置写入目标**:
 - `~/.coding-helper/config.yaml` — coding-helper 自身配置（语言、线路、API Key、模型）
@@ -77,13 +82,14 @@ node dist/cli.js lang show
 ## CLI 命令
 
 ```bash
-coding-helper <工具[,工具]|all> [sk-Key] [模型] [--intl] [--dry-run] [--json] [--no-save]  # 一条命令配置
+coding-helper <工具[,工具]|all> [sk-Key] [模型] [@配置档] [--intl] [--context 128k] [--dry-run] [--json] [--no-save]  # 一条命令配置
 coding-helper                      # 默认：首次进向导，之后进主菜单
 coding-helper init                 # 强制重新初始化
 coding-helper setup [--tools a,b] [--yes] [--json] [--key-stdin] [--dry-run]  # 一键批量配置
 coding-helper status [--json]      # 各工具实际接入状态
 coding-helper restore [tools] [-y] # 移除七牛配置并还原原值
-coding-helper run <tool> [args...] # 启动器：只给子进程注入环境变量（claude-code、copilot）
+coding-helper run <tool> [@配置档] [args...] # 启动器：只给子进程注入环境变量（claude-code、copilot）
+coding-helper profile [list|add|use|remove]  # 配置档；add <名> [sk-Key] [--intl|--base-url] [--use]，use <名> [工具]
 coding-helper auth [token]         # 设置 API Key（交互式或直接传入）
 coding-helper auth revoke          # 删除 API Key
 coding-helper auth reload <tool>   # 重新加载配置到工具

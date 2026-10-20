@@ -57,6 +57,6 @@ export async function runContextFlow(): Promise<void> {
   configManager.setContextWindow(tokens);
   uiRenderer.renderSuccess(t('context_saved', { value: contextLabel(tokens) }));
   logger.log(`  ${theme.subtle(t('context_capped_hint'))}`);
-  await syncAfterChange();
+  await syncAfterChange('sync_start_generic');
   await promptHelper.pressEnter();
 }

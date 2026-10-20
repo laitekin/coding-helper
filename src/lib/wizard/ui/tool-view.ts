@@ -161,11 +161,11 @@ export async function applyToolsWithProgress(tools: ITool[]): Promise<ToolResult
 }
 
 // API Key 或线路变更后，同步到已接入的客户端
-export async function syncAfterChange(): Promise<ToolResult[]> {
+export async function syncAfterChange(messageKey = 'sync_start'): Promise<ToolResult[]> {
   const targets = getSyncTargets();
   if (targets.length === 0) return [];
   logger.newLine();
-  uiRenderer.renderHint(t('sync_start', { count: String(targets.length) }));
+  uiRenderer.renderHint(t(messageKey, { count: String(targets.length) }));
   const results = await applyToolsWithProgress(targets);
   renderResultSummary(results);
   return results;

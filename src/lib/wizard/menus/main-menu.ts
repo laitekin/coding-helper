@@ -10,7 +10,8 @@ import { runProfileMenu } from '../flows/profile-flow.js';
 import { runModelPickFlow } from '../flows/model-pick-flow.js';
 import { showToolSelector } from './tool-menu.js';
 import { toolManager } from '../../tool-manager.js';
-import { configManager } from '../../config.js';
+import { configManager, type ModelConfig } from '../../config.js';
+import { savedModelFor } from '../../core/model-mapping.js';
 import { logger } from '../../../utils/logger.js';
 import { selectTools, setupTools } from '../flows/tool-setup-flow.js';
 import { applyToolsWithProgress, renderResultSummary } from '../ui/tool-view.js';
@@ -53,7 +54,7 @@ export async function showMainMenu(): Promise<void> {
       items: [
         { value: 'setup_all', key: '1', label: t('menu_setup_all'), hint: pending > 0 ? t('menu_hint_pending', { count: String(pending) }) : t('menu_hint_all_connected') },
         { value: 'tools', key: '2', label: t('menu_configure_tools'), hint: t('menu_hint_connected', { count: String(connected.length), total: String(total) }) },
-        { value: 'model', key: '3', label: t('menu_switch_model'), hint: models.defaultModel ?? t('config_view_not_set') },
+        { value: 'model', key: '3', label: t('menu_switch_model'), hint: currentModelHint(connected, models) },
         { value: 'context', key: '4', label: t('menu_context'), hint: contextLabel() },
         { value: 'profile', key: '5', label: t('menu_profiles'), hint: configManager.getActiveProfile() ?? t('menu_hint_profile_none') },
         { value: 'endpoint', key: '6', label: t('menu_configure_endpoint'), hint: uiRenderer.endpointLabel() },
@@ -119,6 +120,17 @@ export async function showMainMenu(): Promise<void> {
   }
 }
 
+// 已接入工具的模型：统一时显示模型名，不一致时显示「各不相同」
+function currentModelHint(connected: string[], models: ModelConfig): string {
+  const used = [...new Set(toolManager.getAll()
+    .filter((tool) => connected.includes(tool.name))
+    .map((tool) => savedModelFor(tool, models) ?? tool.defaultModel)
+    .filter((m): m is string => !!m))];
+  if (used.length === 1) return used[0];
+  if (used.length > 1) return t('menu_hint_models_mixed', { count: String(used.length) });
+  return models.defaultModel ?? t('config_view_not_set');
+}
+
 // 一键接入：多选工具（默认勾选已安装），选模型后批量装载
 async function runSetupAll(): Promise<void> {
   uiRenderer.renderHeader();
@@ -145,6 +157,8 @@ async function switchModel(): Promise<void> {
   uiRenderer.renderHeader();
   uiRenderer.renderTitle(t('setup_title'));
   const results = await applyToolsWithProgress(tools);
+  uiRenderer.renderHeader();
+  uiRenderer.renderTitle(t('setup_title'));
   renderResultSummary(results);
   await promptHelper.pressEnter();
 }

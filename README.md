@@ -31,6 +31,8 @@
 | 不用了，恢复原样 | `npx qiniu-coding-helper restore`，删掉七牛条目并写回原来的值 |
 | 配好了却不生效 | `npx qiniu-coding-helper doctor`，检查 Key、账户余额状态、网络和环境变量覆盖 |
 | 在脚本或 CI 里批量配置 | `setup --yes --json`，Key 用 `--key-stdin` 从标准输入读，退出码区分成功与失败 |
+| 公司、个人多个账号，或国内外线路来回切 | 配置档：`profile add work sk-xxx`，`profile use work` 一键切换；Codex 还能直接 `codex -p qn-work` |
+| 控制成本和速度 | 上下文大小：`--context 64k` 或主菜单「上下文大小」，各工具按模型上限自动收窄 |
 
 ## 🚀 快速开始
 
@@ -54,7 +56,20 @@ npx qiniu-coding-helper all sk-xxx                                # 本机已安
 撤销：npx qiniu-coding-helper restore opencode
 ```
 
-更喜欢一步步选？直接运行 `npx qiniu-coding-helper`，进入 4 步向导：选择语言 → 线路 → 输入 API Key → 勾选编程助手（默认勾选已安装的）。之后再运行会进入主菜单，第一项「★ 一键配置编码工具」随时可以重新配置。
+更喜欢一步步选？直接运行 `npx qiniu-coding-helper`，进入 5 步向导：语言 → 线路 → API Key → 勾选编程助手 → 选模型。之后再运行会进入主菜单。
+
+<p align="center"><img src="docs/images/main.png" width="720" alt="主菜单：像素 Logo、已接入工具的像素角色、一行状态条、每项右侧显示当前值"></p>
+
+| 向导 · 勾选工具 | 向导 · 选模型 | 结果页 |
+|---|---|---|
+| <img src="docs/images/wtools.png" alt="两列多选，默认勾选已安装"> | <img src="docs/images/wmodel.png" alt="按推荐排序，/ 搜索，显示上下文"> | <img src="docs/images/wdone.png" alt="接入成功的工具角色亮起，列出模型与启动命令"> |
+
+界面要点：
+- **像素风：** 七牛小牛和每个编程助手都有自己的像素角色，接入成功的会亮起。终端低于 256 色、宽度不够或设置了 `NO_COLOR` 时，自动换成文字界面。
+- **快捷键：** 菜单项前的数字或字母直接跳转；列表里 `/` 搜索；底部始终显示当前可用的按键。
+- **工具页：** 按「已安装 / 未安装」分组，选中后显示模型、连接和配置文件路径；`m` 换模型、`s` 启动、`r` 还原、`a` 全部接入。
+- **API Key：** 输入时只显示首尾 4 位，回车后逐条校验格式、Key、账户和可用模型；Key 属于另一条线路时自动切换。
+- **选模型：** 所有工具统一选一个，Codex 等不兼容的工具自动改用它自己的默认模型；也可以按 `p` 按工具分别选。
 
 配置完成后**重启正在运行的编程助手**即可使用。
 
@@ -101,6 +116,7 @@ WorkBuddy 只有 Windows / macOS 桌面版，无法在 Linux 实测。它的配�
 | `coding-helper restore [工具]` | 移除七牛配置并还原原值 |
 | `coding-helper run <工具> [参数...]` | 启动器：只给这次启动注入七牛设置 |
 | `coding-helper doctor` | 健康检查 |
+| `coding-helper profile [list\|add\|use\|remove]` | 配置档：多个 Key / 线路之间切换 |
 | `coding-helper auth [token]` | 设置 API Key；`auth revoke` 删除，`auth reload <工具>` 重新写入 |
 | `coding-helper enter [工具]` | 进入主菜单或某个编程助手的菜单 |
 | `coding-helper init` | 重新运行首次向导 |
@@ -118,6 +134,7 @@ coding-helper <工具[,工具…]|all> [API Key] [模型 ID] [选项]
 |---|---|
 | 工具 | 工具名或别名（`claude`、`codex`、`opencode`、`qwen`、`kimi`、`droid`、`grok`、`openclaw`、`mcode`、`copilot`、`codebuddy`、`workbuddy`、`hermes`），逗号分隔多个；`all` 表示本机已安装的全部 |
 | API Key | `sk-` 开头。省略时依次使用环境变量 `QINIU_API_KEY`、已保存的 Key，在终端里会弹出隐藏输入 |
+| `@配置档` | 如 `@work`：使用该配置档的 Key 和线路；同时给出 Key 时保存为这个配置档。它不是当前配置档时，只有这次的工具改用它 |
 | 模型 ID | 如 `deepseek/deepseek-v4-flash`。省略时沿用已保存的选择，或从这个 Key 可用、且支持工具调用的模型里按推荐顺序自动选择。漏写厂商前缀（`deepseek-v4-pro`）会自动识别 |
 
 | 选项 | 说明 |
@@ -126,6 +143,7 @@ coding-helper <工具[,工具…]|all> [API Key] [模型 ID] [选项]
 | `--dry-run` | 只预览变更，不写入 |
 | `--json` | 输出 JSON（含 `endpoint`、`model`、`modelSource`、`toolModels`、每个工具的结果） |
 | `--no-save` | 不把 Key 和模型存入 `~/.coding-helper/config.yaml`，只写工具配置 |
+| `--context <大小>` | 上下文大小上限，如 `128k`、`64k`、`200000`；`auto` 表示使用模型上限 |
 
 **写入前的检查：** Key 无效、账户欠费暂停、模型不可用或不支持工具调用时，命令直接停止（退出码 1），不改动任何文件，并给出下一步操作；模型名写错时会列出相近的模型。
 
@@ -211,6 +229,49 @@ coding-helper doctor
 
 「账户状态」会发送一次只生成 1 个 token 的真实请求，正常账户会产生极少量费用。
 
+### 👤 profile：配置档（多个 Key / 线路）
+
+一个配置档 = 一个 API Key + 一条线路（国内、海外或自定义地址）。适合公司和个人两个账号、国内外线路来回切换，或者给某个编程助手单独用另一个账号。
+
+```bash
+coding-helper profile add work sk-aaa                 # 国内线路；第一个配置档自动设为当前
+coding-helper profile add personal sk-bbb --intl      # 海外线路
+coding-helper profile add lab sk-ccc --base-url https://llm.example.com   # 自定义地址（需兼容七牛接口）
+coding-helper profile list                            # ● 标出当前配置档，并列出使用它的工具
+coding-helper profile use personal                    # 切换当前配置档：已接入的工具全部改用它
+coding-helper profile use work codex                  # 只让 Codex 用 work，其他工具不变
+coding-helper codex @personal                         # 一条命令里直接指定
+coding-helper run claude @lab                         # 只对这一次启动生效，不改配置文件
+coding-helper profile remove lab
+```
+
+<p align="center"><img src="docs/images/profiles.png" width="640" alt="配置档页面"></p>
+
+**Codex 可以不经过 Coding Helper 直接切换。** 每个配置档会在 `~/.codex/config.toml` 里写一个自带 Key 的 provider，并生成 `~/.codex/qn-<名称>.config.toml`（Codex 0.134 起的配置档格式），之后直接运行：
+
+```bash
+codex -p qn-work
+codex -p qn-personal
+```
+
+`restore` 会把这些 provider 和配置档文件一起删掉。主菜单「配置档」里也能新建、编辑、删除、测试连通（`n` / `e` / `d` / `t`）；工具详情页按 `p` 可以把单个工具绑定到某个配置档。Key 只保存在本机 `~/.coding-helper/config.yaml`（权限 0600），界面上只显示首尾 4 位。
+
+### 📐 上下文大小
+
+默认「自动」：每个模型按七牛模型市场返回的真实上限写入。需要控制成本或速度时可以统一调小：
+
+```bash
+coding-helper codex,opencode --context 64k
+```
+
+或在主菜单「上下文大小」里选择 自动 / 128K / 64K / 32K / 自定义。设置超过某个模型的上限时，按该模型的上限写入。修改后会自动同步到已接入的工具。
+
+| 写入位置 | 编程助手 |
+|---|---|
+| `model_context_window`（还原时写回原值） | Codex |
+| 各自的上下文 / 输入上限字段 | OpenCode、Qwen Code、Kimi Code CLI、Factory Droid、Grok CLI、OpenClaw、MiniMax Code、CodeBuddy、WorkBuddy |
+| 不支持设置，由工具自己管理 | Claude Code、Hermes Agent、Copilot CLI |
+
 ### 🔄 修改 Key 或线路后自动同步
 
 在主菜单、`auth <token>` 或向导里修改 API Key 或线路后，所有已接入七牛的编程助手会自动重新写入并显示同步结果，不需要再逐个执行 `auth reload`。如果某个编程助手已经被你手动切到其他服务商，会跳过它，不会强行改回来。
@@ -237,12 +298,13 @@ Coding Helper 改的都是你日常使用的配置文件，所以每次写入都
 |---|---|---|
 | 🇨🇳 国内线路 | `https://api.qnaigc.com` | 中国大陆用户 |
 | 🌍 海外线路 | `https://api.modelink.ai` | 海外用户 |
+| 🔧 自定义地址 | 自己填写 | 私有化部署、代理网关（需兼容七牛接口） |
 
 ### Coding Helper 自身的文件
 
 | 路径 | 内容 |
 |---|---|
-| `~/.coding-helper/config.yaml` | 语言、线路、API Key、各编程助手的模型选择 |
+| `~/.coding-helper/config.yaml` | 语言、线路、API Key、各编程助手的模型选择、配置档、上下文大小 |
 | `~/.coding-helper/state.json` | 已接入的编程助手，以及被覆盖前的原值 |
 | `~/.coding-helper/backups/<时间戳>/` | 每次写入前的原文件备份 |
 

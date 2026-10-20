@@ -31,6 +31,8 @@ Running Claude Code, Codex and friends on the Qiniu API normally means opening e
 | Go back to how things were | `npx qiniu-coding-helper restore` — removes Qiniu entries and writes back the old values |
 | Find out why it isn't working | `npx qiniu-coding-helper doctor` — key, account billing status, network, env-var overrides |
 | Configure from a script or CI | `setup --yes --json`, key via `--key-stdin`, exit code tells success from failure |
+| Several accounts, or switching between China and international | Profiles: `profile add work sk-xxx`, `profile use work`; Codex can even switch with `codex -p qn-work` |
+| Control cost and speed | Context size: `--context 64k` or the main menu, capped at each model's maximum |
 
 ## 🚀 Quick start
 
@@ -54,7 +56,20 @@ Run opencode to start
 Undo: npx qiniu-coding-helper restore opencode
 ```
 
-Prefer to choose step by step? Run `npx qiniu-coding-helper` for the 4-step wizard: language → endpoint → API key → tick coding assistants (installed ones pre-ticked). Later runs open the main menu, whose first item "★ Set Up Coding Tools in One Go" reconfigures at any time.
+Prefer to choose step by step? Run `npx qiniu-coding-helper` for the 5-step wizard: language → endpoint → API key → tick coding assistants → choose a model. Later runs open the main menu.
+
+<p align="center"><img src="docs/images/main.png" width="720" alt="Main menu: pixel logo, connected tools as pixel characters, one-line status bar, current values on the right"></p>
+
+| Wizard · tools | Wizard · model | Result |
+|---|---|---|
+| <img src="docs/images/wtools.png" alt="Two-column multi-select"> | <img src="docs/images/wmodel.png" alt="Recommended first, / to search"> | <img src="docs/images/wdone.png" alt="Connected tools light up"> |
+
+Interface highlights:
+- **Pixel style:** Qiniu's calf and every coding assistant have a pixel character; connected ones light up. Below 256 colors, in narrow terminals or with `NO_COLOR`, it falls back to plain text.
+- **Shortcuts:** the number or letter in front of a menu item jumps straight to it; `/` searches lists; the bottom bar always shows the available keys.
+- **Tools page:** grouped into installed / not installed; the selected tool shows its model, connection and config path; `m` model, `s` launch, `r` restore, `a` connect all.
+- **API key:** only the first and last 4 characters are shown; on Enter it checks format, key, account and models, and switches region if the key belongs to the other one.
+- **Model:** one model for all tools; Codex and other incompatible tools fall back to their own default automatically. Press `p` to pick per tool.
 
 **Restart any coding assistant that is already running** and you're done.
 
@@ -101,6 +116,7 @@ WorkBuddy only ships Windows / macOS desktop builds, so it can't be tested on Li
 | `coding-helper restore [tools]` | Remove Qiniu config and restore previous values |
 | `coding-helper run <tool> [args...]` | Launcher: inject Qiniu settings into one launch only |
 | `coding-helper doctor` | Health check |
+| `coding-helper profile [list\|add\|use\|remove]` | Profiles: switch between keys / endpoints |
 | `coding-helper auth [token]` | Set the API key; `auth revoke` removes it, `auth reload <tool>` rewrites one tool |
 | `coding-helper enter [tool]` | Open the main menu or one tool's menu |
 | `coding-helper init` | Run the first-run wizard again |
@@ -118,6 +134,7 @@ coding-helper <tool[,tool…]|all> [API key] [model ID] [options]
 |---|---|
 | Tool | Name or alias (`claude`, `codex`, `opencode`, `qwen`, `kimi`, `droid`, `grok`, `openclaw`, `mcode`, `copilot`, `codebuddy`, `workbuddy`, `hermes`), comma-separated; `all` means every installed tool |
 | API key | Starts with `sk-`. If omitted: `QINIU_API_KEY`, then the saved key, then a hidden prompt in a terminal |
+| `@profile` | e.g. `@work`: use that profile's key and endpoint; with a key in the same command, save it as that profile. If it is not the active profile, only these tools switch to it |
 | Model ID | e.g. `deepseek/deepseek-v4-flash`. If omitted: the saved choice, or the first recommended model this key can use that supports tool calling. A missing vendor prefix (`deepseek-v4-pro`) is resolved automatically |
 
 | Option | Meaning |
@@ -126,6 +143,7 @@ coding-helper <tool[,tool…]|all> [API key] [model ID] [options]
 | `--dry-run` | Preview only |
 | `--json` | JSON output (`endpoint`, `model`, `modelSource`, `toolModels`, per-tool results) |
 | `--no-save` | Don't store the key and model in `~/.coding-helper/config.yaml`; only write tool configs |
+| `--context <size>` | Context size limit, e.g. `128k`, `64k`, `200000`; `auto` uses the model maximum |
 
 **Checks before writing:** an invalid key, a billing-suspended account, or a model that's unavailable or lacks tool calling stops the command (exit code 1) without touching any file, and tells you what to do next; a mistyped model gets a list of similar ones.
 
@@ -211,6 +229,49 @@ coding-helper doctor
 
 The account check sends one real request capped at 1 output token; on an active account it costs a tiny amount.
 
+### 👤 profile: several keys / endpoints
+
+A profile is one API key + one endpoint (China, international or a custom URL). Useful for work and personal accounts, switching regions, or giving one assistant a different account.
+
+```bash
+coding-helper profile add work sk-aaa                 # China endpoint; the first profile becomes active
+coding-helper profile add personal sk-bbb --intl      # international endpoint
+coding-helper profile add lab sk-ccc --base-url https://llm.example.com   # custom, Qiniu-compatible URL
+coding-helper profile list                            # ● marks the active profile and lists tools using each
+coding-helper profile use personal                    # switch: every connected tool moves to it
+coding-helper profile use work codex                  # only Codex uses work
+coding-helper codex @personal                         # pick a profile in one command
+coding-helper run claude @lab                         # this launch only, no config files changed
+coding-helper profile remove lab
+```
+
+<p align="center"><img src="docs/images/profiles.png" width="640" alt="Profiles page"></p>
+
+**Codex can switch without Coding Helper.** Each profile gets a provider with its own key in `~/.codex/config.toml` and a `~/.codex/qn-<name>.config.toml` profile file (the Codex 0.134+ format), so you can run:
+
+```bash
+codex -p qn-work
+codex -p qn-personal
+```
+
+`restore` removes those providers and files. The main menu's Profiles page can create, edit, delete and test profiles (`n` / `e` / `d` / `t`); press `p` on a tool's page to bind just that tool. Keys stay in `~/.coding-helper/config.yaml` (mode 0600) and are shown masked.
+
+### 📐 Context size
+
+Default is Auto: each model is written with its real maximum from Qiniu's model market. To cut cost or latency:
+
+```bash
+coding-helper codex,opencode --context 64k
+```
+
+or choose Auto / 128K / 64K / 32K / Custom in the main menu. Values above a model's maximum are capped to it. Changes sync to connected tools.
+
+| Written to | Assistants |
+|---|---|
+| `model_context_window` (original value restored on `restore`) | Codex |
+| Their own context / input limit field | OpenCode, Qwen Code, Kimi Code CLI, Factory Droid, Grok CLI, OpenClaw, MiniMax Code, CodeBuddy, WorkBuddy |
+| Not configurable (managed by the tool) | Claude Code, Hermes Agent, Copilot CLI |
+
 ### 🔄 Automatic sync after changing key or endpoint
 
 When you change the API key or endpoint from the main menu, `auth <token>` or the wizard, every tool still pointing to Qiniu is rewritten and the result is shown — no more `auth reload` per tool. A tool you have switched to another provider by hand is left alone.
@@ -237,12 +298,13 @@ In testing, 12 tools with existing user configs went through `setup` twice and t
 |---|---|---|
 | 🇨🇳 China | `https://api.qnaigc.com` | Users in mainland China |
 | 🌍 International | `https://api.modelink.ai` | Users elsewhere |
+| 🔧 Custom URL | Your own | Self-hosted or proxy gateways (Qiniu-compatible) |
 
 ### Coding Helper's own files
 
 | Path | Contents |
 |---|---|
-| `~/.coding-helper/config.yaml` | Language, endpoint, API key, model choices per tool |
+| `~/.coding-helper/config.yaml` | Language, endpoint, API key, model choices per tool, profiles, context size |
 | `~/.coding-helper/state.json` | Connected tools and the values they replaced |
 | `~/.coding-helper/backups/<timestamp>/` | Original files backed up before each write |
 
