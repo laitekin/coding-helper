@@ -109,6 +109,20 @@ jobs:
           echo "Previous tag: ${PREVIOUS_TAG:-<none>}"
           echo "Next tag: ${TAG}"
 
+      # 打标签前先确认能发布到 npm，避免标签和 Release 已创建而发布失败
+      - name: Check npm auth
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          PACKAGE_NAME: ${{ inputs.package_name }}
+        run: |
+          if [ -n "${NODE_AUTH_TOKEN}" ]; then
+            echo "Publishing as: $(npm whoami)"
+          elif ! npm view "${PACKAGE_NAME}" name >/dev/null 2>&1; then
+            echo "${PACKAGE_NAME} is not on npm yet and NPM_TOKEN is not set; trusted publishing needs an existing package." >&2
+            echo "Add an npm automation token as the NPM_TOKEN repository secret, then retry." >&2
+            exit 1
+          fi
+
       - name: Update CHANGELOG
         uses: actions/github-script@v8
         env:
