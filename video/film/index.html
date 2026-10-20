@@ -92,8 +92,8 @@ function vignette() {
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
 }
 const WIN = { x: 150, y: 80, w: 1620, h: 900, bar: 46 };
-function terminal(title, glowColor) {
-  const { x, y, w, h, bar } = WIN;
+function terminal(title, glowColor, R = WIN) {
+  const { x, y, w, h, bar } = R;
   ctx.save();
   ctx.shadowColor = glowColor || 'rgba(0,0,0,0.8)'; ctx.shadowBlur = glowColor ? 90 : 60; ctx.shadowOffsetY = glowColor ? 0 : 24;
   rr(x, y, w, h, 18); ctx.fillStyle = C.win; ctx.fill();
@@ -109,7 +109,7 @@ function terminal(title, glowColor) {
   ctx.font = `400 20px ${MONO}`; ctx.fillStyle = C.muted; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText(title, x + w / 2, y + bar / 2); ctx.textAlign = 'left';
 }
-function clipWindow() { const { x, y, w, h, bar } = WIN; rr(x, y + bar, w, h - bar, 18); ctx.clip(); }
+function clipWindow(R = WIN) { const { x, y, w, h, bar } = R; rr(x, y + bar, w, h - bar, 18); ctx.clip(); }
 // 镜头：以 (fx, fy) 为中心缩放 + 平移
 function camera(s, fx = W / 2, fy = H / 2, dx = 0, dy = 0) { ctx.setTransform(s, 0, 0, s, fx - fx * s + dx, fy - fy * s + dy); }
 function cursor(x, y, size, on) { if (on) { ctx.fillStyle = C.fg; ctx.fillRect(x, y - size * .6, size * .6, size * 1.2); } }
@@ -232,7 +232,7 @@ function subtitle(t) {
 // S03 0:10–0:15  npx 启动，Logo 逐拍亮起，缓拉
 function S03(u) {
   backdrop();
-  camera(lerp(1.12, 1.0, easeInOut(u / 5)), W / 2, H * .42);
+  camera(lerp(1.12, 1.0, easeInOut(u / 5)), W / 2, H * .42, W * .7 * (1 - easeOut(u / .3)));
   terminal('~/my-project — zsh');
   ctx.save(); clipWindow();
   const X = WIN.x + 64, Y = WIN.y + WIN.bar + 56, S = 30, LH = 46;
@@ -473,10 +473,475 @@ function S10status(v) {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
 }
 
+// ---------- 共用：终端行、问答提示（inquirer 样式）----------
+const Q = (s) => [['? ', C.ok, { bold: true }], [s, C.white, { bold: true }]];
+const DONE = (s, ans) => [['✔ ', C.ok], [s + ' ', C.white], [ans, C.qiniu]];
+const blinkOn = (u) => Math.floor(u / (BEAT / 2)) % 2 === 0;
+function spinner(u) { return SPIN[Math.floor(u / .12) % SPIN.length]; }
+function shotEnd() { ctx.setTransform(1, 0, 0, 1, 0, 0); }
+// 小服务器节点（圆角卡片 + 标签）
+function node(x, y, label, sub, color, lit = 1) {
+  ctx.save();
+  ctx.globalAlpha = lerp(.45, 1, lit);
+  ctx.shadowColor = color; ctx.shadowBlur = 24 * lit;
+  rr(x - 150, y - 46, 300, 92, 12); ctx.fillStyle = '#0d141b'; ctx.fill();
+  ctx.lineWidth = 2.5; ctx.strokeStyle = color; ctx.stroke();
+  ctx.restore();
+  ctx.save(); ctx.globalAlpha = lerp(.45, 1, lit);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = `700 24px ${MONO}`; ctx.fillStyle = C.white; ctx.fillText(label, x, y - 14);
+  ctx.font = `400 20px ${CJK}`; ctx.fillStyle = C.muted; ctx.fillText(sub, x, y + 18);
+  ctx.restore();
+}
+function glowDot(x, y, r, color, a = 1) {
+  ctx.save(); ctx.globalAlpha = a; ctx.fillStyle = color; ctx.shadowColor = color; ctx.shadowBlur = r * 4;
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+}
+
+// S01 0:00–0:05  空终端，敲 claude 没反应，Clawd 探头冒「?」，缓推
+function S01(u) {
+  backdrop();
+  camera(lerp(1.0, 1.15, easeInOut(u / 5)), W * .42, H * .42);
+  terminal('~/my-project — zsh');
+  ctx.save(); clipWindow();
+  const X = WIN.x + 64, Y = WIN.y + WIN.bar + 56, S = 30, LH = 46;
+  text([['~/my-project', C.muted]], X, Y, S);
+  const cmd = 'claude';
+  const n = Math.floor(clamp((u - 1.25) / .5) * cmd.length);
+  const end = text([['❯ ', C.qiniu], [cmd.slice(0, n), C.white]], X, Y + LH, S);
+  // 回车后什么也没发生：光标落到下一行继续闪
+  if (u < 2.1) cursor(X + end * S * .6 + 4, Y + LH, S, blinkOn(u));
+  else cursor(X, Y + LH * 2, S, blinkOn(u));
+  // Clawd 从底部探头
+  const rise = easeOut((u - 2.3) / .7);
+  crab('curious', WIN.x + WIN.w * .58, WIN.y + WIN.h + lerp(30, -70, rise), 14);
+  ctx.restore();
+  // 「?」在第 2 小节第 2 拍弹出
+  const qk = easeOut((u - (BAR + BEAT)) / .2);
+  if (qk > 0) {
+    ctx.save(); ctx.globalAlpha = qk;
+    ctx.font = `700 ${Math.round(80 * lerp(.4, 1, qk))}px ${MONO}`; ctx.fillStyle = C.claude;
+    ctx.shadowColor = C.claude; ctx.shadowBlur = 20; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('?', WIN.x + WIN.w * .58 + 150, WIN.y + WIN.h - 270 - 20 * qk);
+    ctx.restore();
+  }
+  shotEnd();
+}
+
+// S02 0:05–0:10  Clawd 身侧的插座空着，片名按十六分音符点亮，最后一拍甩镜
+const TITLE = 'qiniu-coding-helper';
+function S02(u) {
+  backdrop();
+  const whip = easeInOut((u - (BAR + BEAT * 3)) / BEAT);
+  camera(1.0, W / 2, H / 2, -W * .7 * whip);
+  const bob = Math.sin(Math.PI * ((u % BEAT) / BEAT)) * 6;
+  const sock = crab('idle', 470, 720 - bob, 20, { socket: true, socketLit: 0 });
+  // 插座旁的虚线，暗示「这里该插东西」
+  ctx.save(); ctx.setLineDash([8, 10]); ctx.lineDashOffset = -u * 30;
+  ctx.strokeStyle = 'rgba(0,180,230,0.45)'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(sock.x - 12, sock.y); ctx.bezierCurveTo(sock.x - 120, sock.y, sock.x - 130, sock.y + 140, sock.x - 220, sock.y + 200); ctx.stroke();
+  ctx.restore();
+  // 片名
+  const X0 = 840, Y0 = 470, S = 64, cw = S * .6;
+  [...TITLE].forEach((ch, i) => {
+    const k = easeOut((u - (.6 + i * BEAT / 4)) / .12);
+    text([[ch, C.white, { bold: true, alpha: lerp(.08, 1, k), glow: 14 * k }]], X0, Y0, S, i);
+  });
+  const sk = clamp((u - (.6 + TITLE.length * BEAT / 4)) / .4);
+  ctx.save(); ctx.globalAlpha = sk;
+  ctx.font = `400 34px ${CJK}`; ctx.fillStyle = C.muted; ctx.textBaseline = 'middle';
+  ctx.fillText('AI 编程助手 · 七牛 API 端点一键配置', X0 + 4, Y0 + 84);
+  ctx.fillStyle = C.claude; ctx.fillRect(X0 + 4, Y0 + 134, TITLE.length * cw * sk, 4);
+  ctx.restore();
+  shotEnd();
+  // 甩镜时的横向拖影
+  if (whip > 0 && whip < 1) {
+    const a = Math.sin(Math.PI * whip);
+    for (let i = 0; i < 26; i++) {
+      ctx.fillStyle = `rgba(255,255,255,${0.05 * a * hash(i + 7)})`;
+      ctx.fillRect(0, hash(i) * H, W, 2 + hash(i + 3) * 10);
+    }
+  }
+}
+
+// S04 0:15–0:20  选语言、选线路，横移；右侧线路图
+function S04(u) {
+  backdrop();
+  camera(1.12, W * .5, H * .4, lerp(70, -70, easeInOut(u / 5)));
+  terminal('~/my-project — npx qiniu-coding-helper');
+  ctx.save(); clipWindow();
+  const X = WIN.x + 64, Y = WIN.y + WIN.bar + 56, S = 30, LH = 50;
+  text([['❯ ', C.qiniu], ['npx qiniu-coding-helper', C.muted]], X, Y, S);
+  // 语言：第 7 小节第 3 拍确认
+  const langDone = u >= BEAT * 2;
+  if (!langDone) {
+    text(Q('请选择语言'), X, Y + LH * 1.2, S);
+    text([['❯ 中文', C.qiniu]], X, Y + LH * 2.2, S);
+    text([['  English', C.fg]], X, Y + LH * 3.2, S);
+  } else {
+    text(DONE('请选择语言', '中文'), X, Y + LH * 1.2, S);
+    // 线路：先落国内，滑到海外，再回国内，第 8 小节第 3 拍确认
+    const sel = u < 2.5 ? 0 : u < 3.125 ? 1 : 0;
+    const routeDone = u >= BAR + BEAT * 2;
+    if (!routeDone) {
+      text(Q('请选择 API 线路'), X, Y + LH * 2.4, S);
+      text([[sel === 0 ? '❯ ' : '  ', C.qiniu], ['国内线路 (api.qnaigc.com)', sel === 0 ? C.qiniu : C.fg]], X, Y + LH * 3.4, S);
+      text([[sel === 1 ? '❯ ' : '  ', C.qiniu], ['海外线路 (api.modelink.ai)', sel === 1 ? C.qiniu : C.fg]], X, Y + LH * 4.4, S);
+    } else {
+      text(DONE('请选择 API 线路', '国内线路 (api.qnaigc.com)'), X, Y + LH * 2.4, S);
+      text([['✔ ', C.ok], ['线路已设置为: ', C.fg], ['https://api.qnaigc.com', C.qiniu, { glow: 10 }]], X, Y + LH * 3.4, S);
+    }
+  }
+  // 线路图：起点是 Clawd，两条线通往两个端点，选中的那条亮
+  const ox = 1110, oy = 640;
+  const sel = !langDone ? -1 : (u < 2.5 ? 0 : u < 3.125 ? 1 : 0);
+  const routes = [
+    { to: [1530, 430], label: 'api.qnaigc.com', sub: '国内线路 · 中国大陆' },
+    { to: [1530, 820], label: 'api.modelink.ai', sub: '海外线路 · 海外用户' },
+  ];
+  const vis = clamp((u - .3) / .5);
+  ctx.globalAlpha = vis;
+  routes.forEach((r, i) => {
+    const on = i === sel;
+    const P = [[ox + 90, oy], [ox + 260, oy], [r.to[0] - 330, r.to[1]], [r.to[0] - 150, r.to[1]]];
+    ctx.save();
+    ctx.strokeStyle = on ? C.qiniu : C.dim; ctx.lineWidth = on ? 5 : 3;
+    if (on) { ctx.shadowColor = C.qiniu; ctx.shadowBlur = 18; } else ctx.setLineDash([10, 10]);
+    ctx.beginPath(); ctx.moveTo(...P[0]); ctx.bezierCurveTo(...P[1], ...P[2], ...P[3]); ctx.stroke();
+    ctx.restore();
+    if (on) glowDot(...bez(P, (u * 1.4) % 1), 6, C.qiniuHi);
+    node(r.to[0], r.to[1], r.label, r.sub, on ? C.qiniu : C.dim, on ? 1 : 0);
+  });
+  crab(sel === 1 ? 'curious' : 'idle', ox, oy + 70, 8);
+  ctx.globalAlpha = 1;
+  ctx.restore();
+  shotEnd();
+}
+
+// S05 0:20–0:27.5  粘贴 API Key，光点飞去 /v2/stat/usage 再弹回，跟拍
+function S05(u) {
+  backdrop();
+  // 光点：第 9 小节末出发，第 10 小节末到达，第 11 小节第 1 拍弹回终端
+  const go = easeInOut((u - 2.0) / 1.5), back = easeInOut((u - 3.6) / 1.4);
+  // 光点从「正在验证」那一行出发，也落回这一行
+  const ex = 640, ey = 346, sx = 1530, sy = 330;
+  const P1 = [[ex, ey], [ex + 300, ey - 260], [sx - 380, sy - 120], [sx - 150, sy]];
+  const P2 = [[sx - 150, sy + 20], [sx - 380, sy + 220], [ex + 300, ey + 160], [ex, ey]];
+  let px = ex, py = ey, phase = 0;
+  if (u >= 2.0 && u < 3.5) { [px, py] = bez(P1, go); phase = 1; }
+  else if (u >= 3.6 && u < 5.0) { [px, py] = bez(P2, back); phase = 2; }
+  else if (u >= 3.5 && u < 3.6) { px = sx - 150; py = sy; phase = 1; }
+  const follow = phase ? (px - W / 2) * .18 : 0;
+  camera(1.08, W / 2, H / 2, -follow);
+  terminal('~/my-project — npx qiniu-coding-helper');
+  ctx.save(); clipWindow();
+  const X = WIN.x + 64, Y = WIN.y + WIN.bar + 56, S = 28, LH = 48;
+  text(DONE('请选择 API 线路', '国内线路 (api.qnaigc.com)'), X, Y, S);
+  text([['如需获取 API Key，请访问: ', C.muted], ['https://portal.qiniu.com/ai-inference/api-key', C.muted]], X, Y + LH * 1.4, S);
+  const pasted = u >= 1.0, entered = u >= 1.875;
+  const mask = pasted ? '••••••••••••••••••••' : '';
+  if (!entered) {
+    const e = text([...Q('请输入您的 API Key '), [mask, C.qiniu]], X, Y + LH * 2.4, S);
+    cursor(X + e * S * .6 + 4, Y + LH * 2.4, S, blinkOn(u));
+  } else text([['✔ ', C.ok], ['请输入您的 API Key ', C.white], [mask, C.muted]], X, Y + LH * 2.4, S);
+  if (entered && u < 5.0) text([[spinner(u) + ' ', C.claude, { glow: 12 }], ['正在验证 API Key...', C.fg]], X, Y + LH * 3.4, S);
+  if (u >= 5.0) {
+    const k = easeOut((u - 5.0) / .2);
+    text([['✔ API Key 验证成功！', C.ok, { bold: true, glow: 16 * k }]], X, Y + LH * 3.4, S);
+  }
+  if (u >= 5.625) text([['✔ ', C.ok], ['API Key 已保存', C.fg]], X, Y + LH * 4.4, S);
+  ctx.restore();
+  // 服务器节点与轨迹
+  const ok = u >= 5.0;
+  node(sx, sy, '/v2/stat/usage', 'api.qnaigc.com · 校验 Key', ok ? C.ok : C.qiniu, u >= 1.8 ? 1 : .3);
+  if (phase) {
+    const P = phase === 1 ? P1 : P2, k = phase === 1 ? go : back;
+    ctx.save(); ctx.strokeStyle = phase === 1 ? 'rgba(0,180,230,.5)' : 'rgba(0,229,160,.5)'; ctx.lineWidth = 3; ctx.setLineDash([6, 8]);
+    ctx.beginPath();
+    for (let i = 0; i <= 40; i++) { const [a, b] = bez(P, k * i / 40); i ? ctx.lineTo(a, b) : ctx.moveTo(a, b); }
+    ctx.stroke(); ctx.restore();
+    glowDot(px, py, 12, phase === 1 ? C.qiniu : C.ok);
+  }
+  // 成功时终端行上的一圈涟漪
+  if (u >= 5.0 && u < 5.6) {
+    const k = (u - 5.0) / .6;
+    ctx.save(); ctx.globalAlpha = 1 - k; ctx.strokeStyle = C.ok; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(ex, ey, 20 + 140 * k, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
+  }
+  shotEnd();
+}
+
+// S06 0:27.5–0:35  勾选 13 款工具，竖摇
+const PICK = [
+  ['Claude Code', 1], ['Codex', 1], ['OpenCode', 1], ['Qwen Code', 1], ['Kimi Code CLI', 1], ['Factory Droid', 0],
+  ['Grok CLI', 0], ['OpenClaw', 0], ['MiniMax Code', 0], ['GitHub Copilot CLI', 0], ['CodeBuddy', 1], ['WorkBuddy', 0], ['Hermes Agent', 1],
+];
+function S06(u) {
+  backdrop();
+  const S = 30, LH = 50;
+  // 光标每八分音符下移一行，从第 12 小节第 3 拍开始
+  const t0 = 1.25, step = BEAT / 2;
+  const cur = clamp(Math.floor((u - t0) / step), -1, PICK.length - 1);
+  const pan = easeInOut((u - .4) / 5.2);
+  camera(1.1, W * .4, lerp(H * .25, H * .8, pan));
+  terminal('~/my-project — npx qiniu-coding-helper');
+  ctx.save(); clipWindow();
+  const X = WIN.x + 64, Y = WIN.y + WIN.bar + 56;
+  const done = u >= 6.25;
+  if (!done) text([...Q('选择要接入七牛的编码工具'), ['（空格勾选，回车确认）', C.muted]], X, Y, S);
+  else text([['✔ ', C.ok], ['选择要接入七牛的编码工具 ', C.white], ['Claude Code, Codex, OpenCode, Qwen Code…', C.qiniu]], X, Y, S);
+  PICK.forEach(([name, inst], i) => {
+    const y = Y + LH * (1.3 + i);
+    const here = !done && i === Math.max(cur, 0);
+    const checked = inst && cur >= i;
+    const pop = inst ? easeOut((u - (t0 + i * step)) / .12) : 0;
+    const box = checked ? '◉' : '◯';
+    const tag = inst ? '' : name === 'WorkBuddy' ? '  (桌面应用)' : '  (未安装)';
+    ctx.save(); ctx.globalAlpha = done ? .45 : 1;
+    text([[here ? '❯ ' : '  ', C.qiniu], [box + ' ', checked ? C.ok : C.muted, { glow: checked ? 10 * pop : 0, bold: checked }],
+      [name, here ? C.qiniu : inst ? C.fg : C.muted], [tag, C.dim]], X, y, S);
+    ctx.restore();
+  });
+  ctx.restore();
+  shotEnd();
+}
+
+// S07 0:35–0:42.5  Haiku / Sonnet / Opus 三栏选模型，推近中间栏
+const MODELS = ['anthropic/claude-sonnet-4-5', 'anthropic/claude-haiku-4-5', 'anthropic/claude-opus-4-1',
+  'deepseek/deepseek-v3.2', 'moonshotai/kimi-k2', 'qwen/qwen3-coder', 'z-ai/glm-4.6'];
+function S07(u) {
+  backdrop();
+  const push = easeInOut((u - 1.2) / 1.2) * (1 - easeInOut((u - 5.6) / 1.0));
+  camera(lerp(1.0, 1.22, push), W / 2, H * .52);
+  terminal('~/my-project — 配置模型');
+  ctx.save(); clipWindow();
+  const X = WIN.x + 64, Y = WIN.y + WIN.bar + 50, S = 22, LH = 36, cw = S * .6;
+  const step = u < 1.25 ? 0 : u < 4.375 ? 1 : u < 6.25 ? 2 : 3;
+  const prompts = ['请选择 Haiku 模型（快速/轻量）', '请选择 Sonnet 模型（平衡）', '请选择 Opus 模型（强大）'];
+  if (step < 3) text([...Q(prompts[step]), ['（可输入搜索或自定义模型 ID）：', C.muted]], X, Y, 26);
+  else text([['✔ ', C.ok], ['模型配置完成', C.white, { bold: true }]], X, Y, 26);
+  const cols = [
+    ['Haiku', '快速 / 轻量', 'anthropic/claude-haiku-4-5', 'haiku'],
+    ['Sonnet', '平衡', 'anthropic/claude-sonnet-4-5', 'sonnet'],
+    ['Opus', '强大', 'anthropic/claude-opus-4-1', 'opus'],
+  ];
+  const cwid = 470, gap = 40, top = Y + 70, hgt = 640;
+  cols.forEach(([name, sub, pick, q], i) => {
+    const x = X + i * (cwid + gap);
+    const active = step === i, chosen = step > i;
+    ctx.save();
+    rr(x, top, cwid, hgt, 14);
+    ctx.fillStyle = active ? '#140f0d' : '#0c1015'; ctx.fill();
+    ctx.lineWidth = active ? 3 : 2; ctx.strokeStyle = active ? C.claude : chosen ? 'rgba(0,229,160,.6)' : C.winEdge;
+    if (active) { ctx.shadowColor = C.claude; ctx.shadowBlur = 24; }
+    ctx.stroke(); ctx.restore();
+    ctx.save(); ctx.textBaseline = 'middle';
+    ctx.font = `700 38px ${MONO}`; ctx.fillStyle = active ? C.claude : C.white; ctx.fillText(name, x + 28, top + 50);
+    ctx.font = `400 24px ${CJK}`; ctx.fillStyle = C.muted; ctx.fillText(sub, x + 30, top + 92);
+    ctx.restore();
+    // 搜索框：只有 Sonnet 演示输入搜索
+    const typing = i === 1 ? q.slice(0, Math.floor(clamp((u - 1.9) / 1.0) * q.length)) : '';
+    const query = active ? typing : chosen ? '' : '';
+    rr(x + 24, top + 128, cwid - 48, 52, 8); ctx.strokeStyle = active ? '#4b5563' : C.winEdge; ctx.lineWidth = 2; ctx.stroke();
+    const qe = text([['⌕ ', C.muted], [query || (active ? '' : ''), C.white]], x + 40, top + 154, S);
+    if (active) cursor(x + 40 + qe * cw + 2, top + 154, S, blinkOn(u));
+    if (chosen) {
+      text([['✔ ', C.ok], [pick, C.ok, { bold: true }]], x + 30, top + 240, S);
+      return;
+    }
+    const list = MODELS.filter((m) => m.includes(query));
+    // 当前列：光标先停在第一项，确认前一拍跳到目标模型
+    const target = Math.max(0, list.indexOf(pick));
+    const confirmAt = [1.25, 4.375, 6.25][i];
+    const hi = active && u > confirmAt - BEAT * 1.5 ? target : 0;
+    list.forEach((m, j) => {
+      const y = top + 220 + j * LH * 1.15;
+      const on = active && j === hi;
+      if (on) { ctx.fillStyle = 'rgba(0,180,230,0.10)'; ctx.fillRect(x + 20, y - LH / 2, cwid - 40, LH); }
+      text([[on ? '❯ ' : '  ', C.qiniu], [m, on ? C.qiniu : active ? C.fg : C.muted]], x + 28, y, S);
+    });
+  });
+  ctx.restore();
+  shotEnd();
+}
+
+// S08 0:42.5–0:47.5  分屏：左边写入 + 备份，右边 settings.json 逐行高亮
+const L_WIN = { x: 90, y: 110, w: 840, h: 820, bar: 46 };
+const R_WIN = { x: 990, y: 110, w: 840, h: 820, bar: 46 };
+function S08(u) {
+  backdrop();
+  camera(1.0);
+  terminal('coding-helper setup', null, L_WIN);
+  terminal('~/.claude/settings.json', null, R_WIN);
+  const S = 24, LH = 40;
+  // 左：逐个写入
+  ctx.save(); clipWindow(L_WIN);
+  let X = L_WIN.x + 44, Y = L_WIN.y + L_WIN.bar + 50;
+  text([['── 写入配置 ──', C.muted]], X, Y, S);
+  const tools = ['Claude Code', 'Codex', 'OpenCode', 'Qwen Code', 'Kimi Code CLI', 'CodeBuddy', 'Hermes Agent'];
+  tools.forEach((name, i) => {
+    const at = .3 + i * BEAT / 2;
+    if (u < at) return;
+    const y = Y + LH * (1.4 + i);
+    if (u < at + .28) text([[spinner(u) + ' ', C.claude, { glow: 10 }], [`正在写入 ${name}…`, C.fg]], X, y, S);
+    else text([['✔ ', C.ok], [pad(name, 16), C.fg], ['成功', C.ok]], X, y, S);
+  });
+  const bk = u >= 3.6;
+  if (bk) {
+    const k = easeOut((u - 3.6) / .3);
+    text([['已备份 7 个原文件到', C.muted, { alpha: k }]], X, Y + LH * 9.6, S);
+    text([['~/.coding-helper/backups/', C.qiniu, { alpha: k, glow: 8 }]], X, Y + LH * 10.6, S);
+    text([['  20261020-142318/', C.qiniu, { alpha: k }]], X, Y + LH * 11.6, S);
+    text([['如需撤销，运行 coding-helper restore', C.muted, { alpha: k }]], X, Y + LH * 13, S);
+  }
+  ctx.restore();
+  // 右：settings.json
+  ctx.save(); clipWindow(R_WIN);
+  X = R_WIN.x + 44; Y = R_WIN.y + R_WIN.bar + 50;
+  const J = [
+    [['{', C.fg]],
+    [['  "env": {', C.fg]],
+    [['    "ANTHROPIC_BASE_URL": ', C.claude], ['"https://api.qnaigc.com"', C.qiniu], [',', C.fg]],
+    [['    "ANTHROPIC_AUTH_TOKEN": ', C.claude], ['"sk-••••3f9a"', C.muted], [',', C.fg]],
+    [['    "API_TIMEOUT_MS": ', C.claude], ['"3000000"', C.fg], [',', C.fg]],
+    [['    "CLAUDE_CODE_DISABLE_', C.claude]],
+    [['      NONESSENTIAL_TRAFFIC": ', C.claude], ['"1"', C.fg]],
+    [['  }', C.fg]],
+    [['}', C.fg]],
+  ];
+  const hl = [[2, .6], [3, 1.25], [4, 1.875], [5, 2.5], [6, 2.5]];
+  J.forEach((segs, i) => {
+    const y = Y + LH * (i + .2);
+    const h = hl.find(([r]) => r === i);
+    if (h) {
+      const k = clamp((u - h[1]) / .15) * (1 - clamp((u - h[1] - .55) / .4) * .7);
+      if (k > 0) {
+        ctx.fillStyle = `rgba(217,119,87,${.16 * k})`; ctx.fillRect(R_WIN.x + 20, y - LH / 2, R_WIN.w - 40, LH);
+        ctx.fillStyle = `rgba(217,119,87,${.9 * k})`; ctx.fillRect(R_WIN.x + 20, y - LH / 2, 4, LH);
+      }
+      text(segs, X, y, S, 0);
+      // 未写入前这几行是空的
+    } else text(segs, X, y, S);
+  });
+  ctx.restore();
+  // 文件夹从右窗飞进左窗的 backups 路径
+  const fk = easeInOut((u - 3.0) / .6);
+  if (u >= 3.0 && u < 3.75) {
+    const P = [[1400, 300], [1300, 120], [700, 220], [L_WIN.x + 200, L_WIN.y + L_WIN.bar + 50 + 40 * 10.6]];
+    const [fx, fy] = bez(P, fk);
+    // 落地前淡出，避免盖住路径文字
+    ctx.save(); ctx.globalAlpha = 1 - clamp((fk - .75) / .25); ctx.translate(fx, fy); ctx.rotate((1 - fk) * .5);
+    ctx.fillStyle = C.qiniu; ctx.shadowColor = C.qiniu; ctx.shadowBlur = 20;
+    rr(-34, -18, 30, 12, 3); ctx.fill(); rr(-34, -10, 68, 40, 5); ctx.fill();
+    ctx.restore();
+  }
+  shotEnd();
+}
+
+// S11 1:02.5–1:07.5  左 doctor 逐项打勾，右 restore 倒带
+function S11(u) {
+  backdrop();
+  camera(1.0);
+  terminal('coding-helper doctor', null, L_WIN);
+  const rw = u >= 2.5 && u < 4.2;
+  terminal('coding-helper restore', rw ? 'rgba(217,119,87,0.25)' : null, R_WIN);
+  const S = 24, LH = 42;
+  ctx.save(); clipWindow(L_WIN);
+  let X = L_WIN.x + 44, Y = L_WIN.y + L_WIN.bar + 50;
+  text([['❯ ', C.qiniu], ['npx qiniu-coding-helper doctor', C.white]], X, Y, S);
+  text([['── 健康检查 ──', C.muted]], X, Y + LH * 1.2, S);
+  const checks = [['配置文件', '通过'], ['API Key', '通过'], ['网络连接', '连接正常'], ['Claude Code 安装状态', '已找到'], ['Git', '已找到'], ['Node.js', '通过']];
+  checks.forEach(([a, b], i) => {
+    const at = .3 + i * BEAT / 2;
+    if (u < at) return;
+    const k = easeOut((u - at) / .15);
+    text([['✔ ', C.ok, { glow: 12 * (1 - k) + 4 }], [pad(a, 22), C.fg], [b, C.ok]], X, Y + LH * (2.4 + i), S);
+  });
+  ctx.restore();
+  // 右：restore
+  ctx.save(); clipWindow(R_WIN);
+  X = R_WIN.x + 44; Y = R_WIN.y + R_WIN.bar + 50;
+  text([['❯ ', C.qiniu], ['npx qiniu-coding-helper restore', C.white]], X, Y, S);
+  if (u >= 2.0) text(DONE('确定要移除七牛配置并还原原有配置吗？', '是'), X, Y + LH * 1.2, S);
+  const env = [['ANTHROPIC_BASE_URL', '"https://api.qnaigc.com"'], ['ANTHROPIC_AUTH_TOKEN', '"sk-••••3f9a"'],
+    ['API_TIMEOUT_MS', '"3000000"'], ['CLAUDE_CODE_DISABLE_…', '"1"']];
+  text([['~/.claude/settings.json', C.muted]], X, Y + LH * 2.6, S);
+  // 倒带：从最后一行往上逐行消失
+  env.forEach(([k, v], i) => {
+    const gone = clamp((u - (2.6 + (env.length - 1 - i) * .35)) / .25);
+    if (gone >= 1) return;
+    const y = Y + LH * (3.6 + i);
+    const jit = rw ? (hash(Math.floor(u * 24) + i) - .5) * 18 : 0;
+    ctx.save(); ctx.globalAlpha = 1 - gone;
+    text([['  ' + k + ': ', C.claude], [v, C.qiniu]], X + jit, y, S);
+    if (gone > 0) { ctx.fillStyle = C.claude; ctx.fillRect(X, y - 1, (dispWidth(k + v) + 4) * S * .6 * gone, 3); }
+    ctx.restore();
+  });
+  if (u >= 4.2) {
+    const k = easeOut((u - 4.2) / .2);
+    text([['✔ ', C.ok], ['已还原 Claude Code：七牛配置已移除，原值已写回', C.fg, { alpha: k }]], X, Y + LH * 3.8, S);
+  }
+  // 倒带画面：扫描线 + 标记
+  if (rw) {
+    for (let i = 0; i < 7; i++) {
+      const y = R_WIN.y + ((hash(i + Math.floor(u * 12)) * R_WIN.h) | 0);
+      ctx.fillStyle = 'rgba(255,255,255,0.06)'; ctx.fillRect(R_WIN.x, y, R_WIN.w, 3 + hash(i) * 6);
+    }
+    ctx.font = `700 34px ${MONO}`; ctx.fillStyle = C.claude; ctx.textBaseline = 'middle';
+    if (Math.floor(u / (BEAT / 2)) % 2 === 0) ctx.fillText('◀◀ REWIND', R_WIN.x + R_WIN.w - 270, R_WIN.y + R_WIN.h - 50);
+  }
+  ctx.restore();
+  shotEnd();
+}
+
+// S12 1:07.5–1:15  呼应开场：同机位，这次 Clawd 自己敲命令，挥手，尾卡定格
+function S12(u) {
+  backdrop();
+  const pull = easeInOut((u - 1.0) / 3.8);
+  camera(lerp(1.15, 1.0, pull), W * .42, H * .42);
+  const card = easeOut((u - 5.0) / .5);
+  ctx.save(); ctx.globalAlpha = lerp(1, .25, card);
+  terminal('~/my-project — zsh');
+  ctx.save(); clipWindow();
+  const X = WIN.x + 64, Y = WIN.y + WIN.bar + 56, S = 30, LH = 46;
+  text([['~/my-project', C.muted]], X, Y, S);
+  const cmd = 'npx qiniu-coding-helper';
+  const n = Math.floor(clamp((u - 1.25) / 1.6) * cmd.length);
+  const end = text([['❯ ', C.qiniu], [cmd.slice(0, n), C.white]], X, Y + LH, S);
+  cursor(X + end * S * .6 + 4, Y + LH, S, blinkOn(u));
+  // 打字时每个八分音符蹦一下；打完挥手（举手/放下交替）
+  const typing = u >= 1.25 && u < 2.85;
+  const ph = (u % (BEAT / 2)) / (BEAT / 2);
+  const hop = typing ? Math.sin(Math.PI * ph) * 10 : 0;
+  const wave = u >= 3.75 && Math.floor(u / (BEAT / 2)) % 2 === 0;
+  crab(u < 1.25 ? 'idle' : wave ? 'curious' : 'happy', WIN.x + WIN.w * .58, WIN.y + WIN.h - 70 - hop, 14);
+  ctx.restore();
+  ctx.restore();
+  shotEnd();
+  // 尾卡
+  if (card > 0) {
+    ctx.save(); ctx.globalAlpha = card;
+    ctx.fillStyle = 'rgba(4,5,7,0.55)'; ctx.fillRect(0, 0, W, H);
+    const lit = LOGO.map(() => 1);
+    logo(W / 2 - 34 * 13 / 2, 250, 13, 22, lit);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = `700 76px ${MONO}`;
+    const w = ctx.measureText('❯ npx qiniu-coding-helper').width;
+    ctx.fillStyle = C.qiniu; ctx.fillText('❯', W / 2 - w / 2 + 22, 520);
+    ctx.fillStyle = C.white; ctx.shadowColor = 'rgba(255,255,255,.35)'; ctx.shadowBlur = 20;
+    ctx.fillText('npx qiniu-coding-helper', W / 2 + 46, 520);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = C.claude; ctx.fillRect(W / 2 - w / 2, 578, w * easeOut((u - 5.2) / .6), 4);
+    ctx.font = `400 34px ${CJK}`; ctx.fillStyle = C.muted;
+    ctx.fillText('获取 API Key：portal.qiniu.com', W / 2, 650);
+    ctx.restore();
+  }
+}
+
 // 尚未制作的镜头：场记板
 const SHOTS = [
-  ['S01', 0, 5], ['S02', 5, 10], ['S03', 10, 15, S03], ['S04', 15, 20], ['S05', 20, 27.5], ['S06', 27.5, 35],
-  ['S07', 35, 42.5], ['S08', 42.5, 47.5], ['S09', 47.5, 52.5, S09], ['S10', 52.5, 62.5, S10], ['S11', 62.5, 67.5], ['S12', 67.5, 75],
+  ['S01', 0, 5, S01], ['S02', 5, 10, S02], ['S03', 10, 15, S03], ['S04', 15, 20, S04], ['S05', 20, 27.5, S05], ['S06', 27.5, 35, S06],
+  ['S07', 35, 42.5, S07], ['S08', 42.5, 47.5, S08], ['S09', 47.5, 52.5, S09], ['S10', 52.5, 62.5, S10], ['S11', 62.5, 67.5, S11], ['S12', 67.5, 75, S12],
 ];
 function slate(name, t) {
   backdrop();

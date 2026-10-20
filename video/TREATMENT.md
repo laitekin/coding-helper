@@ -110,7 +110,7 @@ qiniu-coding-helper 使用教程短片 · v0.1 分镜稿
 
 ## 9. 风格帧
 
-`film/index.html` 是逐帧渲染的画面（`window.render(t)`，确定性渲染），目前已实现 S03、S09、S10，其余镜头渲染为场记板。
+`film/index.html` 是逐帧渲染的画面（`window.render(t)`，确定性渲染），12 个镜头已全部实现。
 
 ```bash
 # 需要 playwright；未在本项目安装时用 PLAYWRIGHT_PATH 指向全局安装
@@ -127,10 +127,15 @@ PLAYWRIGHT_PATH=$(npm root -g)/playwright/index.mjs \
 | `stills/03-s10-claude.png` | S10：Claude Code 欢迎框 + 流式输出代码 + Clawd 踩拍 |
 | `stills/04-s10-status.png` | S10 跳切：`/status` 中 base URL 高亮 |
 
+整片无声预览（约 1 分钟渲完，输出到 `film/out/video.mp4`，不入库）：
+
+```bash
+PLAYWRIGHT_PATH=$(npm root -g)/playwright/index.mjs node video/film/tools/video.mjs --workers 4
+```
+
 字体：JetBrains Mono（等宽，逐字绘制以避开连字）+ 文泉驿正黑（中文）。成片前可换成思源黑体并放进 `film/fonts/`。
 
 ## 10. 下一步
 
-1. 确认风格帧。
-2. 写 `timeline.js`（卡点表落成代码），补齐其余 9 个镜头。
-3. 旁白（edge-tts + whisper 回检）→ 配乐 → 音效 → 混音 → 合成。
+1. 审无声预览，调整镜头细节。
+2. 旁白（edge-tts + whisper 回检）→ 配乐 → 音效（按卡点表）→ 混音 → 合成，输出成片与 `.srt`。
