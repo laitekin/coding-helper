@@ -400,7 +400,7 @@
   "ui_key_select_all_short": "all",
   "plan_subtitle": "These {{count}} tools will be written. Nothing changes until you confirm",
   "plan_model": "Model",
-  "plan_claude_main": "Main model",
+  "plan_claude_main": "Main model (Sonnet · Opus · Fable)",
   "plan_claude_fallback": "Fallback model",
   "plan_context": "Context",
   "plan_file": "File",
@@ -437,5 +437,10 @@
   "setup_none_hint": "Press space to select tools, a for all installed",
 
   "plan_claude_selected": "/model selection",
-  "plan_claude_follow_main": "Default (follows main model)"
+  "plan_claude_follow_main": "Default (follows main model)",
+
+  "claude_slot_desc_sonnet": "Qiniu · main model",
+  "claude_slot_desc_opus": "Qiniu · Opus slot",
+  "claude_slot_desc_haiku": "Qiniu · fallback model",
+  "claude_slot_desc_fable": "Qiniu · Fable slot (same as Opus)"
 }

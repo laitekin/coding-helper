@@ -20,6 +20,12 @@ const CLAUDE_ENV_KEYS = [
   'ANTHROPIC_DEFAULT_HAIKU_MODEL',
   'ANTHROPIC_DEFAULT_SONNET_MODEL',
   'ANTHROPIC_DEFAULT_OPUS_MODEL',
+  // /model 列表里的 Fable 项，以及各项的说明文字
+  'ANTHROPIC_DEFAULT_FABLE_MODEL',
+  'ANTHROPIC_DEFAULT_HAIKU_MODEL_DESCRIPTION',
+  'ANTHROPIC_DEFAULT_SONNET_MODEL_DESCRIPTION',
+  'ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION',
+  'ANTHROPIC_DEFAULT_FABLE_MODEL_DESCRIPTION',
   'CLAUDE_CODE_SUBAGENT_MODEL',
   // 旧版的快速模型变量；以及会覆盖 /model 选择的 ANTHROPIC_MODEL，统一由我们接管
   'ANTHROPIC_SMALL_FAST_MODEL',
@@ -217,7 +223,18 @@ function buildClaudeEnv(apiKey: string, baseUrl: string, models: ModelConfig): R
     env.ANTHROPIC_SMALL_FAST_MODEL = claudeCode.haikuModel;
   }
   if (claudeCode.sonnetModel) env.ANTHROPIC_DEFAULT_SONNET_MODEL = claudeCode.sonnetModel;
-  if (claudeCode.opusModel) env.ANTHROPIC_DEFAULT_OPUS_MODEL = claudeCode.opusModel;
+  if (claudeCode.opusModel) {
+    env.ANTHROPIC_DEFAULT_OPUS_MODEL = claudeCode.opusModel;
+    // Fable 是 Anthropic 官方模型，七牛线路没有；指向 Opus 槽位的模型，避免选中后报错
+    env.ANTHROPIC_DEFAULT_FABLE_MODEL = claudeCode.opusModel;
+  }
+  // /model 列表里的说明，标明这些是七牛线路上的模型
+  if (claudeCode.haikuModel) env.ANTHROPIC_DEFAULT_HAIKU_MODEL_DESCRIPTION = t('claude_slot_desc_haiku');
+  if (claudeCode.sonnetModel) env.ANTHROPIC_DEFAULT_SONNET_MODEL_DESCRIPTION = t('claude_slot_desc_sonnet');
+  if (claudeCode.opusModel) {
+    env.ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION = t('claude_slot_desc_opus');
+    env.ANTHROPIC_DEFAULT_FABLE_MODEL_DESCRIPTION = t('claude_slot_desc_fable');
+  }
   if (claudeCode.subagentModel) env.CLAUDE_CODE_SUBAGENT_MODEL = claudeCode.subagentModel;
   return env;
 }

@@ -269,6 +269,8 @@ test('Claude Code: switching models clears the /model selection and restore brin
   assert.equal(settings.env.ANTHROPIC_MODEL, undefined);
   assert.equal(settings.env.ANTHROPIC_DEFAULT_SONNET_MODEL, 'z-ai/glm-5.2');
   assert.equal(settings.env.ANTHROPIC_SMALL_FAST_MODEL, 'z-ai/glm-5.2');
+  // /model 里的 Fable 项也指向七牛模型
+  assert.equal(settings.env.ANTHROPIC_DEFAULT_FABLE_MODEL, 'z-ai/glm-5.2');
 
   // 接入后用户在 /model 里又选了 kimi，再次切换时同样被接管，且不会把 kimi 当作原值
   settings.model = 'moonshotai/kimi-k3';

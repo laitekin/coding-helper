@@ -413,7 +413,7 @@
   "ui_key_select_all_short": "全选",
   "plan_subtitle": "以下 {{count}} 个工具将被写入，确认后才会修改文件",
   "plan_model": "模型",
-  "plan_claude_main": "主模型",
+  "plan_claude_main": "主模型（Sonnet · Opus · Fable）",
   "plan_claude_fallback": "兜底模型",
   "plan_context": "上下文",
   "plan_file": "文件",
@@ -450,5 +450,10 @@
   "setup_none_hint": "按空格勾选要接入的工具，a 全选已安装",
 
   "plan_claude_selected": "/model 当前选择",
-  "plan_claude_follow_main": "Default（跟随主模型）"
+  "plan_claude_follow_main": "Default（跟随主模型）",
+
+  "claude_slot_desc_sonnet": "七牛 · 主模型",
+  "claude_slot_desc_opus": "七牛 · Opus 槽位",
+  "claude_slot_desc_haiku": "七牛 · 兜底模型",
+  "claude_slot_desc_fable": "七牛 · Fable 槽位（同 Opus）"
 }
