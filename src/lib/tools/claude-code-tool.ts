@@ -21,10 +21,23 @@ const CLAUDE_ENV_KEYS = [
   'ANTHROPIC_DEFAULT_SONNET_MODEL',
   'ANTHROPIC_DEFAULT_OPUS_MODEL',
   'CLAUDE_CODE_SUBAGENT_MODEL',
+  // 旧版的快速模型变量；以及会覆盖 /model 选择的 ANTHROPIC_MODEL，统一由我们接管
+  'ANTHROPIC_SMALL_FAST_MODEL',
+  'ANTHROPIC_MODEL',
   'API_TIMEOUT_MS',
   'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC',
   'CLAUDE_CODE_ATTRIBUTION_HEADER',
 ];
+
+// 用户在 Claude Code 里用 /model 选的模型（settings.json 的 model），没有时返回 undefined
+export function claudeSelectedModel(): string | undefined {
+  try {
+    const settings = readJsonObjectStrict(CLAUDE_SETTINGS_FILE);
+    return typeof settings.model === 'string' ? settings.model : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 // Claude Code 配置文件路径
 const CLAUDE_SETTINGS_DIR = path.join(os.homedir(), '.claude');
@@ -86,6 +99,7 @@ export class ClaudeCodeTool implements ITool {
     }
     if (Object.keys(env).length > 0) settings.env = env;
     else delete settings.env;
+    if ('settings.model' in priors) restoreValue(settings, 'model', priors['settings.model']);
     restoreValue(settings, 'companyAnnouncements', priors.companyAnnouncements);
     restoreValue(settings, 'attribution', priors.attribution);
     writeJsonOrRemove(CLAUDE_SETTINGS_FILE, settings);
@@ -110,6 +124,17 @@ export class ClaudeCodeTool implements ITool {
     // 写入七牛配置；先清掉旧的模型变量，避免取消选择后残留
     for (const key of CLAUDE_ENV_KEYS) delete env[key];
     settings.env = { ...env, ...buildClaudeEnv(apiKey, baseUrl, models) };
+
+    // 在 Claude Code 里用 /model 选过的模型保存在 settings.model，会盖过上面的模型槽位。
+    // 切换模型时一并清掉，让 /model 回到「Default」并跟随主模型；原值记下，restore 时写回
+    if (models.claudeCode && !models.claudeCode.useDefaultModels && models.claudeCode.sonnetModel) {
+      if (!('settings.model' in (stateStore.getPriors(this.name) ?? {}))) {
+        // 指向七牛模型（含 /）的值是接入后才选的，不当作原值
+        const prior = typeof settings.model === 'string' && !settings.model.includes('/') ? settings.model : null;
+        stateStore.recordPriors(this.name, { 'settings.model': prior });
+      }
+      delete settings.model;
+    }
 
     // 写入公司公告（使用当前语言）
     settings.companyAnnouncements = [
@@ -187,7 +212,10 @@ function buildClaudeEnv(apiKey: string, baseUrl: string, models: ModelConfig): R
     CLAUDE_CODE_ATTRIBUTION_HEADER: '0',
   };
   const claudeCode = models.claudeCode || {};
-  if (claudeCode.haikuModel) env.ANTHROPIC_DEFAULT_HAIKU_MODEL = claudeCode.haikuModel;
+  if (claudeCode.haikuModel) {
+    env.ANTHROPIC_DEFAULT_HAIKU_MODEL = claudeCode.haikuModel;
+    env.ANTHROPIC_SMALL_FAST_MODEL = claudeCode.haikuModel;
+  }
   if (claudeCode.sonnetModel) env.ANTHROPIC_DEFAULT_SONNET_MODEL = claudeCode.sonnetModel;
   if (claudeCode.opusModel) env.ANTHROPIC_DEFAULT_OPUS_MODEL = claudeCode.opusModel;
   if (claudeCode.subagentModel) env.CLAUDE_CODE_SUBAGENT_MODEL = claudeCode.subagentModel;

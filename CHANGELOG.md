@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### 修复
+* Claude Code 切换模型后仍在用旧模型：在 Claude Code 里用 `/model` 选过的模型保存在 `settings.json` 的 `model`，会盖过写入的模型槽位。现在切换模型时一并清掉它（以及 `ANTHROPIC_MODEL`），`/model` 回到「Default」并跟随主模型；同时写入旧版的 `ANTHROPIC_SMALL_FAST_MODEL`。确认页会列出「/model 当前选择 → Default」，`restore` 时写回原值
+
 ## [0.6.2] - 2026-10-21
 
 ### 新增

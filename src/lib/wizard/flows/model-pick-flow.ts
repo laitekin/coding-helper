@@ -8,6 +8,7 @@ import type { ITool } from '../../tools/base-tool.js';
 import { uiRenderer } from '../ui/ui-renderer.js';
 import { menuPrompt, type MenuItem } from '../ui/prompts.js';
 import type { PlanChange, PlanItem } from '../ui/write-plan.js';
+import { claudeSelectedModel } from '../../tools/claude-code-tool.js';
 import { theme } from '../ui/theme.js';
 import { logger } from '../../../utils/logger.js';
 import { contextLabel } from './context-flow.js';
@@ -135,6 +136,8 @@ export async function buildModelPlan(tools: ITool[], model: string): Promise<Pla
       ? [
           { label: t('plan_claude_main'), before: claudeSlots(saved).main, after: chosen },
           { label: t('plan_claude_fallback'), before: claudeSlots(saved).fallback, after: chosen },
+          // /model 里选过的模型会盖过上面两项，一并改回跟随主模型
+          ...(claudeSelectedModel() ? [{ label: t('plan_claude_selected'), before: claudeSelectedModel(), after: t('plan_claude_follow_main') }] : []),
         ]
       : [{ label: t('plan_model'), before: tool.isConfigured() ? savedModelFor(tool, saved) ?? tool.defaultModel : undefined, after: note ? `${chosen}  ${theme.subtle(note)}` : chosen }];
     items.push({ tool, models: modelConfigFor(tool, chosen), changes });

@@ -434,5 +434,8 @@
   "profile_removed_pinned_hint": "{{tools}} keep their previous key; run {{command}} to switch them to the active connection.",
   "tool_configure_models_advanced": "Advanced model settings",
 
-  "setup_none_hint": "Press space to select tools, a for all installed"
+  "setup_none_hint": "Press space to select tools, a for all installed",
+
+  "plan_claude_selected": "/model selection",
+  "plan_claude_follow_main": "Default (follows main model)"
 }

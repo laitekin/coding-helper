@@ -252,3 +252,33 @@ test('findCommand finds tools outside PATH, e.g. Claude Code local install behin
     fs.rmSync(path.join(os.homedir(), '.claude'), { recursive: true, force: true });
   }
 });
+
+test('Claude Code: switching models clears the /model selection and restore brings it back', async () => {
+  const { ClaudeCodeTool } = await import('../dist/lib/tools/claude-code-tool.js');
+  const { stateStore } = await import('../dist/lib/core/state-store.js');
+  const file = path.join(os.homedir(), '.claude', 'settings.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  // 用户原本在 /model 里选了 opus，环境里还有旧的 ANTHROPIC_MODEL
+  fs.writeFileSync(file, JSON.stringify({ model: 'opus', env: { ANTHROPIC_MODEL: 'old-model' } }, null, 2) + '\n');
+  stateStore.markRemoved('claude-code');
+  const tool = new ClaudeCodeTool();
+  const slots = { haikuModel: 'z-ai/glm-5.2', sonnetModel: 'z-ai/glm-5.2', opusModel: 'z-ai/glm-5.2', subagentModel: 'z-ai/glm-5.2', useDefaultModels: false };
+  await tool.loadConfig('sk-x', 'https://api.qnaigc.com', { claudeCode: slots });
+  let settings = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.equal(settings.model, undefined, '/model 回到 Default，跟随主模型');
+  assert.equal(settings.env.ANTHROPIC_MODEL, undefined);
+  assert.equal(settings.env.ANTHROPIC_DEFAULT_SONNET_MODEL, 'z-ai/glm-5.2');
+  assert.equal(settings.env.ANTHROPIC_SMALL_FAST_MODEL, 'z-ai/glm-5.2');
+
+  // 接入后用户在 /model 里又选了 kimi，再次切换时同样被接管，且不会把 kimi 当作原值
+  settings.model = 'moonshotai/kimi-k3';
+  fs.writeFileSync(file, JSON.stringify(settings, null, 2) + '\n');
+  await tool.loadConfig('sk-x', 'https://api.qnaigc.com', { claudeCode: slots });
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).model, undefined);
+
+  tool.unloadConfig();
+  settings = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.equal(settings.model, 'opus');
+  assert.equal(settings.env.ANTHROPIC_MODEL, 'old-model');
+  fs.rmSync(path.join(os.homedir(), '.claude'), { recursive: true, force: true });
+});

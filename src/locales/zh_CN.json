@@ -447,5 +447,8 @@
   "profile_removed_pinned_hint": "{{tools}} 仍保留原来的 Key，需要时运行 {{command}} 改用当前连接。",
   "tool_configure_models_advanced": "高级模型设置",
 
-  "setup_none_hint": "按空格勾选要接入的工具，a 全选已安装"
+  "setup_none_hint": "按空格勾选要接入的工具，a 全选已安装",
+
+  "plan_claude_selected": "/model 当前选择",
+  "plan_claude_follow_main": "Default（跟随主模型）"
 }
