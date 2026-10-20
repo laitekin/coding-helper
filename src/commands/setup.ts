@@ -227,6 +227,6 @@ export async function restoreCommand(tool: string | undefined, options: { yes?: 
     else spinner.fail(`${target.displayName} ${result.reason ?? ''}`);
     results.push(result);
   }
-  renderResultSummary(results);
+  renderResultSummary(results, { restore: true });
   process.exitCode = exitCodeFor(results);
 }

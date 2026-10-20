@@ -9,6 +9,10 @@ import type { ITool } from '../../tools/base-tool.js';
 import { getSessionBackups, isDryRun, type PlannedChange } from '../../core/safe-write.js';
 import { diffLines, withContext } from '../../../utils/line-diff.js';
 import os from 'node:os';
+import chalk from 'chalk';
+import { configManager } from '../../config.js';
+import { savedModelFor } from '../../core/model-mapping.js';
+import { renderSprite, joinBlocks, pixelsSupported, spriteColor, SPRITE_WIDTH } from './pixel.js';
 import {
   applyTool,
   getSyncTargets,
@@ -56,31 +60,84 @@ function formatReason(result: ToolResult): string {
   return theme.subtle(truncate(reasonText(result), 60));
 }
 
-// 汇总表 + 备份位置提示
-export function renderResultSummary(results: ToolResult[]): void {
+// 列表里的工具色块（未安装时变灰）
+export function toolIcon(toolName: string, dim = false): string {
+  if (chalk.level < 2) return dim ? '··' : '■■';
+  return chalk.hex(dim ? '#3A4450' : spriteColor(toolName))('██');
+}
+
+// 接入成功的工具：像素角色排成一排，头顶打勾；终端放不下时换行
+function renderSuccessSprites(results: ToolResult[]): void {
+  const ok = results.filter((r) => r.status === 'success');
+  if (ok.length === 0 || !pixelsSupported()) return;
+  const perRow = Math.max(1, Math.floor(((process.stdout.columns || 80) - 4) / (SPRITE_WIDTH + 2)));
+  for (let i = 0; i < ok.length; i += perRow) {
+    const row = ok.slice(i, i + perRow);
+    const blocks = row.map((r) => [
+      `${' '.repeat(5)}${theme.success('✔')}`,
+      ...renderSprite(r.tool.name),
+      theme.subtle(truncate(r.tool.displayName, SPRITE_WIDTH)),
+    ]);
+    for (const line of joinBlocks(blocks, row.map(() => SPRITE_WIDTH), 2)) logger.log(`  ${line}`);
+    logger.newLine();
+  }
+}
+
+function launchHint(tool: ITool): string {
+  return tool.isInstalled() === null ? t('result_restart_app', { tool: tool.displayName }) : tool.command;
+}
+
+// 结果页：亮起的像素角色 + 结果表 + 下一步（怎么启动、怎么撤销）+ 备份位置
+export function renderResultSummary(results: ToolResult[], options: { restore?: boolean } = {}): void {
   if (results.length === 0) return;
   logger.newLine();
+  if (options.restore) {
+    uiRenderer.renderTable(
+      [t('setup_col_tool'), t('setup_col_result'), t('setup_col_detail')],
+      results.map((r) => [theme.value(r.tool.displayName), formatResultStatus(r), theme.subtle(truncate(reasonText(r), 48))]),
+    );
+    renderBackupHint();
+    logger.newLine();
+    return;
+  }
+  renderSuccessSprites(results);
+
+  const models = configManager.getModels();
   uiRenderer.renderTable(
-    [t('setup_col_tool'), t('setup_col_result'), t('setup_col_detail')],
-    results.map((r) => [theme.value(r.tool.displayName), formatResultStatus(r), theme.subtle(truncate(reasonText(r), 48))]),
+    [t('setup_col_tool'), t('setup_col_result'), t('result_col_model'), t('result_col_launch')],
+    results.map((r) => [
+      theme.value(r.tool.displayName),
+      formatResultStatus(r),
+      r.status === 'success' ? theme.subtle(truncate(savedModelFor(r.tool, models) ?? r.tool.defaultModel ?? '—', 34)) : theme.subtle(truncate(reasonText(r), 34)),
+      r.status === 'success' ? theme.brand(launchHint(r.tool)) : '',
+    ]),
   );
 
   // 失败原因可能很长，表格里截断，完整信息列在表格下方
-  for (const r of results.filter((x) => x.status === 'failed' && reasonText(x).length > 48)) {
+  for (const r of results.filter((x) => x.status === 'failed' && reasonText(x).length > 34)) {
     logger.newLine();
     logger.log(`  ${theme.danger('✖')} ${theme.value(r.tool.displayName)}`);
     logger.log(`    ${theme.subtle(reasonText(r))}`);
   }
 
-  const backups = getSessionBackups();
-  if (backups.length > 0) {
-    logger.newLine();
-    uiRenderer.renderHint(t('setup_backup_hint', {
-      count: String(backups.length),
-      path: path.dirname(backups[0].backup),
-    }));
-  }
+  const ok = results.filter((r) => r.status === 'success');
   logger.newLine();
+  if (ok.length > 0 && !isDryRun()) {
+    const commands = ok.filter((r) => r.tool.isInstalled() !== null).map((r) => theme.value(r.tool.command));
+    if (commands.length) logger.log(`  ${theme.brandBold(t('result_next'))}  ${t('result_next_launch', { commands: commands.join(theme.subtle(' / ')) })}`);
+    logger.log(`  ${theme.subtle(t('result_undo'))}  ${theme.value('npx qiniu-coding-helper restore')}`);
+  }
+  renderBackupHint();
+  logger.newLine();
+}
+
+function renderBackupHint(): void {
+  const backups = getSessionBackups();
+  if (backups.length === 0) return;
+  logger.log(`  ${theme.subtle(t('setup_backup_hint', {
+    count: String(backups.length),
+    path: path.dirname(backups[0].backup).replace(os.homedir(), '~'),
+  }))}`);
 }
 
 // 逐个装载并显示进度；返回每个客户端的结果

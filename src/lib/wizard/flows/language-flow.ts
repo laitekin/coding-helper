@@ -10,7 +10,7 @@ export async function runLanguageFlow(step?: { current: number; total: number })
     uiRenderer.renderSteps(step.current, step.total, t('menu_configure_language'));
   }
   const locale = await promptHelper.select<string>(t('language_prompt'), [
-    { name: '中文', value: 'zh_CN' },
+    { name: '简体中文', value: 'zh_CN' },
     { name: 'English', value: 'en_US' },
   ]);
 

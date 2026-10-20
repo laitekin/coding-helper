@@ -6,12 +6,28 @@ import { theme } from './theme.js';
 import { configManager } from '../../config.js';
 import { ENDPOINT_DEFINITIONS } from '../../endpoints.js';
 import { t } from '../../i18n.js';
+import { registeredTools } from '../../tool-registry.js';
 
 // 配置面板条目
 export interface ConfigPanelItem {
   label: string;
   value: string;
   configured: boolean;
+}
+
+// 首次向导的步骤
+export const WIZARD_STEP_KEYS = ['step_language', 'step_endpoint', 'step_apikey', 'step_tools', 'step_model'];
+
+// 配置文件当前指向七牛的工具
+export function connectedToolNames(): string[] {
+  return registeredTools().filter((tool) => {
+    if (tool.launchOnly) return false;
+    try {
+      return tool.isConfigured();
+    } catch {
+      return false;
+    }
+  }).map((tool) => tool.name);
 }
 
 // 终端 UI 渲染器
@@ -21,31 +37,47 @@ export const uiRenderer = {
     process.stdout.write('\x1Bc');
   },
 
-  // 渲染七牛 Logo
-  renderLogo(): void {
-    renderLogoArt();
+  // 渲染七牛 Logo；connected 为已接入工具名，显示在小牛旁边
+  renderLogo(connected: string[] = []): void {
+    renderLogoArt(connected);
   },
 
-  // 统一页面头部：清屏 + Logo + 配置面板（线路 + API Key）
+  // 统一页面头部：清屏 + Logo + 一行状态条（线路 · Key · 已接入数）
   renderHeader(): void {
     this.clearScreen();
-    this.renderLogo();
+    this.renderLogo(connectedToolNames());
+    this.renderStatusBar();
+  },
 
-    const endpointId = configManager.getEndpoint();
-    const endpointDef = endpointId ? ENDPOINT_DEFINITIONS[endpointId] : undefined;
-    const endpointDisplay = endpointDef
-      ? t(endpointDef.i18nKey)
-      : t('config_view_not_set');
-
+  // 状态条：● 线路 国内 api.qnaigc.com │ ● Key sk-c…70c7 │ ● 已接入 4/13
+  renderStatusBar(): void {
+    const endpointText = this.endpointLabel();
     const apiKey = configManager.getApiKey();
-    const apiKeyDisplay = apiKey
-      ? this.maskApiKey(apiKey)
-      : t('config_view_not_set');
+    const tools = registeredTools().filter((tool) => !tool.launchOnly);
+    const applied = connectedToolNames().length;
 
-    this.renderConfigPanel([
-      { label: t('config_view_endpoint'), value: endpointDisplay, configured: !!endpointDef },
-      { label: t('config_view_apikey'), value: apiKeyDisplay, configured: !!apiKey },
-    ]);
+    const dot = (ok: boolean): string => (ok ? theme.success('●') : theme.subtle('○'));
+    const sep = theme.border(' │ ');
+    const segments = [
+      `${dot(true)} ${theme.label(t('config_view_endpoint'))} ${theme.value(endpointText)}`,
+      `${dot(!!apiKey)} ${theme.label('Key')} ${apiKey ? theme.value(this.maskApiKey(apiKey)) : theme.subtle(t('config_view_not_set'))}`,
+      `${applied > 0 ? theme.brand('●') : theme.subtle('○')} ${theme.label(t('status_applied'))} ${theme.brandBold(String(applied))}${theme.subtle(` / ${tools.length}`)}`,
+    ];
+    const profile = configManager.getActiveProfile();
+    if (profile) segments.push(`${theme.label(t('profile_label'))} ${theme.brandBold(profile)}`);
+
+    const line = segments.join(sep);
+    const width = visibleWidth(line) + 2;
+    logger.log(`  ${theme.border('╭' + '─'.repeat(width) + '╮')}`);
+    logger.log(`  ${theme.border('│')} ${line} ${theme.border('│')}`);
+    logger.log(`  ${theme.border('╰' + '─'.repeat(width) + '╯')}`);
+    logger.newLine();
+  },
+
+  // 当前线路的显示名：国内线路 (api.qnaigc.com) / 自定义 https://…
+  endpointLabel(endpointId = configManager.getEndpoint(), baseUrl = configManager.baseUrl): string {
+    const def = ENDPOINT_DEFINITIONS[endpointId];
+    return def ? t(def.i18nKey) : `${t('endpoint_custom')} ${baseUrl.replace(/^https?:\/\//, '')}`;
   },
 
   // 渲染欢迎界面（圆角卡片）
@@ -72,14 +104,15 @@ export const uiRenderer = {
     logger.newLine();
   },
 
-  // 渲染向导进度：● ● ○ ○  2/4 · 标题
-  renderSteps(current: number, total: number, title: string): void {
-    const dots = Array.from({ length: total }, (_, i) => {
-      if (i < current - 1) return theme.success('●');
-      if (i === current - 1) return theme.brandBold('◉');
-      return theme.subtle('○');
-    }).join(' ');
-    logger.log(`  ${dots}  ${theme.subtle(`${current}/${total}`)} ${theme.subtle('·')} ${theme.heading(title)}`);
+  // 向导进度条：● 语言 ── ● 线路 ── ◉ API Key ── ○ 工具 ── ○ 模型   3/5
+  renderSteps(current: number, total: number, _title?: string): void {
+    const labels = WIZARD_STEP_KEYS.slice(0, total).map((key) => t(key));
+    const parts = labels.map((label, i) => {
+      if (i < current - 1) return `${theme.success('●')} ${theme.value(label)}`;
+      if (i === current - 1) return `${theme.brandBold('◉')} ${chalk.bold.hex('#E8F6FF')(label)}`;
+      return `${theme.subtle('○')} ${theme.subtle(label)}`;
+    });
+    logger.log(`  ${parts.join(theme.border(' ── '))}   ${theme.subtle(`${current} / ${total}`)}`);
     logger.newLine();
   },
 
@@ -198,6 +231,6 @@ export const uiRenderer = {
   // 遮蔽 API Key，只显示前4位和后4位
   maskApiKey(key: string): string {
     if (key.length <= 8) return '****';
-    return `${key.slice(0, 4)}...${key.slice(-4)}`;
+    return `${key.slice(0, 4)}…${key.slice(-4)}`;
   },
 };

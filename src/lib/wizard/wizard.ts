@@ -7,8 +7,8 @@ import { runApiKeyFlow } from './flows/api-key-flow.js';
 import { showMainMenu } from './menus/main-menu.js';
 import { runToolSetupFlow } from './flows/tool-setup-flow.js';
 
-// 首次向导步骤数：语言、线路、API Key、编码工具
-const INIT_STEPS = 4;
+// 首次向导步骤数：语言、线路、API Key、工具、模型
+const INIT_STEPS = 5;
 
 // Wizard 协调器 - 管理首次运行向导和主菜单
 export class Wizard {
@@ -23,7 +23,7 @@ export class Wizard {
     // 3. 输入 API Key（首次配置时还没有已接入的客户端，无需同步）
     await runApiKeyFlow({ current: 3, total: INIT_STEPS });
 
-    // 4. 多选工具并引导配置（配置模型 → 批量装载 → 汇总）
+    // 4-5. 多选工具 → 选模型 → 批量装载 → 结果页
     await runToolSetupFlow({ current: 4, total: INIT_STEPS });
 
     // 初始化完成
