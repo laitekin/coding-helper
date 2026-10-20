@@ -117,3 +117,18 @@ test('stateStore keeps the first recorded prior values', () => {
   stateStore.markRemoved('demo');
   assert.equal(stateStore.get('demo'), undefined);
 });
+
+test('sync skips a tool the user switched to another provider, restore still covers it', async () => {
+  reset();
+  const { getSyncTargets, getRestoreTargets } = await import('../dist/lib/core/tool-service.js');
+  const tool = new ClaudeCodeTool();
+  await tool.loadConfig('sk-test-key', 'https://api.qnaigc.com', {});
+  stateStore.markApplied('claude-code', 'china');
+  assert.ok(getSyncTargets().some((t) => t.name === 'claude-code'));
+
+  const settings = readJsonObjectStrict(settingsFile);
+  settings.env.ANTHROPIC_BASE_URL = 'https://other-provider.example';
+  fs.writeFileSync(settingsFile, JSON.stringify(settings));
+  assert.ok(!getSyncTargets().some((t) => t.name === 'claude-code'));
+  assert.ok(getRestoreTargets().some((t) => t.name === 'claude-code'));
+});

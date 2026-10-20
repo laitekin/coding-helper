@@ -102,18 +102,23 @@ export async function removeTool(tool: ITool): Promise<ToolResult> {
   }
 }
 
-// 需要同步的客户端：有装载记录，或旧版本已写过七牛配置
+function safeIsConfigured(tool: ITool): boolean {
+  try {
+    return tool.isConfigured();
+  } catch {
+    return false;
+  }
+}
+
+// 需要同步的客户端：配置文件当前仍指向七牛的（用户已手动切到其他服务商的不强行改回）
 export function getSyncTargets(): ITool[] {
+  return toolManager.getAll().filter((tool) => !tool.launchOnly && safeIsConfigured(tool));
+}
+
+// 需要还原的客户端：有装载记录，或配置文件当前指向七牛（含旧版本写入的）
+export function getRestoreTargets(): ITool[] {
   const applied = new Set(stateStore.getApplied());
-  return toolManager.getAll().filter((tool) => {
-    if (tool.launchOnly) return false;
-    if (applied.has(tool.name)) return true;
-    try {
-      return tool.isConfigured();
-    } catch {
-      return false;
-    }
-  });
+  return toolManager.getAll().filter((tool) => !tool.launchOnly && (applied.has(tool.name) || safeIsConfigured(tool)));
 }
 
 // API Key 或线路变更后，把新配置重新写入已装载的客户端

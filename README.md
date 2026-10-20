@@ -6,283 +6,213 @@
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Node.js Version](https://img.shields.io/node/v/qiniu-coding-helper.svg)](https://nodejs.org)
 
-**一站式配置 Claude Code、Codex、OpenCode、Qwen Code、Kimi Code、Factory Droid、Grok CLI、OpenClaw、MiniMax Code、Copilot CLI、CodeBuddy、WorkBuddy 和 Hermes Agent 使用七牛 AI API 端点的 CLI 工具**
+**一条命令，让本机所有 AI 编程助手接入七牛 AI 大模型推理服务**
 
-[English](README.en-US.md) · [支持的工具](#-支持的工具) · [功能特性](#-功能特性) · [前置要求](#-前置要求) · [快速开始](#-快速开始) · [命令一览](#-命令一览) · [配置说明](#-配置说明) · [常见问题](#-常见问题)
+支持 13 个编程助手 · 只改七牛自己的配置 · 随时一键还原
+
+[English](README.en-US.md) · [能做什么](#-能做什么) · [快速开始](#-快速开始) · [支持的编程助手](#-支持的编程助手) · [命令一览](#-命令一览) · [安全机制](#-安全机制) · [常见问题](#-常见问题)
 
 </div>
 
 ---
 
-## 🧰 支持的工具
+## 💡 能做什么
 
-| 工具 | 类型 | 写入的配置 |
-|------|------|------------|
-| Claude Code | CLI | `~/.claude/settings.json`、`~/.claude.json` |
-| Codex | CLI | `~/.codex/config.toml`、`~/.codex/auth.json` |
-| CodeBuddy | CLI | `~/.codebuddy/models.json` |
-| WorkBuddy | 桌面应用 | `~/.workbuddy/models.json` |
-| Hermes Agent | CLI | `~/.hermes/config.yaml` |
-| OpenCode | CLI | `~/.config/opencode/opencode.json` |
-| Qwen Code | CLI | `~/.qwen/settings.json`（Key 写入 `~/.qwen/.env`） |
-| Kimi Code CLI | CLI | `~/.kimi-code/config.toml` |
-| Factory Droid | CLI | `~/.factory/settings.json` 的 `customModels` |
-| Grok CLI | CLI | `~/.grok/config.toml` 的 `[model.qiniu]` 与 `[models] default` |
-| OpenClaw | CLI | `~/.openclaw/openclaw.json` 的 `models.providers.qiniu` 与主模型 |
-| MiniMax Code | CLI | 调用 `mcode provider add` 写入 `~/.minimax/config.yaml` |
-| GitHub Copilot CLI | CLI | 无配置文件，通过 `coding-helper run copilot` 启动 |
+用七牛 API 驱动 Claude Code、Codex 等编程助手，原本要逐个打开它们的配置文件、查格式、手动填地址和 Key。Coding Helper 把这些事变成一条命令：
 
-## ✨ 功能特性
-
-- **🎯 交互式向导** — 首次运行引导配置语言、线路、API Key 和模型，步步引导
-- **🌐 多线路支持** — 国内线路 (api.qnaigc.com) / 海外线路 (api.modelink.ai)
-- **🔐 API Key 管理** — 输入、验证、保存、删除，一条龙管理
-- **📦 模型配置** — 从 API 获取可用模型列表，也支持手动输入模型 ID
-- **⚡ Claude Code 集成** — 自动将环境变量写入 `~/.claude/settings.json`
-- **🧩 Codex 集成** — 自动将七牛 provider 写入 `~/.codex/config.toml`，并通过 Codex auth 保存凭证
-- **🤝 CodeBuddy 集成** — 多选七牛模型市场中的模型，写入 `~/.codebuddy/models.json`
-- **🤝 WorkBuddy 集成** — 多选七牛模型市场中的模型，写入 `~/.workbuddy/models.json`
-- **☤ Hermes Agent 集成** — 选择七牛模型市场中的默认模型，写入 `~/.hermes/config.yaml`
-- **🔍 健康检查** — 内置 `doctor` 命令，检测配置文件、API Key、网络、工具安装状态
-- **🌍 国际化** — 支持中文 (zh_CN) 和英文 (en_US)
-
-## 📋 前置要求
-
-开始之前，请确保已安装：
-
-- **Node.js** 18 或更高版本 ([下载](https://nodejs.org/))
-- **Claude Code CLI** ([安装地址](https://claude.ai/download))、**Codex CLI** (`npm install -g @openai/codex`)、**CodeBuddy CLI** (`npm install -g @tencent-ai/codebuddy-code`)、**WorkBuddy** 和/或 **Hermes Agent** (`curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash`)
-- **七牛 API Key** ([获取地址](https://portal.qiniu.com/))
+| 你想要 | 怎么做 |
+|---|---|
+| 把本机装好的编程助手全部接入七牛 | `npx qiniu-coding-helper setup`，勾选后一次写完，最后给出汇总表 |
+| 不想动配置文件，只临时用七牛跑一次 | `npx qiniu-coding-helper run claude`，只对这次启动生效 |
+| 先看看会改哪些文件 | `npx qiniu-coding-helper setup --dry-run`，逐文件展示差异，Key 打码，不写入 |
+| 换了 Key 或线路 | 在菜单或 `auth` 里改一次，已接入的编程助手自动同步 |
+| 看哪些编程助手已经接入 | `npx qiniu-coding-helper status` |
+| 不用了，恢复原样 | `npx qiniu-coding-helper restore`，删掉七牛条目并写回原来的值 |
+| 配好了却不生效 | `npx qiniu-coding-helper doctor`，检查 Key、账户余额状态、网络和环境变量覆盖 |
+| 在脚本或 CI 里批量配置 | `setup --yes --json`，Key 用 `--key-stdin` 从标准输入读，退出码区分成功与失败 |
 
 ## 🚀 快速开始
 
-### 1️⃣ 运行配置向导
-
-无需安装，直接运行：
+无需安装，Node.js 18 以上直接运行：
 
 ```bash
 npx qiniu-coding-helper
 ```
 
-### 2️⃣ 按提示完成配置
+首次运行会进入 4 步向导：选择语言 → 选择线路（国内 / 海外）→ 输入 API Key（[获取地址](https://portal.qiniu.com/ai-inference/api-key)）→ 勾选要接入的编程助手（默认勾选已安装的）。每个编程助手选好模型后批量写入，最后显示每个工具的结果和原文件的备份位置。
 
-- 选择语言（中文 / 英文）
-- 选择线路（国内 / 海外）
-- 输入并验证 API Key
-- 选择要配置的编程助手
-- 选择模型
+之后再运行会进入主菜单，第一项「★ 一键配置编码工具」随时可以重新配置。
 
-### 3️⃣ 重启编程助手
+配置完成后**重启正在运行的编程助手**即可使用。
 
-如果 Claude Code、Codex、CodeBuddy、WorkBuddy 或 Hermes Agent 正在运行，请重启以应用配置。
+## 🧰 支持的编程助手
 
-### 4️⃣ 开始编程! 🎉
+下表「实测」一列表示：在 Linux 上安装该版本的真实客户端，执行 `setup` 后完成了一次经七牛线路的真实问答，再执行 `restore` 确认配置还原。实测日期 2026-10-20。
 
-```bash
-# Claude Code
-claude
+| 编程助手 | 写入位置 | 实测 | 接入后怎么用 |
+|---|---|---|---|
+| Claude Code | `~/.claude/settings.json` 的 `env` | ✅ 2.x | `claude` |
+| Codex | `~/.codex/config.toml`、`~/.codex/auth.json` | ✅ 0.163.0 | `codex` |
+| OpenCode | `~/.config/opencode/opencode.json` | ✅ 1.19.3 | `opencode`（默认模型为 `qiniu/<模型>`） |
+| Qwen Code | `~/.qwen/settings.json`，Key 单独写入 `~/.qwen/.env` | ✅ 0.25.3 | `qwen` |
+| Kimi Code CLI | `~/.kimi-code/config.toml` | ✅ 2.2.0 | `kimi` |
+| Factory Droid | `~/.factory/settings.json` 的 `customModels` | ✅ 0.245.0 | `droid`，在 `/model` 中选 `Qiniu: <模型>` |
+| Grok CLI | `~/.grok/config.toml` | ✅ 1.0.62 | `grok`（默认模型指向七牛） |
+| OpenClaw | `~/.openclaw/openclaw.json` | ✅ 2026.6.35 | `openclaw`（主模型为 `qiniu/<模型>`） |
+| MiniMax Code | 调用官方 `mcode provider add` 写入 `~/.minimax/config.yaml` | ✅ 0.6.12 | `mcode` |
+| GitHub Copilot CLI | 无配置文件，只注入环境变量 | ✅ 1.0.100 | `npx qiniu-coding-helper run copilot` |
+| CodeBuddy | `~/.codebuddy/models.json` | ✅ 2.170.0 | `codebuddy`，用 `--model` 选七牛模型 |
+| Hermes Agent | `~/.hermes/config.yaml` 的 `model` | ✅ 官方安装脚本 | `hermes` |
+| WorkBuddy | `~/.workbuddy/models.json` | ⚠️ 未实测 | 桌面应用，手动启动 |
 
-# Codex
-codex
+WorkBuddy 只有 Windows / macOS 桌面版，无法在 Linux 实测。它的配置格式与 CodeBuddy 相同（CodeBuddy 已实测），官方文档也说明 WorkBuddy 会读取 `~/.codebuddy/models.json`。
 
-# CodeBuddy
-codebuddy
+**模型怎么选：**
 
-# WorkBuddy（桌面应用 - 请手动启动）
+- **Claude Code：** 分别选择 Haiku / Sonnet / Opus / 子代理模型，不选则用 Claude Code 默认值。
+- **Codex：** 固定使用七牛的 `openai/gpt-6-astra`，同时写入七牛 GPT 模型目录。
+- **CodeBuddy / WorkBuddy：** 从七牛模型市场多选，能力标签和 token 上限自动填写。
+- **Hermes Agent：** 从七牛模型市场选一个默认模型。
+- **其余 8 个**（OpenCode、Qwen Code、Kimi、Droid、Grok、OpenClaw、MiniMax Code、Copilot CLI）：共用一个模型，第一次选好后，之后 `setup --yes` 直接复用；也可以在各自的菜单里单独选择。
 
-# Hermes Agent
-hermes
-```
-
-配置完成！现在你的编程助手已通过七牛 AI 端点运行。
-
----
+**暂不支持 Gemini CLI：** 它只能使用 Gemini 原生协议（`/v1beta`），七牛线路目前还没有提供这个接口。
 
 ## 📚 命令一览
 
-### 🎬 `coding-helper init`
+| 命令 | 作用 |
+|---|---|
+| `coding-helper` | 首次运行进入向导，之后进入主菜单 |
+| `coding-helper setup` | 一键配置本机的编程助手 |
+| `coding-helper status` | 读取各编程助手的实际配置，显示是否已接入七牛 |
+| `coding-helper restore [工具]` | 移除七牛配置并还原原值 |
+| `coding-helper run <工具> [参数...]` | 启动器：只给这次启动注入七牛设置 |
+| `coding-helper doctor` | 健康检查 |
+| `coding-helper auth [token]` | 设置 API Key；`auth revoke` 删除，`auth reload <工具>` 重新写入 |
+| `coding-helper enter [工具]` | 进入主菜单或某个编程助手的菜单 |
+| `coding-helper init` | 重新运行首次向导 |
+| `coding-helper lang show` / `lang set zh_CN\|en_US` | 查看或切换界面语言 |
 
-运行交互式配置向导（强制重新初始化）。
+以下示例中的 `coding-helper` 都可以写成 `npx qiniu-coding-helper`。工具名支持别名，如 `claude`、`qwen`、`kimi`、`mcode`、`factory`。
 
-```bash
-npx qiniu-coding-helper init
-```
-
----
-
-### ⚡ `coding-helper setup`
-
-一键把七牛配置写入本机已安装的编码工具，适合脚本和 CI。
-
-```bash
-# 交互式：勾选工具（默认勾选已安装的），逐个确认模型后批量写入
-npx qiniu-coding-helper setup
-
-# 非交互：配置所有已安装的工具，结束时输出汇总表
-npx qiniu-coding-helper setup --yes
-
-# 只配置指定工具，结果以 JSON 输出
-npx qiniu-coding-helper setup --tools claude,codex --json
-
-# 从标准输入读取 API Key，避免 Key 进入 shell 历史
-echo "$QINIU_KEY" | npx qiniu-coding-helper setup --key-stdin --yes
-```
-
-退出码：`0` 全部成功（未安装而跳过的不算失败），`2` 部分失败，`1` 全部失败。写入前会把原文件备份到 `~/.coding-helper/backups/<时间戳>/`。
-
----
-
-### 📋 `coding-helper status`
-
-读取各工具的实际配置文件，列出安装版本和是否已接入七牛。加 `--json` 输出 JSON。
+### ⚡ setup：一键配置
 
 ```bash
-npx qiniu-coding-helper status
+# 交互式：勾选编程助手（默认勾选已安装的），选好模型后批量写入
+coding-helper setup
+
+# 非交互：配置所有已安装的编程助手（未安装的记为「跳过」）
+coding-helper setup --yes
+
+# 只配置指定的编程助手
+coding-helper setup --tools claude,codex,opencode
+
+# 先预览：逐文件展示将要改动的内容（Key 打码），不写入任何文件
+coding-helper setup --dry-run
+
+# 脚本 / CI：Key 从标准输入读取，不进 shell 历史；结果输出为 JSON
+echo "$QINIU_KEY" | coding-helper setup --key-stdin --yes --json
 ```
 
----
+| 参数 | 说明 |
+|---|---|
+| `--tools a,b` | 只配置指定的编程助手，即使没检测到安装也会写入 |
+| `-y, --yes` | 跳过所有确认，使用已保存的模型 |
+| `--dry-run` | 只预览变更，不写盘、不备份 |
+| `--json` | 结果以 JSON 输出，便于脚本解析 |
+| `--key-stdin` | 从标准输入读取 API Key 并校验 |
 
-### ↩️ `coding-helper restore`
+**退出码：** `0` 全部成功（未安装而跳过的不算失败），`2` 部分失败，`1` 全部失败。
 
-移除七牛配置，并把被覆盖的原有设置写回（例如原来的 `ANTHROPIC_BASE_URL`、Codex 的 `model`、`auth.json` 里的 OpenAI Key）。安装后你自己加的配置会保留。
+写入前会先检查账户能否调用模型：如果 Key 有效但账户欠费暂停，会给出提醒，配置照常写入，充值后即可使用。
+
+### 📋 status：查看接入状态
 
 ```bash
-# 还原所有已接入的工具
-npx qiniu-coding-helper restore
-
-# 只还原 Codex，跳过确认
-npx qiniu-coding-helper restore codex --yes
+coding-helper status          # 表格：工具、安装版本、是否已接入七牛
+coding-helper status --json   # JSON 输出
 ```
 
-修改 API Key 或线路后，已接入的工具会自动同步，无需再执行 `auth reload`。
+接入状态读取的是编程助手的实际配置文件，手动改过的情况也能如实反映。
 
----
-
-### 🚀 `coding-helper run`
-
-启动器模式：只给本次启动的工具注入七牛环境变量，不修改任何配置文件。适合 GitHub Copilot CLI 这类没有配置文件的工具，或想同时保留官方账号的用户。后面的参数原样传给工具。
+### ↩️ restore：还原
 
 ```bash
-npx qiniu-coding-helper run copilot
-npx qiniu-coding-helper run claude -- --continue
+coding-helper restore              # 还原所有已接入的编程助手
+coding-helper restore codex,qwen   # 只还原指定的
+coding-helper restore codex --yes  # 跳过确认
 ```
 
-OpenCode、Qwen Code、Kimi Code CLI、Factory Droid、Grok CLI、OpenClaw、MiniMax Code、Copilot CLI 使用同一个模型：在「配置模型」中选一次，之后 `setup --yes` 会复用。`setup --dry-run` 可以先预览每个文件将如何改动（Key 打码），不写入任何文件。
+还原会删除七牛的条目，并把第一次写入前记录的原值写回：例如你原来的 `ANTHROPIC_BASE_URL`、Codex 的默认模型、`auth.json` 中的 OpenAI Key、Hermes 原来的模型与服务商。接入后你自己添加的其他配置不受影响。原本不存在、由 Coding Helper 创建的文件会被删除。
 
----
-
-### 🔐 `coding-helper auth`
-
-管理 API Key 认证。
+### 🚀 run：启动器模式
 
 ```bash
-# 交互式输入 API Key
-npx qiniu-coding-helper auth
-
-# 直接设置 API Key
-npx qiniu-coding-helper auth <token>
-
-# 删除 API Key
-npx qiniu-coding-helper auth revoke
-
-# 重新加载配置到 Claude Code
-npx qiniu-coding-helper auth reload claude
-
-# 重新加载配置到 Codex
-npx qiniu-coding-helper auth reload codex
-
-# 重新加载配置到 CodeBuddy
-npx qiniu-coding-helper auth reload codebuddy
-
-# 重新加载配置到 WorkBuddy
-npx qiniu-coding-helper auth reload workbuddy
-
-# 重新加载配置到 Hermes Agent
-npx qiniu-coding-helper auth reload hermes
+coding-helper run copilot                  # Copilot CLI 没有配置文件，只能这样使用
+coding-helper run claude --continue        # 参数原样传给编程助手
+coding-helper run claude -- --continue     # 也可以用 -- 分隔
 ```
 
----
+只给这一次启动的进程注入七牛的环境变量，不修改任何配置文件，适合想同时保留官方账号的用户。退出码和 Ctrl+C 信号会透传。目前支持 Claude Code 与 GitHub Copilot CLI。
 
-### 🌍 `coding-helper lang`
-
-管理界面语言。
+### 🏥 doctor：健康检查
 
 ```bash
-# 显示当前语言
-npx qiniu-coding-helper lang show
-
-# 设置为中文
-npx qiniu-coding-helper lang set zh_CN
-
-# 设置为英文
-npx qiniu-coding-helper lang set en_US
+coding-helper doctor
 ```
 
----
+| 检查项 | 说明 |
+|---|---|
+| 配置文件 | `~/.coding-helper/config.yaml` 是否存在 |
+| API Key | Key 是否有效 |
+| 账户状态 | 能否真正调用模型；欠费暂停时 Key 校验仍会通过，这里会明确提示 |
+| 网络连接 | 当前线路是否可达 |
+| 各编程助手 | 安装版本，以及是否已接入七牛 |
+| shell 环境变量覆盖 | 检测 `ANTHROPIC_BASE_URL` 等变量，它们会覆盖 Claude Code 的配置文件 |
+| Node.js、Git | 版本 |
 
-### 🏥 `coding-helper doctor`
+「账户状态」会发送一次只生成 1 个 token 的真实请求，正常账户会产生极少量费用。
 
-运行健康检查，诊断配置问题。
+### 🔄 修改 Key 或线路后自动同步
 
-```bash
-npx qiniu-coding-helper doctor
-```
+在主菜单、`auth <token>` 或向导里修改 API Key 或线路后，所有已接入七牛的编程助手会自动重新写入并显示同步结果，不需要再逐个执行 `auth reload`。如果某个编程助手已经被你手动切到其他服务商，会跳过它，不会强行改回来。
 
-**检查项:** 配置文件 · API Key 有效性 · 网络连通性 · 已配置工具安装状态 · Git · Node.js
+## 🔒 安全机制
 
----
+Coding Helper 改的都是你日常使用的配置文件，所以每次写入都遵守以下规则：
 
-### ⚙️ `coding-helper enter`
+- **只改七牛自己的条目。** 其他服务商、MCP 服务器、主题、沙箱策略等原样保留。TOML、`.env` 和 Hermes 的 YAML 按行编辑，注释、空行、顺序和引号风格都不变；JSON 沿用原文件的缩进与单行 / 多行风格。
+- **写入前备份。** 每次运行把将要修改的原文件复制到 `~/.coding-helper/backups/<时间戳>/`，并生成 `manifest.json` 记录来源路径。
+- **原子写入。** 先写临时文件再替换，中途失败不会留下半个文件；文件权限 0600，目录 0700。
+- **配置文件损坏时不覆盖。** 如果你的 JSON / YAML 无法解析，会报错并保持原样，绝不会当作空配置写回。OpenClaw 的配置含注释或尾逗号（JSON5）时同样拒绝改写。
+- **记录原值，可以还原。** 第一次写入前记录被覆盖键的原值（`~/.coding-helper/state.json`），`restore` 按此写回。重复配置不会把七牛的值误记成原值。
+- **Key 不进命令行历史。** 推荐用交互输入或 `--key-stdin`；预览和日志中的 Key 都会打码。Qwen Code 的 Key 只写入 `.env`，设置文件里只引用变量名。
+- **清除配置不影响还原。** 主菜单的「清除 Coding Helper 配置」只删除 `config.yaml`，备份和原值记录保留，之后仍可 `restore`。
 
-进入交互式配置菜单。
-
-```bash
-# 进入主菜单
-npx qiniu-coding-helper enter
-
-# 进入 Claude Code 配置菜单
-npx qiniu-coding-helper enter claude-code
-
-# 进入 Codex 配置菜单
-npx qiniu-coding-helper enter codex
-
-# 进入 CodeBuddy 配置菜单
-npx qiniu-coding-helper enter codebuddy
-
-# 进入 WorkBuddy 配置菜单
-npx qiniu-coding-helper enter workbuddy
-
-# 进入 Hermes Agent 配置菜单
-npx qiniu-coding-helper enter hermes
-```
-
----
+实测中，在已有用户配置的情况下对 12 个编程助手执行 `setup` 两次再 `restore`，11 个原有配置文件全部逐字节还原。Hermes 官方 2333 行带注释的默认配置，写入时只改动 4 行。
 
 ## 🔧 配置说明
 
-### 📁 配置文件位置
+### 线路
 
-| 位置 | 路径 | 用途 |
-|------|------|------|
-| **Coding Helper 配置** | `~/.coding-helper/config.yaml` | 语言、线路、API Key、模型设置 |
-| **Claude Code 设置** | `~/.claude/settings.json` | API 端点环境变量 |
-| **Claude Code Onboarding** | `~/.claude.json` | 初始化完成标记 |
-| **Codex 配置** | `~/.codex/config.toml` | 七牛模型 provider 和 profile 设置 |
-| **Codex Auth** | `~/.codex/auth.json` | Codex API Key 认证缓存 |
-| **CodeBuddy 模型** | `~/.codebuddy/models.json` | 七牛模型条目（URL、API Key、能力标签） |
-| **WorkBuddy 模型** | `~/.workbuddy/models.json` | 七牛模型条目（URL、API Key、能力标签） |
-| **Hermes Agent 配置** | `~/.hermes/config.yaml` | 七牛 custom provider、默认模型和 API Key |
+| 线路 | 地址 | 适用 |
+|---|---|---|
+| 🇨🇳 国内线路 | `https://api.qnaigc.com` | 中国大陆用户 |
+| 🌍 海外线路 | `https://api.modelink.ai` | 海外用户 |
 
-### 🌍 线路端点
+### Coding Helper 自身的文件
 
-| 线路 | 地址 | 适用场景 |
-|------|------|----------|
-| 🇨🇳 **国内线路** | `https://api.qnaigc.com` | 中国大陆用户 |
-| 🌍 **海外线路** | `https://api.modelink.ai` | 海外用户 |
+| 路径 | 内容 |
+|---|---|
+| `~/.coding-helper/config.yaml` | 语言、线路、API Key、各编程助手的模型选择 |
+| `~/.coding-helper/state.json` | 已接入的编程助手，以及被覆盖前的原值 |
+| `~/.coding-helper/backups/<时间戳>/` | 每次写入前的原文件备份 |
 
-### 🔧 Claude Code 环境变量
+### 各编程助手写入的内容
 
-配置应用后，以下环境变量会写入 `~/.claude/settings.json`：
+<details>
+<summary><b>Claude Code</b></summary>
+
+写入 `~/.claude/settings.json` 的 `env`，并在 `~/.claude.json` 标记已完成首次引导：
 
 ```json
 {
@@ -290,24 +220,25 @@ npx qiniu-coding-helper enter hermes
     "ANTHROPIC_BASE_URL": "https://api.qnaigc.com",
     "ANTHROPIC_AUTH_TOKEN": "<your-api-key>",
     "API_TIMEOUT_MS": "3000000",
-    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
-  }
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "CLAUDE_CODE_ATTRIBUTION_HEADER": "0",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "<所选模型>"
+  },
+  "companyAnnouncements": ["您正在使用七牛云 AI 大模型推理服务 🚀"],
+  "attribution": { "commit": "", "pr": "" }
 }
 ```
 
-> **说明:** 工具还会设置 `API_TIMEOUT_MS`（50 分钟，适配长时间推理请求）、禁用非必要流量（第三方端点不需要 Anthropic 遥测）、禁用 commit/PR 归属标注（通过代理端点运行时标注不准确）。
+超时设为 50 分钟以适配长时间推理；关闭非必要流量和归属标注，以提高网关下的缓存命中率。shell 中的 `ANTHROPIC_BASE_URL` 等变量会覆盖这里的设置，`doctor` 会检测并提示。
 
-### 🔧 Codex 配置
+</details>
 
-配置应用后，Coding Helper 只在 `~/.codex/config.toml` 中增删七牛自己的条目：更新顶层的 `model`、`model_provider`、`model_catalog_json`，并添加 `[model_providers.qnaigc]` 与 `[profiles.qn-gpt]`。你的 MCP 服务器、沙箱策略和其他 provider 原样保留。写入前原文件会备份到 `~/.coding-helper/backups/<时间戳>/`；运行 `restore codex` 会把被覆盖的顶层键和 `auth.json` 中原来的 OpenAI Key 写回。API Key 会写入 Codex 自己的 `~/.codex/auth.json` 认证缓存。它不依赖 `QINIU_API_KEY` shell 环境变量。
+<details>
+<summary><b>Codex</b></summary>
 
-同时会在 `~/.codex/model-catalogs/qnaigc.json` 写入维护在 Coding Helper 中的七牛 GPT 模型目录，并通过 `model_catalog_json` 配置项加载。目录只包含七牛支持的 `openai/gpt*` 模型及其上下文元数据。
-
-托管的 Codex profile 使用七牛 OpenAI 兼容 bypass 端点：
+在 `~/.codex/config.toml` 中原地更新顶层的 `model`、`model_provider`、`model_catalog_json`，并添加以下两张表；MCP 服务器、沙箱策略和其他 provider 原样保留：
 
 ```toml
-model_provider = "qnaigc"
-
 [model_providers.qnaigc]
 name = "Qiniu"
 base_url = "https://api.qnaigc.com/bypass/openai/v1"
@@ -316,131 +247,105 @@ wire_api = "responses"
 
 [profiles.qn-gpt]
 model_provider = "qnaigc"
-model = "<selected-model>"
+model = "openai/gpt-6-astra"
 ```
 
-请将 `~/.codex/auth.json` 视为密码文件，因为其中包含 API 凭证。
+API Key 写入 `~/.codex/auth.json`，七牛 GPT 模型目录写入 `~/.codex/model-catalogs/qnaigc.json`。还原时会写回原来的顶层键和 `auth.json` 中原有的 OpenAI Key。
 
-### 🔧 CodeBuddy 配置
+</details>
 
-CodeBuddy 是一个 CLI 工具，配置保存在 `~/.codebuddy/models.json`。
+<details>
+<summary><b>OpenCode / Qwen Code / Kimi Code CLI / Factory Droid</b></summary>
 
-模型配置流程会从七牛模型市场（`/v1/market/models`）拉取候选列表供你多选，能力标签（工具调用、图像、深度思考）以及上下文 / 输出 token 上限都从市场返回的元数据自动推断。每个被选中的模型都会以 `vendor: "Qiniu"` 写入，并把 API Key 嵌入条目：
+均使用七牛的 OpenAI 兼容接口 `https://api.qnaigc.com/v1`：
 
-```json
-{
-  "models": [
-    {
-      "id": "anthropic/claude-sonnet-4-5",
-      "name": "Claude Sonnet 4.5",
-      "vendor": "Qiniu",
-      "url": "https://api.qnaigc.com/v1/chat/completions",
-      "apiKey": "<your-api-key>",
-      "maxInputTokens": 200000,
-      "maxOutputTokens": 8192,
-      "temperature": 0.7,
-      "supportsToolCall": true,
-      "supportsImages": true
-    }
-  ],
-  "availableModels": ["anthropic/claude-sonnet-4-5"]
-}
-```
+- **OpenCode：** `provider.qiniu`（`@ai-sdk/openai-compatible`），并把 `model` 设为 `qiniu/<模型>`。
+- **Qwen Code：** 在 `modelProviders.openai` 中加入七牛模型（`envKey: QINIU_API_KEY`），设置 `security.auth.selectedType` 与 `model.name`；Key 写入 `~/.qwen/.env`。
+- **Kimi Code CLI：** `[providers.qiniu]`（`type = "openai"`）、`[models."qiniu/<模型>"]`，并设置 `default_model`。支持 `KIMI_CODE_HOME`。
+- **Factory Droid：** 在 `customModels` 中加入 `displayName` 为 `Qiniu: <模型>` 的条目（`generic-chat-completion-api`），卸载时只删除这个前缀的条目。
 
-需要了解的行为：
+上下文与输出上限从七牛模型市场读取，读取失败时使用保守的默认值。
 
-- **保留非七牛条目。** `vendor` 不是 `Qiniu` 的模型，以及你手动添加在 `models.json` 顶层的其他字段（如 UI 偏好），在每次装载/卸载时都会被原样保留。
-- **卸载只移除七牛模型。** `auth reload` 会覆盖七牛条目；卸载会清掉它们，但其他厂商条目不会动。
-- **失效模型 ID 会被显式提示。** 若先前选过的模型被市场下架，部分缺失会触发警告，仅写入仍然存在的模型；若全部下架则直接报错并保持文件不变 — 请重新选择模型后再试。
+</details>
 
-请将 `~/.codebuddy/models.json` 视为密码文件，因为其中以明文形式保存了 API Key。
+<details>
+<summary><b>Grok CLI / OpenClaw / MiniMax Code</b></summary>
 
-### 🔧 WorkBuddy 配置
+- **Grok CLI：** 在 `~/.grok/config.toml` 写入 `[model.qiniu]`（`api_backend = "chat_completions"`），并把 `[models] default` 指向它。支持 `GROK_HOME`。
+- **OpenClaw：** 在 `~/.openclaw/openclaw.json` 写入 `models.providers.qiniu`（`api: openai-completions`），设置 `agents.defaults.model.primary`；如果你配置了模型白名单，会把七牛模型加入白名单。
+- **MiniMax Code：** 配置结构未公开，通过官方命令 `mcode provider add --use` 写入（会先做一次连通性测试，失败则什么都不保存）。还原时删除 `custom_provider.qiniu`，并写回原来的 `defaultModel`。
 
-WorkBuddy 配置保存在 `~/.workbuddy/models.json`，与 CodeBuddy 完全独立。
+</details>
 
-请将 `~/.workbuddy/models.json` 视为密码文件，因为其中以明文形式保存了 API Key。
+<details>
+<summary><b>CodeBuddy / WorkBuddy / Hermes Agent</b></summary>
 
-### 🔧 Hermes Agent 配置
+- **CodeBuddy / WorkBuddy：** 在 `models.json` 中加入 `vendor: "Qiniu"` 的模型条目（地址为完整的 `/v1/chat/completions`），并同步 `availableModels`；其他厂商的条目与字段保持不变。如果之前选过的模型被市场下架：部分下架会提示并只写入仍然存在的；全部下架则报错，文件保持不变。
+- **Hermes Agent：** 只修改 `~/.hermes/config.yaml` 中 `model` 下的 `provider`、`default`、`base_url`、`api_key` 四行，其余内容和注释原样保留。
 
-Hermes Agent 配置保存在 `~/.hermes/config.yaml`。配置流程会从七牛模型市场选择一个默认模型，并写入 Hermes 的 OpenAI-compatible custom provider 配置：
+</details>
 
-```yaml
-model:
-  provider: custom
-  default: anthropic/claude-sonnet-4-5
-  base_url: https://api.qnaigc.com/v1
-  api_key: <your-api-key>
-```
-
-卸载配置会移除 Coding Helper 托管的 `model.provider`、`model.default`、`model.base_url` 和 `model.api_key` 字段，并保留 Hermes 的其他配置。
-
-请将 `~/.hermes/config.yaml` 视为密码文件，因为其中以明文形式保存了 API Key。
-
----
+以上文件都以明文保存 API Key（Qwen Code 除外，它写在 `.env`），请当作密码文件对待。
 
 ## ❓ 常见问题
 
-### Claude Code 没有使用配置的端点
+<details>
+<summary><b>配置后编程助手没有走七牛</b></summary>
 
-1. 运行 `npx qiniu-coding-helper doctor` 检查配置
-2. 运行 `npx qiniu-coding-helper auth reload claude` 重新应用设置
-3. **完全重启 Claude Code**
-4. 确认 shell 环境中没有设置 `ANTHROPIC_BASE_URL`（运行 `unset ANTHROPIC_BASE_URL`）
+1. 运行 `coding-helper doctor`，看「shell 环境变量覆盖」一项。`ANTHROPIC_BASE_URL` 等变量会覆盖配置文件，请从 `~/.zshrc` / `~/.bashrc` 中删掉后重开终端。
+2. 运行 `coding-helper status`，确认该编程助手显示「● 已接入七牛」；没有的话运行 `coding-helper setup --tools <工具>`。
+3. 完全退出并重启该编程助手。
 
-### Codex 没有使用配置的端点
+</details>
 
-1. 运行 `npx qiniu-coding-helper doctor` 检查 Codex 安装和配置
-2. 运行 `npx qiniu-coding-helper auth reload codex` 重新应用设置
-3. 确认 `~/.codex/config.toml` 包含 `model_provider = "qnaigc"`
-4. 如果 Codex 已经在运行，请重启 Codex
+<details>
+<summary><b>Key 有效，但调用时报错（如 403 / account_billing_suspended）</b></summary>
 
-### CodeBuddy 看不到七牛模型
+账户欠费暂停时，Key 校验仍会通过，但所有模型调用都会失败。运行 `coding-helper doctor`，「账户状态」会明确提示。到[七牛控制台](https://portal.qiniu.com/)充值后，恢复可能需要几分钟。
 
-1. 确认通过 `enter codebuddy` 完成了多选模型
-2. 运行 `npx qiniu-coding-helper auth reload codebuddy` 重写 `~/.codebuddy/models.json`
-3. 检查文件中存在 `vendor: "Qiniu"` 的条目且 `apiKey` 非空
-4. 如果 CodeBuddy 已经在运行，请重启
+</details>
 
-### WorkBuddy 看不到七牛模型
+<details>
+<summary><b>Codex 报模型不可用</b></summary>
 
-1. 确认通过 `enter workbuddy` 完成了多选模型
-2. 运行 `npx qiniu-coding-helper auth reload workbuddy` 重写 `~/.workbuddy/models.json`
-3. 检查文件中存在 `vendor: "Qiniu"` 的条目且 `apiKey` 非空
-4. 如果 WorkBuddy 已经在运行，请重启
+Codex 固定使用 `openai/gpt-6-astra`。请确认你的账户可以使用 GPT 系列模型（可用 `coding-helper doctor` 检查账户状态，或在七牛控制台查看可用模型）。
 
-### Hermes Agent 没有使用七牛模型
+</details>
 
-1. 确认通过 `enter hermes` 完成了默认模型选择
-2. 运行 `npx qiniu-coding-helper auth reload hermes` 重写 `~/.hermes/config.yaml`
-3. 检查 `~/.hermes/config.yaml` 中 `model.provider` 是否为 `custom`
-4. 如果 Hermes Agent 已经在运行，请重启
+<details>
+<summary><b>Kimi 提示「检测到旧版 kimi-cli」</b></summary>
 
-### 支持 Gemini CLI 吗？
+pip 安装的旧版 `kimi-cli`（1.x）读取的是 `~/.kimi`。请安装新版 Kimi Code：`npm install -g @moonshot-ai/kimi-code`。
 
-暂不支持。Gemini CLI 只能使用 Gemini 原生协议（`/v1beta`），七牛线路目前还没有提供这个接口。
+</details>
 
-### OpenClaw 提示配置是 JSON5
+<details>
+<summary><b>OpenClaw 提示配置是 JSON5</b></summary>
 
 `~/.openclaw/openclaw.json` 含注释或尾逗号时，为避免丢失注释，Coding Helper 不会改写它。删掉注释和尾逗号后重试即可。
 
-### API 报错或认证失败
+</details>
 
-1. 检查 API Key：查看 `~/.coding-helper/config.yaml`
-2. 确认选择了正确的线路（国内 / 海外）
-3. 确认 API Key 在[七牛控制台](https://portal.qiniu.com/)仍有余额
+<details>
+<summary><b>MiniMax Code 配置失败</b></summary>
 
-### 权限被拒绝
+MiniMax Code 写入前会做连通性测试。请确认 Key 有效、账户未欠费，并且所选模型在你的账户中可用。
 
-```bash
-chmod 600 ~/.claude/settings.json
-chmod 600 ~/.coding-helper/config.yaml
-chmod 600 ~/.codex/config.toml
-chmod 600 ~/.codex/auth.json
-chmod 600 ~/.hermes/config.yaml
-chmod 600 ~/.codebuddy/models.json
-chmod 600 ~/.workbuddy/models.json
-```
+</details>
+
+<details>
+<summary><b>想撤销某次改动</b></summary>
+
+优先用 `coding-helper restore`。需要回到某次写入前的完整原文件时，到 `~/.coding-helper/backups/<时间戳>/` 中找对应的备份，`manifest.json` 记录了每个备份的原路径。
+
+</details>
+
+<details>
+<summary><b>支持 Gemini CLI 吗？</b></summary>
+
+暂不支持。Gemini CLI 只能使用 Gemini 原生协议（`/v1beta`），七牛线路目前还没有提供这个接口。
+
+</details>
 
 ---
 
@@ -449,20 +354,21 @@ chmod 600 ~/.workbuddy/models.json
 ```bash
 pnpm install        # 安装依赖
 pnpm build          # 编译 (tsc + 复制 locales 到 dist/)
-pnpm test           # 编译并运行 node:test 测试
+pnpm test           # 编译并运行 node:test 测试（CI 在 Node 18 / 20 / 22 上运行）
 pnpm dev            # 监听模式
 pnpm start          # 运行 CLI (node dist/cli.js)
-pnpm clean          # 清理 dist/
 ```
 
-构建后验证：
+代码结构：
 
-```bash
-node dist/cli.js --version
-node dist/cli.js --help
-node dist/cli.js doctor
-pnpm test
-```
+| 目录 | 职责 |
+|---|---|
+| `src/commands/` | 各子命令入口（setup、status、restore、run、auth、doctor、lang） |
+| `src/lib/core/` | 核心层：安全写入与备份、原值记录、TOML / YAML / .env 按行编辑、装载与同步服务 |
+| `src/lib/tools/` | 每个编程助手一个适配器；OpenAI 兼容的客户端继承 `OpenAICompatTool` |
+| `src/lib/wizard/` | 交互向导、菜单与终端渲染 |
+
+新增一个编程助手：在 `src/lib/tools/` 实现 `ITool`（OpenAI 兼容的继承 `OpenAICompatTool`），在 `tool-manager.ts` 注册，并在 `tests/` 加一组「写入 → 还原」的往返测试。
 
 ---
 

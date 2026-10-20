@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### 新增
+* 支持的编程助手从 5 个增加到 13 个：新增 OpenCode、Qwen Code、Kimi Code CLI、Factory Droid、Grok CLI、OpenClaw、MiniMax Code、GitHub Copilot CLI
+* `setup`：一键配置本机的编程助手，支持 `--tools`、`--yes`、`--json`、`--key-stdin`、`--dry-run`，结果汇总表与退出码（0 / 2 / 1）
+* `status`：读取各编程助手的实际配置文件，显示安装版本与是否已接入七牛
+* `restore`：移除七牛配置并写回首次写入前的原值
+* `run <tool>`：启动器模式，只给子进程注入七牛环境变量（Claude Code、Copilot CLI）
+* 修改 API Key 或线路后，自动同步到仍指向七牛的编程助手
+* `doctor` 新增账户状态（欠费暂停检测）、shell 环境变量覆盖检查与各工具接入状态
+* 交互界面：首次向导欢迎卡片与 4 步进度、工具多选（默认勾选已安装）、主菜单「一键配置编码工具」、版本与接入状态徽标、写入进度与结果汇总表
+
+### 修复
+* Codex 不再整体覆盖 `config.toml`：只增删七牛条目，保留用户的 MCP、沙箱策略和其他 provider；卸载时还原原有的顶层键与 `auth.json` 中的 OpenAI Key
+* Claude Code 卸载不再删除用户自己的 `companyAnnouncements`、`attribution`，并还原原有环境变量与 onboarding 标记
+* Hermes Agent 写入不再删除 `config.yaml` 中的注释（官方默认配置 2052 行注释），并在卸载时还原原来的模型与服务商
+* 用户配置文件损坏时报错，不再按空配置覆盖
+* CodeBuddy / WorkBuddy 还原后保持原文件的字段顺序，不残留 `availableModels` 与空文件
+
+### 变更
+* 所有写入先备份到 `~/.coding-helper/backups/<时间戳>/` 并原子替换，不再生成 `.bak-fenno-*` 文件
+* JSON 写入沿用原文件的缩进与单行 / 多行风格
+* 「清除 Coding Helper 配置」只删除 `config.yaml`，保留备份与原值记录
+* CI 运行 `node --test` 测试
+* 新增依赖 `yaml`
+
 ## [0.4.0] - 2026-09-11
 
 ### 更新内容
@@ -12,11 +38,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 
 **Full Changelog**: https://github.com/qiniu/coding-helper/compare/v0.3.7...v0.4.0
-
-## [Unreleased]
-
-### 更新内容
-* feat: Codex 配置覆盖前备份原配置并展示备份路径
 
 ## [0.3.7] - 2026-07-13
 

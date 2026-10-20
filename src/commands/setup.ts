@@ -196,12 +196,12 @@ export async function statusCommand(options: { json?: boolean }): Promise<void> 
 // restore 命令：移除七牛配置，并把被覆盖的原值写回
 export async function restoreCommand(tool: string | undefined, options: { yes?: boolean }): Promise<void> {
   i18n.init();
-  const { getSyncTargets, removeTool } = await import('../lib/core/tool-service.js');
+  const { getRestoreTargets, removeTool } = await import('../lib/core/tool-service.js');
   const { promptHelper } = await import('../lib/wizard/ui/prompt-helper.js');
 
   let targets: ITool[];
   try {
-    targets = tool ? resolveTools(tool) : getSyncTargets();
+    targets = tool ? resolveTools(tool) : getRestoreTargets();
   } catch (err: unknown) {
     uiRenderer.renderError(err instanceof Error ? err.message : String(err));
     process.exitCode = 1;

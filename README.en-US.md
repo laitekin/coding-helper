@@ -6,283 +6,213 @@
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Node.js Version](https://img.shields.io/node/v/qiniu-coding-helper.svg)](https://nodejs.org)
 
-**The CLI helper for configuring Claude Code, Codex, OpenCode, Qwen Code, Kimi Code, Factory Droid, Grok CLI, OpenClaw, MiniMax Code, Copilot CLI, CodeBuddy, WorkBuddy, and Hermes Agent with Qiniu AI API endpoints**
+**One command to connect every AI coding assistant on your machine to Qiniu AI inference**
 
-[简体中文](README.md) · [Supported Tools](#-supported-tools) · [Features](#-features) · [Prerequisites](#-prerequisites) · [Quick Start](#-quick-start) · [Commands](#-commands) · [Configuration](#-configuration) · [FAQ](#-faq)
+13 coding assistants · only touches Qiniu's own settings · undo anytime
+
+[中文](README.md) · [What it does](#-what-it-does) · [Quick start](#-quick-start) · [Supported tools](#-supported-coding-assistants) · [Commands](#-commands) · [Safety](#-safety) · [FAQ](#-faq)
 
 </div>
 
 ---
 
-## 🧰 Supported Tools
+## 💡 What it does
 
-| Tool | Type | Managed Configuration |
-|------|------|-----------------------|
-| Claude Code | CLI | `~/.claude/settings.json`, `~/.claude.json` |
-| Codex | CLI | `~/.codex/config.toml`, `~/.codex/auth.json` |
-| CodeBuddy | CLI | `~/.codebuddy/models.json` |
-| WorkBuddy | Desktop app | `~/.workbuddy/models.json` |
-| Hermes Agent | CLI | `~/.hermes/config.yaml` |
-| OpenCode | CLI | `~/.config/opencode/opencode.json` |
-| Qwen Code | CLI | `~/.qwen/settings.json` (key in `~/.qwen/.env`) |
-| Kimi Code CLI | CLI | `~/.kimi-code/config.toml` |
-| Factory Droid | CLI | `customModels` in `~/.factory/settings.json` |
-| Grok CLI | CLI | `[model.qiniu]` and `[models] default` in `~/.grok/config.toml` |
-| OpenClaw | CLI | `models.providers.qiniu` and the primary model in `~/.openclaw/openclaw.json` |
-| MiniMax Code | CLI | Runs `mcode provider add`, which writes `~/.minimax/config.yaml` |
-| GitHub Copilot CLI | CLI | No config file; launch with `coding-helper run copilot` |
+Running Claude Code, Codex and friends on the Qiniu API normally means opening each tool's config file, looking up its format and filling in the endpoint and key by hand. Coding Helper turns that into one command:
 
-## ✨ Features
+| You want to | Run |
+|---|---|
+| Connect every installed coding assistant to Qiniu | `npx qiniu-coding-helper setup` — pick the tools, everything is written in one go, then a summary table |
+| Use Qiniu for one session without touching config files | `npx qiniu-coding-helper run claude` |
+| See what would change first | `npx qiniu-coding-helper setup --dry-run` — a per-file diff with the key masked, nothing written |
+| Change your key or endpoint | Change it once in the menu or with `auth`; connected tools are synced automatically |
+| See which tools are connected | `npx qiniu-coding-helper status` |
+| Go back to how things were | `npx qiniu-coding-helper restore` — removes Qiniu entries and writes back the old values |
+| Find out why it isn't working | `npx qiniu-coding-helper doctor` — key, account billing status, network, env-var overrides |
+| Configure from a script or CI | `setup --yes --json`, key via `--key-stdin`, exit code tells success from failure |
 
-- **🎯 Interactive Wizard** — Guided step-by-step setup for language, endpoint, API Key, and model on first run
-- **🌐 Multi-Region Support** — Domestic (api.qnaigc.com) / International (api.modelink.ai) endpoints
-- **🔐 API Key Management** — Input, validate, save, and revoke API keys
-- **📦 Model Configuration** — Fetch available models from the API, with manual model ID input support
-- **⚡ Claude Code Integration** — Automatically writes environment variables to `~/.claude/settings.json`
-- **🧩 Codex Integration** — Writes Qiniu provider settings to `~/.codex/config.toml` and stores credentials in Codex auth
-- **🤝 CodeBuddy Integration** — Multi-select Qiniu market models and write them into `~/.codebuddy/models.json`
-- **🤝 WorkBuddy Integration** — Multi-select Qiniu market models and write them into `~/.workbuddy/models.json`
-- **☤ Hermes Agent Integration** — Select a default Qiniu market model and write it into `~/.hermes/config.yaml`
-- **🔍 Health Check** — Built-in `doctor` command to verify config, API Key, network, tools, Git, and Node.js
-- **🌍 Internationalization** — Supports Chinese (zh_CN) and English (en_US)
+## 🚀 Quick start
 
-## 📋 Prerequisites
-
-Before you begin, ensure you have:
-
-- **Node.js** 18 or later ([Download](https://nodejs.org/))
-- **Claude Code CLI** installed ([Get it here](https://claude.ai/download)), **Codex CLI** installed (`npm install -g @openai/codex`), **CodeBuddy CLI** installed (`npm install -g @tencent-ai/codebuddy-code`), **WorkBuddy**, and/or **Hermes Agent** (`curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash`)
-- **Qiniu API Key** ([Get one here](https://portal.qiniu.com/))
-
-## 🚀 Quick Start
-
-### 1️⃣ Run the Setup Wizard
-
-No installation required — just run:
+No install needed, Node.js 18+:
 
 ```bash
 npx qiniu-coding-helper
 ```
 
-### 2️⃣ Follow the Interactive Prompts
+The first run is a 4-step wizard: language → endpoint (China / international) → API key ([get one](https://portal.qiniu.com/ai-inference/api-key)) → tick the coding assistants to connect (installed ones are pre-ticked). After choosing models, everything is written at once and you get a result for each tool plus where the original files were backed up.
 
-- Select your language (Chinese / English)
-- Choose your endpoint (Domestic / International)
-- Enter and validate your API Key
-- Select the coding assistant you want to configure
-- Pick a model
+Later runs open the main menu, whose first item "★ Set Up Coding Tools in One Go" reconfigures at any time.
 
-### 3️⃣ Restart Your Coding Assistant
+**Restart any coding assistant that is already running** and you're done.
 
-If Claude Code, Codex, CodeBuddy, WorkBuddy, or Hermes Agent is running, restart it to apply changes.
+## 🧰 Supported coding assistants
 
-### 4️⃣ Start Coding! 🎉
+"Tested" means: the real client at that version was installed on Linux, `setup` was run, a real prompt was answered through the Qiniu endpoint, and `restore` was run to confirm the config came back. Tested on 2026-10-20.
 
-```bash
-# Claude Code
-claude
+| Coding assistant | Written to | Tested | Use it with |
+|---|---|---|---|
+| Claude Code | `env` in `~/.claude/settings.json` | ✅ 2.x | `claude` |
+| Codex | `~/.codex/config.toml`, `~/.codex/auth.json` | ✅ 0.163.0 | `codex` |
+| OpenCode | `~/.config/opencode/opencode.json` | ✅ 1.19.3 | `opencode` (default model `qiniu/<model>`) |
+| Qwen Code | `~/.qwen/settings.json`, key in `~/.qwen/.env` | ✅ 0.25.3 | `qwen` |
+| Kimi Code CLI | `~/.kimi-code/config.toml` | ✅ 2.2.0 | `kimi` |
+| Factory Droid | `customModels` in `~/.factory/settings.json` | ✅ 0.245.0 | `droid`, pick `Qiniu: <model>` in `/model` |
+| Grok CLI | `~/.grok/config.toml` | ✅ 1.0.62 | `grok` (default model points to Qiniu) |
+| OpenClaw | `~/.openclaw/openclaw.json` | ✅ 2026.6.35 | `openclaw` (primary model `qiniu/<model>`) |
+| MiniMax Code | Official `mcode provider add`, writes `~/.minimax/config.yaml` | ✅ 0.6.12 | `mcode` |
+| GitHub Copilot CLI | No config file, env vars only | ✅ 1.0.100 | `npx qiniu-coding-helper run copilot` |
+| CodeBuddy | `~/.codebuddy/models.json` | ✅ 2.170.0 | `codebuddy`, pick the Qiniu model with `--model` |
+| Hermes Agent | `model` in `~/.hermes/config.yaml` | ✅ official installer | `hermes` |
+| WorkBuddy | `~/.workbuddy/models.json` | ⚠️ not tested | Desktop app, start it yourself |
 
-# Codex
-codex
+WorkBuddy only ships Windows / macOS desktop builds, so it can't be tested on Linux. It uses the same format as CodeBuddy (tested), and its docs say it also reads `~/.codebuddy/models.json`.
 
-# CodeBuddy
-codebuddy
+**Choosing models:**
 
-# WorkBuddy (desktop app - launch manually)
+- **Claude Code:** Haiku / Sonnet / Opus / subagent models, each optional (Claude Code defaults otherwise).
+- **Codex:** fixed to Qiniu's `openai/gpt-6-astra`, plus a Qiniu GPT model catalog.
+- **CodeBuddy / WorkBuddy:** pick several models from the Qiniu marketplace; capability tags and token limits are filled in automatically.
+- **Hermes Agent:** pick one default model from the marketplace.
+- **The other 8** (OpenCode, Qwen Code, Kimi, Droid, Grok, OpenClaw, MiniMax Code, Copilot CLI): share one model. Choose it once and `setup --yes` reuses it; each tool's own menu can override it.
 
-# Hermes Agent
-hermes
-```
-
-That's it! You're now using Qiniu AI endpoints in your coding assistant.
-
----
+**Gemini CLI is not supported yet:** it only speaks the native Gemini protocol (`/v1beta`), which Qiniu endpoints don't serve yet.
 
 ## 📚 Commands
 
-### 🎬 `coding-helper init`
+| Command | What it does |
+|---|---|
+| `coding-helper` | Wizard on first run, main menu afterwards |
+| `coding-helper setup` | Configure the coding assistants on this machine |
+| `coding-helper status` | Read each tool's actual config and show whether it points to Qiniu |
+| `coding-helper restore [tools]` | Remove Qiniu config and restore previous values |
+| `coding-helper run <tool> [args...]` | Launcher: inject Qiniu settings into one launch only |
+| `coding-helper doctor` | Health check |
+| `coding-helper auth [token]` | Set the API key; `auth revoke` removes it, `auth reload <tool>` rewrites one tool |
+| `coding-helper enter [tool]` | Open the main menu or one tool's menu |
+| `coding-helper init` | Run the first-run wizard again |
+| `coding-helper lang show` / `lang set zh_CN\|en_US` | Show or change the UI language |
 
-Run the interactive setup wizard (force re-initialization).
+`coding-helper` in the examples below can be written as `npx qiniu-coding-helper`. Tool names accept aliases such as `claude`, `qwen`, `kimi`, `mcode`, `factory`.
 
-```bash
-npx qiniu-coding-helper init
-```
-
----
-
-### ⚡ `coding-helper setup`
-
-Write the Qiniu configuration into every installed coding tool in one go. Works in scripts and CI.
-
-```bash
-# Interactive: pick tools (installed ones are pre-selected), confirm models, then write all
-npx qiniu-coding-helper setup
-
-# Non-interactive: configure all installed tools and print a summary table
-npx qiniu-coding-helper setup --yes
-
-# Only the given tools, results as JSON
-npx qiniu-coding-helper setup --tools claude,codex --json
-
-# Read the API Key from stdin so it never lands in shell history
-echo "$QINIU_KEY" | npx qiniu-coding-helper setup --key-stdin --yes
-```
-
-Exit codes: `0` all succeeded (tools skipped because they are not installed don't count as failures), `2` some failed, `1` all failed. Original files are backed up to `~/.coding-helper/backups/<timestamp>/` before writing.
-
----
-
-### 📋 `coding-helper status`
-
-Reads each tool's actual config files and lists the installed version and whether it points to Qiniu. Add `--json` for JSON output.
+### ⚡ setup
 
 ```bash
-npx qiniu-coding-helper status
+# Interactive: tick tools (installed ones pre-ticked), choose models, write all
+coding-helper setup
+
+# Non-interactive: configure every installed tool (missing ones are "skipped")
+coding-helper setup --yes
+
+# Only these tools
+coding-helper setup --tools claude,codex,opencode
+
+# Preview: per-file diff with the key masked, nothing written
+coding-helper setup --dry-run
+
+# Scripts / CI: key from stdin (stays out of shell history), JSON output
+echo "$QINIU_KEY" | coding-helper setup --key-stdin --yes --json
 ```
 
----
+| Option | Meaning |
+|---|---|
+| `--tools a,b` | Only these tools, written even if not detected as installed |
+| `-y, --yes` | No prompts, use saved models |
+| `--dry-run` | Preview only: nothing written, no backups |
+| `--json` | Machine-readable output |
+| `--key-stdin` | Read and validate the API key from stdin |
 
-### ↩️ `coding-helper restore`
+**Exit codes:** `0` all succeeded (skipped because not installed doesn't count as failure), `2` some failed, `1` all failed.
 
-Removes the Qiniu configuration and writes back the settings it replaced (for example your previous `ANTHROPIC_BASE_URL`, Codex `model`, or the OpenAI key in `auth.json`). Anything you added after setup is kept.
+Before writing, setup checks whether the account can actually call models. If the key is valid but the account is suspended for billing, you get a warning; the config is still written and works once you top up.
+
+### 📋 status
 
 ```bash
-# Restore every connected tool
-npx qiniu-coding-helper restore
-
-# Only Codex, without confirmation
-npx qiniu-coding-helper restore codex --yes
+coding-helper status          # table: tool, installed version, connected to Qiniu
+coding-helper status --json
 ```
 
-After you change the API Key or endpoint, connected tools are synced automatically; `auth reload` is no longer required.
+Status is read from each tool's real config files, so manual edits show up as they are.
 
----
-
-### 🚀 `coding-helper run`
-
-Launcher mode: injects the Qiniu settings into this one launch only, without touching any config file. Use it for tools without a config file such as GitHub Copilot CLI, or to keep your official account alongside. Remaining arguments are passed through.
+### ↩️ restore
 
 ```bash
-npx qiniu-coding-helper run copilot
-npx qiniu-coding-helper run claude -- --continue
+coding-helper restore              # every connected tool
+coding-helper restore codex,qwen   # only these
+coding-helper restore codex --yes  # no confirmation
 ```
 
-OpenCode, Qwen Code, Kimi Code CLI, Factory Droid, Grok CLI, OpenClaw, MiniMax Code and Copilot CLI share one model: choose it once under "Configure Models" and `setup --yes` reuses it. `setup --dry-run` previews how each file would change (API Key masked) without writing anything.
+Restore removes Qiniu's entries and writes back the values recorded before the first write: your previous `ANTHROPIC_BASE_URL`, Codex's default model, the OpenAI key in `auth.json`, Hermes's previous model and provider, and so on. Anything you added yourself afterwards is kept. Files that didn't exist before and were created by Coding Helper are deleted.
 
----
-
-### 🔐 `coding-helper auth`
-
-Manage your API Key authentication.
+### 🚀 run
 
 ```bash
-# Set API Key interactively
-npx qiniu-coding-helper auth
-
-# Set API Key directly
-npx qiniu-coding-helper auth <token>
-
-# Remove API Key
-npx qiniu-coding-helper auth revoke
-
-# Reload configuration to Claude Code
-npx qiniu-coding-helper auth reload claude
-
-# Reload configuration to Codex
-npx qiniu-coding-helper auth reload codex
-
-# Reload configuration to CodeBuddy
-npx qiniu-coding-helper auth reload codebuddy
-
-# Reload configuration to WorkBuddy
-npx qiniu-coding-helper auth reload workbuddy
-
-# Reload configuration to Hermes Agent
-npx qiniu-coding-helper auth reload hermes
+coding-helper run copilot                  # Copilot CLI has no config file, so this is how it's used
+coding-helper run claude --continue        # arguments are passed through
+coding-helper run claude -- --continue     # -- also works
 ```
 
----
+Only the launched process gets the Qiniu env vars; no config file is touched, so your official account keeps working alongside. Exit codes and Ctrl+C are forwarded. Supports Claude Code and GitHub Copilot CLI.
 
-### 🌍 `coding-helper lang`
-
-Manage interface language.
+### 🏥 doctor
 
 ```bash
-# Show current language
-npx qiniu-coding-helper lang show
-
-# Set to Chinese
-npx qiniu-coding-helper lang set zh_CN
-
-# Set to English
-npx qiniu-coding-helper lang set en_US
+coding-helper doctor
 ```
 
----
+| Check | Meaning |
+|---|---|
+| Config file | Whether `~/.coding-helper/config.yaml` exists |
+| API key | Whether the key is valid |
+| Account | Whether models can actually be called — a billing-suspended account still passes the key check |
+| Network | Whether the current endpoint is reachable |
+| Each coding assistant | Installed version and whether it points to Qiniu |
+| Shell env override | `ANTHROPIC_BASE_URL` and similar variables override Claude Code's settings file |
+| Node.js, Git | Versions |
 
-### 🏥 `coding-helper doctor`
+The account check sends one real request capped at 1 output token; on an active account it costs a tiny amount.
 
-Run system health check to diagnose configuration issues.
+### 🔄 Automatic sync after changing key or endpoint
 
-```bash
-npx qiniu-coding-helper doctor
-```
+When you change the API key or endpoint from the main menu, `auth <token>` or the wizard, every tool still pointing to Qiniu is rewritten and the result is shown — no more `auth reload` per tool. A tool you have switched to another provider by hand is left alone.
 
-**Checks:** Config files · API Key validity · Network connectivity · configured tool installations · Git · Node.js
+## 🔒 Safety
 
----
+Coding Helper edits config files you use every day, so every write follows these rules:
 
-### ⚙️ `coding-helper enter`
+- **Only Qiniu's own entries change.** Other providers, MCP servers, themes, sandbox policies stay as they are. TOML, `.env` and Hermes's YAML are edited line by line, keeping comments, blank lines, order and quoting; JSON keeps the original file's indentation and single-line / multi-line style.
+- **Backup before writing.** Each run copies the files it will change into `~/.coding-helper/backups/<timestamp>/` with a `manifest.json` of original paths.
+- **Atomic writes.** Write to a temp file, then replace, so a failure never leaves half a file; files are 0600, directories 0700.
+- **Broken configs are never overwritten.** If your JSON / YAML can't be parsed, you get an error and the file stays as it is. An OpenClaw config with comments or trailing commas (JSON5) is also left alone.
+- **Previous values are recorded for restore.** Before the first write, the values about to be replaced are saved in `~/.coding-helper/state.json`; `restore` writes them back. Running setup again never records Qiniu's own values as "previous".
+- **Keys stay out of shell history.** Use the interactive prompt or `--key-stdin`; previews and logs mask the key. Qwen Code's key lives only in `.env`, and its settings file references the variable name.
+- **Clearing config doesn't break restore.** "Clear Coding Helper Configuration" deletes only `config.yaml`; backups and recorded values stay, so `restore` still works.
 
-Enter the interactive configuration menu.
-
-```bash
-# Main menu
-npx qiniu-coding-helper enter
-
-# Claude Code configuration menu
-npx qiniu-coding-helper enter claude-code
-
-# Codex configuration menu
-npx qiniu-coding-helper enter codex
-
-# CodeBuddy configuration menu
-npx qiniu-coding-helper enter codebuddy
-
-# WorkBuddy configuration menu
-npx qiniu-coding-helper enter workbuddy
-
-# Hermes Agent configuration menu
-npx qiniu-coding-helper enter hermes
-```
-
----
+In testing, 12 tools with existing user configs went through `setup` twice and then `restore`, and all 11 original config files came back byte for byte. Hermes's official 2333-line commented default config had exactly 4 lines changed.
 
 ## 🔧 Configuration
 
-### 📁 Storage Locations
+### Endpoints
 
-| Location | Path | Purpose |
-|----------|------|---------|
-| **Coding Helper Config** | `~/.coding-helper/config.yaml` | Language, endpoint, API Key, model settings |
-| **Claude Code Settings** | `~/.claude/settings.json` | API endpoint environment variables |
-| **Claude Code Onboarding** | `~/.claude.json` | Onboarding completion flag |
-| **Codex Config** | `~/.codex/config.toml` | Qiniu model provider and profile settings |
-| **Codex Auth** | `~/.codex/auth.json` | Codex API key auth cache |
-| **CodeBuddy Models** | `~/.codebuddy/models.json` | Qiniu model entries (URL, API Key, capabilities) |
-| **WorkBuddy Models** | `~/.workbuddy/models.json` | Qiniu model entries (URL, API Key, capabilities) |
-| **Hermes Agent Config** | `~/.hermes/config.yaml` | Qiniu custom provider, default model, and API Key |
+| Endpoint | URL | For |
+|---|---|---|
+| 🇨🇳 China | `https://api.qnaigc.com` | Users in mainland China |
+| 🌍 International | `https://api.modelink.ai` | Users elsewhere |
 
-### 🌍 Region Endpoints
+### Coding Helper's own files
 
-| Region | Base URL | Best For |
-|--------|----------|----------|
-| 🇨🇳 **Domestic** | `https://api.qnaigc.com` | Users in China |
-| 🌍 **International** | `https://api.modelink.ai` | Users outside China |
+| Path | Contents |
+|---|---|
+| `~/.coding-helper/config.yaml` | Language, endpoint, API key, model choices per tool |
+| `~/.coding-helper/state.json` | Connected tools and the values they replaced |
+| `~/.coding-helper/backups/<timestamp>/` | Original files backed up before each write |
 
-### 🔧 Claude Code Environment Variables
+### What gets written per tool
 
-When configuration is applied, these environment variables are set in `~/.claude/settings.json`:
+<details>
+<summary><b>Claude Code</b></summary>
+
+`env` in `~/.claude/settings.json`, plus the onboarding flag in `~/.claude.json`:
 
 ```json
 {
@@ -290,24 +220,25 @@ When configuration is applied, these environment variables are set in `~/.claude
     "ANTHROPIC_BASE_URL": "https://api.qnaigc.com",
     "ANTHROPIC_AUTH_TOKEN": "<your-api-key>",
     "API_TIMEOUT_MS": "3000000",
-    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
-  }
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "CLAUDE_CODE_ATTRIBUTION_HEADER": "0",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "<chosen model>"
+  },
+  "companyAnnouncements": ["您正在使用七牛云 AI 大模型推理服务 🚀"],
+  "attribution": { "commit": "", "pr": "" }
 }
 ```
 
-> **Note:** The tool also sets `API_TIMEOUT_MS` (50 min, for long inference requests), disables non-essential traffic (telemetry not needed for third-party endpoints), and disables commit/PR attribution (inaccurate via proxy endpoints).
+The 50-minute timeout suits long reasoning requests; non-essential traffic and attribution are turned off to improve cache hit rates through the gateway. Shell variables such as `ANTHROPIC_BASE_URL` override these settings — `doctor` detects them.
 
-### 🔧 Codex Configuration
+</details>
 
-When Codex configuration is applied, Coding Helper only adds and removes its own entries in `~/.codex/config.toml`: it updates the top-level `model`, `model_provider` and `model_catalog_json`, and adds `[model_providers.qnaigc]` and `[profiles.qn-gpt]`. Your MCP servers, sandbox policy and other providers are kept as they are. The original file is backed up to `~/.coding-helper/backups/<timestamp>/` first; `restore codex` writes back the replaced top-level keys and the OpenAI key previously in `auth.json`. The API Key is stored in Codex's own `~/.codex/auth.json` auth cache. It does not rely on a `QINIU_API_KEY` shell environment variable.
+<details>
+<summary><b>Codex</b></summary>
 
-It also writes the GPT model catalog maintained by Coding Helper to `~/.codex/model-catalogs/qnaigc.json` and loads it through `model_catalog_json`. The catalog includes only Qiniu-supported `openai/gpt*` models together with their context metadata.
-
-The managed Codex profile uses the Qiniu OpenAI-compatible bypass endpoint:
+Updates the top-level `model`, `model_provider` and `model_catalog_json` in place in `~/.codex/config.toml` and adds these two tables; MCP servers, sandbox policy and other providers are kept:
 
 ```toml
-model_provider = "qnaigc"
-
 [model_providers.qnaigc]
 name = "Qiniu"
 base_url = "https://api.qnaigc.com/bypass/openai/v1"
@@ -316,158 +247,131 @@ wire_api = "responses"
 
 [profiles.qn-gpt]
 model_provider = "qnaigc"
-model = "<selected-model>"
+model = "openai/gpt-6-astra"
 ```
 
-Treat `~/.codex/auth.json` like a password because it contains API credentials.
+The key goes to `~/.codex/auth.json` and the Qiniu GPT catalog to `~/.codex/model-catalogs/qnaigc.json`. Restore writes back the replaced top-level keys and the OpenAI key previously in `auth.json`.
 
-### 🔧 CodeBuddy Configuration
+</details>
 
-CodeBuddy is a CLI tool that stores its configuration in `~/.codebuddy/models.json`.
+<details>
+<summary><b>OpenCode / Qwen Code / Kimi Code CLI / Factory Droid</b></summary>
 
-The configuration flow lets you multi-select models from the Qiniu model market (`/v1/market/models`); capability tags (tool call, images, reasoning) and context / output token limits are inferred from the market metadata. Each selected model is written as a `vendor: "Qiniu"` entry with the API Key embedded:
+All use Qiniu's OpenAI-compatible API at `https://api.qnaigc.com/v1`:
 
-```json
-{
-  "models": [
-    {
-      "id": "anthropic/claude-sonnet-4-5",
-      "name": "Claude Sonnet 4.5",
-      "vendor": "Qiniu",
-      "url": "https://api.qnaigc.com/v1/chat/completions",
-      "apiKey": "<your-api-key>",
-      "maxInputTokens": 200000,
-      "maxOutputTokens": 8192,
-      "temperature": 0.7,
-      "supportsToolCall": true,
-      "supportsImages": true
-    }
-  ],
-  "availableModels": ["anthropic/claude-sonnet-4-5"]
-}
-```
+- **OpenCode:** `provider.qiniu` (`@ai-sdk/openai-compatible`) and `model` set to `qiniu/<model>`.
+- **Qwen Code:** a Qiniu entry in `modelProviders.openai` (`envKey: QINIU_API_KEY`), plus `security.auth.selectedType` and `model.name`; the key goes to `~/.qwen/.env`.
+- **Kimi Code CLI:** `[providers.qiniu]` (`type = "openai"`), `[models."qiniu/<model>"]` and `default_model`. Honors `KIMI_CODE_HOME`.
+- **Factory Droid:** a `customModels` entry named `Qiniu: <model>` (`generic-chat-completion-api`); restore removes only entries with that prefix.
 
-Behavior worth knowing:
+Context and output limits come from the Qiniu marketplace, with conservative defaults if that lookup fails.
 
-- **Non-Qiniu entries are preserved.** Models with a different `vendor` and any other top-level fields you added manually (e.g. UI preferences) are kept untouched on every load/unload.
-- **Unload only removes Qiniu models.** `auth reload` overwrites the Qiniu entries; the unload action removes them but leaves other vendors intact.
-- **Stale model IDs are surfaced.** If a previously selected model has been delisted from the Qiniu market, partially missing IDs trigger a warning and only the still-available models are written; if *all* selected IDs have been delisted, the load fails fast and no file changes are made — reconfigure your model selection and retry.
+</details>
 
-Treat `~/.codebuddy/models.json` like a password because the API Key is stored in plaintext.
+<details>
+<summary><b>Grok CLI / OpenClaw / MiniMax Code</b></summary>
 
-### 🔧 WorkBuddy Configuration
+- **Grok CLI:** `[model.qiniu]` (`api_backend = "chat_completions"`) in `~/.grok/config.toml`, with `[models] default` pointing to it. Honors `GROK_HOME`.
+- **OpenClaw:** `models.providers.qiniu` (`api: openai-completions`) and `agents.defaults.model.primary` in `~/.openclaw/openclaw.json`; if you use a model allowlist, the Qiniu model is added to it.
+- **MiniMax Code:** its config format isn't documented, so the official `mcode provider add --use` is used (it runs a connection test first and saves nothing if that fails). Restore removes `custom_provider.qiniu` and writes back the previous `defaultModel`.
 
-WorkBuddy stores its configuration in `~/.workbuddy/models.json`. It is completely independent from CodeBuddy.
+</details>
 
-The configuration flow is identical to CodeBuddy — you multi-select models from the Qiniu model market and they are written to the WorkBuddy-specific config file with the same JSON structure. All the same behavior rules apply (non-Qiniu entries preserved, unload only removes Qiniu models, stale model IDs surfaced).
+<details>
+<summary><b>CodeBuddy / WorkBuddy / Hermes Agent</b></summary>
 
-Treat `~/.workbuddy/models.json` like a password because the API Key is stored in plaintext.
+- **CodeBuddy / WorkBuddy:** `vendor: "Qiniu"` model entries in `models.json` (full `/v1/chat/completions` URL) and `availableModels` kept in sync; other vendors' entries and fields are untouched. If previously chosen models were delisted: partially missing ones trigger a warning and the rest are written; if all are gone, it errors and leaves the file alone.
+- **Hermes Agent:** only the `provider`, `default`, `base_url` and `api_key` lines under `model` in `~/.hermes/config.yaml` change; everything else, comments included, stays.
 
-### 🔧 Hermes Agent Configuration
+</details>
 
-Hermes Agent stores its configuration in `~/.hermes/config.yaml`. The configuration flow selects one default model from the Qiniu model market and writes Hermes' OpenAI-compatible custom provider settings:
-
-```yaml
-model:
-  provider: custom
-  default: anthropic/claude-sonnet-4-5
-  base_url: https://api.qnaigc.com/v1
-  api_key: <your-api-key>
-```
-
-Unloading the configuration removes the Coding Helper managed `model.provider`, `model.default`, `model.base_url`, and `model.api_key` fields while preserving other Hermes settings.
-
-Treat `~/.hermes/config.yaml` like a password because the API Key is stored in plaintext.
-
----
+These files store the API key in plain text (except Qwen Code, which uses `.env`) — treat them like password files.
 
 ## ❓ FAQ
 
-### Claude Code doesn't use the configured endpoint
+<details>
+<summary><b>The tool still doesn't use Qiniu after setup</b></summary>
 
-1. Run `npx qiniu-coding-helper doctor` to check configuration
-2. Run `npx qiniu-coding-helper auth reload claude` to reapply settings
-3. **Restart Claude Code completely**
-4. Ensure `ANTHROPIC_BASE_URL` is not set in your shell environment (`unset ANTHROPIC_BASE_URL`)
+1. Run `coding-helper doctor` and check "Shell env override". Variables such as `ANTHROPIC_BASE_URL` override config files; remove them from `~/.zshrc` / `~/.bashrc` and reopen the terminal.
+2. Run `coding-helper status` and confirm the tool shows "● Connected to Qiniu"; if not, run `coding-helper setup --tools <tool>`.
+3. Quit and restart the tool completely.
 
-### Codex doesn't use the configured endpoint
+</details>
 
-1. Run `npx qiniu-coding-helper doctor` to check Codex installation and configuration
-2. Run `npx qiniu-coding-helper auth reload codex` to reapply settings
-3. Confirm `~/.codex/config.toml` contains `model_provider = "qnaigc"`
-4. Restart Codex if it was already running
+<details>
+<summary><b>The key is valid but calls fail (e.g. 403 / account_billing_suspended)</b></summary>
 
-### CodeBuddy doesn't see the Qiniu models
+A billing-suspended account still passes the key check, but every model call fails. `coding-helper doctor` reports it under "Account". Top up in the [Qiniu console](https://portal.qiniu.com/); it can take a few minutes to recover.
 
-1. Make sure you ran `enter codebuddy` and finished the multi-select picker
-2. Run `npx qiniu-coding-helper auth reload codebuddy` to rewrite `~/.codebuddy/models.json`
-3. Confirm the Qiniu entries exist in the file with `vendor: "Qiniu"` and a non-empty `apiKey`
-4. Restart CodeBuddy if it was already running
+</details>
 
-### WorkBuddy doesn't see the Qiniu models
+<details>
+<summary><b>Codex says the model is unavailable</b></summary>
 
-1. Make sure you ran `enter workbuddy` and finished the multi-select picker
-2. Run `npx qiniu-coding-helper auth reload workbuddy` to rewrite `~/.workbuddy/models.json`
-3. Confirm the Qiniu entries exist in the file with `vendor: "Qiniu"` and a non-empty `apiKey`
-4. Restart WorkBuddy if it was already running
+Codex is fixed to `openai/gpt-6-astra`. Make sure your account can use GPT models (check with `coding-helper doctor` or in the Qiniu console).
 
-### Hermes Agent doesn't use the Qiniu model
+</details>
 
-1. Make sure you ran `enter hermes` and selected a default model
-2. Run `npx qiniu-coding-helper auth reload hermes` to rewrite `~/.hermes/config.yaml`
-3. Confirm `model.provider` is `custom` in `~/.hermes/config.yaml`
-4. Restart Hermes Agent if it was already running
+<details>
+<summary><b>Kimi says "Found the legacy kimi-cli"</b></summary>
 
-### Is Gemini CLI supported?
+The old pip-installed `kimi-cli` (1.x) reads `~/.kimi`. Install the new Kimi Code instead: `npm install -g @moonshot-ai/kimi-code`.
 
-Not yet. Gemini CLI only speaks the native Gemini protocol (`/v1beta`), which Qiniu endpoints don't serve yet.
+</details>
 
-### OpenClaw says the config is JSON5
+<details>
+<summary><b>OpenClaw says the config is JSON5</b></summary>
 
 If `~/.openclaw/openclaw.json` contains comments or trailing commas, Coding Helper won't rewrite it so your comments aren't lost. Remove them and retry.
 
-### API errors or authentication failures
+</details>
 
-1. Verify your API Key: check `~/.coding-helper/config.yaml`
-2. Confirm the correct endpoint is selected (Domestic vs International)
-3. Ensure your API Key has remaining quota on the [Qiniu Portal](https://portal.qiniu.com/)
+<details>
+<summary><b>MiniMax Code setup fails</b></summary>
 
-### Permission denied errors
+MiniMax Code runs a connection test before saving. Make sure the key is valid, the account isn't suspended, and the chosen model is available on your account.
 
-```bash
-chmod 600 ~/.claude/settings.json
-chmod 600 ~/.coding-helper/config.yaml
-chmod 600 ~/.codex/config.toml
-chmod 600 ~/.codex/auth.json
-chmod 600 ~/.codebuddy/models.json
-chmod 600 ~/.workbuddy/models.json
-chmod 600 ~/.hermes/config.yaml
-```
+</details>
+
+<details>
+<summary><b>Undoing a specific change</b></summary>
+
+Prefer `coding-helper restore`. To get back a complete original file from before a particular write, look in `~/.coding-helper/backups/<timestamp>/`; `manifest.json` lists each backup's original path.
+
+</details>
+
+<details>
+<summary><b>Is Gemini CLI supported?</b></summary>
+
+Not yet. Gemini CLI only speaks the native Gemini protocol (`/v1beta`), which Qiniu endpoints don't serve yet.
+
+</details>
 
 ---
 
 ## 🛠️ Development
 
 ```bash
-pnpm install        # Install dependencies
-pnpm build          # Build (tsc + copy locales to dist/)
-pnpm test           # Build and run node:test tests
-pnpm dev            # Watch mode
-pnpm start          # Run CLI (node dist/cli.js)
-pnpm clean          # Clean dist/
+pnpm install        # install dependencies
+pnpm build          # tsc + copy locales to dist/
+pnpm test           # build and run node:test (CI runs Node 18 / 20 / 22)
+pnpm dev            # watch mode
+pnpm start          # run the CLI (node dist/cli.js)
 ```
 
-Verify after build:
+Layout:
 
-```bash
-node dist/cli.js --version
-node dist/cli.js --help
-node dist/cli.js doctor
-pnpm test
-```
+| Directory | Responsibility |
+|---|---|
+| `src/commands/` | Subcommands (setup, status, restore, run, auth, doctor, lang) |
+| `src/lib/core/` | Safe writes and backups, recorded previous values, line-level TOML / YAML / .env editing, apply and sync service |
+| `src/lib/tools/` | One adapter per coding assistant; OpenAI-compatible clients extend `OpenAICompatTool` |
+| `src/lib/wizard/` | Interactive wizard, menus and terminal rendering |
+
+Adding a coding assistant: implement `ITool` in `src/lib/tools/` (extend `OpenAICompatTool` if it's OpenAI-compatible), register it in `tool-manager.ts`, and add a write → restore round-trip test in `tests/`.
 
 ---
 
 ## 📄 License
 
-This project is licensed under the [AGPL-3.0](LICENSE) License.
+[AGPL-3.0](LICENSE)

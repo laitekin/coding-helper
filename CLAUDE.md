@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Coding Helper — CLI 工具，用于统一配置 AI 编程助手（Claude Code、OpenCode、Codex）的 API 端点和模型。支持七牛 API 端点，提供交互式配置向导，支持中英文。
+Coding Helper — CLI 工具，把本机的 AI 编程助手一键接入七牛 API 端点。支持 13 个编程助手（Claude Code、Codex、OpenCode、Qwen Code、Kimi Code CLI、Factory Droid、Grok CLI、OpenClaw、MiniMax Code、GitHub Copilot CLI、CodeBuddy、WorkBuddy、Hermes Agent），提供交互式向导、非交互批量配置、还原与启动器模式，支持中英文。
 
 用户通过 `npx qiniu-coding-helper` 直接运行，无需全局安装。
 
@@ -42,15 +42,15 @@ node dist/cli.js lang show
 **核心单例**:
 - `configManager` — 管理 `~/.coding-helper/config.yaml`，存储语言、线路、API Key、模型配置
 - `i18n` — 国际化，从 `src/locales/*.json` 加载翻译，支持 `{{param}}` 模板替换，回退到 en_US
-- `modelService` — 从 `/v1/models` 获取模型列表，带内存缓存
-- `toolManager` — 工具注册中心，当前只注册 ClaudeCodeTool
+- `modelService` — 从 `/v1/models` 获取模型列表，带内存缓存；`marketModelService` 从 `/v1/market/models` 获取模型能力与上下文上限
+- `toolManager` — 工具注册中心，注册全部 13 个编程助手适配器
 
-**工具扩展**: 实现 `ITool` 接口 (`src/lib/tools/base-tool.ts`)，在 `ToolManager` 中注册即可。OpenAI 兼容的客户端（OpenCode、Qwen Code、Kimi Code CLI、Factory Droid、Grok CLI、OpenClaw、MiniMax Code、Copilot CLI）继承 `OpenAICompatTool`，共用 `toolModels` / `defaultModel` 模型配置；只支持环境变量的客户端设 `launchOnly` 并实现 `getLaunchEnv`。TOML / .env 用 `core/toml-edit.ts`、`core/dotenv-edit.ts` 按行编辑。MiniMax Code 的配置结构未公开，写入走官方 `mcode provider add`。Gemini CLI 需要 Gemini 原生协议（/v1beta），七牛线路暂无，未接入。
+**工具扩展**: 实现 `ITool` 接口 (`src/lib/tools/base-tool.ts`)，在 `ToolManager` 中注册即可。OpenAI 兼容的客户端（OpenCode、Qwen Code、Kimi Code CLI、Factory Droid、Grok CLI、OpenClaw、MiniMax Code、Copilot CLI）继承 `OpenAICompatTool`，共用 `toolModels` / `defaultModel` 模型配置；只支持环境变量的客户端设 `launchOnly` 并实现 `getLaunchEnv`。TOML / .env / YAML 用 `core/toml-edit.ts`、`core/dotenv-edit.ts`、`core/yaml-edit.ts` 按行编辑，保留注释与格式；JSON 用 `writeJson` 沿用原文件风格。CodeBuddy / WorkBuddy 共用 `tools/models-json.ts`。MiniMax Code 的配置结构未公开，写入走官方 `mcode provider add`。Gemini CLI 需要 Gemini 原生协议（/v1beta），七牛线路暂无，未接入。
 
 **核心层** (`src/lib/core/`):
 - `safe-write.ts` — 写客户端配置一律用 `safeWriteFile`（备份到 `~/.coding-helper/backups/<时间戳>/` + 原子写入；`setDryRun` 时只记录变更，供 `setup --dry-run`）；读用户 JSON 用 `readJsonObjectStrict`，解析失败抛错，绝不按空对象覆盖
 - `state-store.ts` — `~/.coding-helper/state.json`，记录已装载的工具与首次写入前的原值（priors），卸载按原值还原
-- `tool-service.ts` — `applyTool` / `removeTool` / `syncAppliedTools`，向导、`auth`、`setup`、`restore` 共用；改 Key 或线路后自动同步已装载工具
+- `tool-service.ts` — `applyTool` / `removeTool` / `syncAppliedTools`，向导、`auth`、`setup`、`restore` 共用；改 Key 或线路后自动同步仍指向七牛的工具（`getSyncTargets`），`restore` 覆盖有装载记录或指向七牛的工具（`getRestoreTargets`）
 
 **向导系统** (`src/lib/wizard/`):
 - `flows/` — 独立配置流程（语言、线路、API Key、模型选择）
@@ -68,7 +68,8 @@ node dist/cli.js lang show
 - 国内线路: `https://api.qnaigc.com`
 - 海外线路: `https://api.modelink.ai`
 - 支持接口: `/v1/chat/completions`、`/v1/messages`、`/v1/models`
-- API Key 校验: `/v2/stat/usage`（轻量级，验证 token 有效性）
+- API Key 校验: `/v2/stat/usage`（轻量级，验证 token 有效性；账户欠费暂停时仍返回 200）
+- 账户可用性: `checkAccountStatus` 发一次 max_tokens=1 的真实请求（七牛先校验模型再校验计费，无法零成本探测）
 - 认证: Bearer token
 
 ## CLI 命令
