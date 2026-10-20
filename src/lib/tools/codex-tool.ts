@@ -95,6 +95,11 @@ export class CodexTool implements ITool {
     return hasManagedCodexConfig(readCodexConfig());
   }
 
+  // Codex 走七牛的 OpenAI Responses 接口；GPT 模型不出现在 /v1/models 中，所以一律发一次最小的流式请求确认
+  async checkModel(model: string, ctx: { apiKey: string; baseUrl: string }): Promise<string | undefined> {
+    return await probeResponsesStream(ctx.baseUrl, ctx.apiKey, model) ? undefined : 'quick_codex_model_unsupported';
+  }
+
   clearModelConfig(): void {
     const content = readCodexConfig();
     safeWriteFile(CODEX_CONFIG_FILE, normalizeToml(removeTomlTable(content, 'profiles.qn-gpt')));
@@ -155,6 +160,44 @@ export class CodexTool implements ITool {
   renderModelConfigSummary(): void {
     uiRenderer.renderConfigItem(t('config_view_codex_model'), configManager.getModels().codexModel || this.defaultModel);
   }
+}
+
+// 实测（2026-10）：GPT、qwen、glm、kimi 可在七牛 Responses 接口上驱动 Codex，deepseek 返回 502。
+// 探测要求请求成功、每个流式事件都带 type，并以 response.completed / incomplete 结束，Codex 才能正常解析
+export async function probeResponsesStream(baseUrl: string, apiKey: string, model: string): Promise<boolean> {
+  try {
+    const response = await fetch(`${baseUrl.replace(/\/+$/, '')}/bypass/openai/v1/responses`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, input: 'hi', max_output_tokens: 16, stream: true }),
+      signal: AbortSignal.timeout(60000),
+    });
+    if (!response.ok) return false;
+    return isCodexCompatibleStream(await response.text());
+  } catch {
+    return false;
+  }
+}
+
+export function isCodexCompatibleStream(body: string): boolean {
+  const events = body.split('\n')
+    .filter((line) => line.startsWith('data:'))
+    .map((line) => line.slice(5).trim())
+    .filter((data) => data && data !== '[DONE]');
+  if (events.length === 0) return false;
+  let completed = false;
+  for (const data of events) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(data);
+    } catch {
+      return false;
+    }
+    const type = (parsed as { type?: unknown }).type;
+    if (typeof type !== 'string') return false;
+    if (type === 'response.completed' || type === 'response.incomplete') completed = true;
+  }
+  return completed;
 }
 
 export function buildCodexConfig(_existing: string, baseUrl?: string, model?: string, catalogPath?: string): string {

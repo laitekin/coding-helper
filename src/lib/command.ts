@@ -8,9 +8,12 @@ import {
   statusCommand,
   restoreCommand,
   runCommand,
+  quickCommand,
+  isQuickTarget,
+  shortName,
 } from '../commands/index.js';
 import { Wizard } from './wizard/wizard.js';
-import { i18n } from './i18n.js';
+import { i18n, t } from './i18n.js';
 import { toolManager } from './tool-manager.js';
 import { showToolMenu } from './wizard/menus/tool-menu.js';
 import { showMainMenu } from './wizard/menus/main-menu.js';
@@ -34,8 +37,28 @@ export function createProgram(): Command {
     .version(VERSION);
 
   // 默认行为（无子命令）：首次运行触发向导，否则进入主菜单
+  // 第一个参数是工具名或 all 时走单条命令：coding-helper codex sk-xxx [模型]
   program
-    .action(async () => {
+    .argument('[tool]', 'tool name(s) or "all" for one-command setup, e.g. codex or claude,codex')
+    .argument('[args...]', 'API key (sk-...) and/or model ID')
+    .option('--intl', 'use the international endpoint')
+    .option('--dry-run', 'show what would change without writing any file')
+    .option('--json', 'print results as JSON')
+    .option('--no-save', 'do not save the key and model to ~/.coding-helper/config.yaml')
+    .action(async (tool: string | undefined, args: string[], options: { intl?: boolean; dryRun?: boolean; json?: boolean; save?: boolean }) => {
+      if (tool) {
+        if (!isQuickTarget(tool)) {
+          i18n.init();
+          console.error(t('quick_unknown_tool', {
+            tool,
+            tools: toolManager.getAll().map(shortName).join(', '),
+          }));
+          process.exitCode = 1;
+          return;
+        }
+        await quickCommand(tool, args, options);
+        return;
+      }
       const wizard = new Wizard();
       await wizard.run();
     });

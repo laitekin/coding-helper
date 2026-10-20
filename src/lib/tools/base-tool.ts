@@ -32,6 +32,12 @@ export interface ITool {
   // 装载前必须先选择模型（无默认模型可用）
   requiresModelSelection?: boolean;
 
+  // 未指定模型且通用模型不兼容时，该工具自己的默认模型（如 Codex 的 GPT 模型）
+  defaultModel?: string;
+
+  // 检查模型能否用于该工具；返回不兼容的原因（i18n key），undefined 表示可用
+  checkModel?(model: string, ctx: { apiKey: string; baseUrl: string }): Promise<string | undefined>;
+
   // 没有配置文件、只能通过 run 启动器使用的客户端（如 Copilot CLI）
   launchOnly?: boolean;
 

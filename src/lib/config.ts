@@ -47,6 +47,8 @@ interface Config {
 class ConfigManager {
   private config: Config = {};
   private loaded = false;
+  // 会话模式：修改只保留在内存中，不写 config.yaml（单条命令的 --no-save / --dry-run）
+  private sessionOnly = false;
 
   // 确保配置目录存在
   private ensureDir(): void {
@@ -69,8 +71,15 @@ class ConfigManager {
     this.loaded = true;
   }
 
+  // 进入会话模式：之后的修改只在本次进程内生效
+  useSessionOnly(): void {
+    this.load();
+    this.sessionOnly = true;
+  }
+
   // 保存配置
   private save(): void {
+    if (this.sessionOnly) return;
     this.ensureDir();
     const content = yaml.dump(this.config, { lineWidth: -1 });
     fs.writeFileSync(CONFIG_FILE, content, { encoding: 'utf-8', mode: 0o600 });

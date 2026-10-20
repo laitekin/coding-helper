@@ -22,6 +22,7 @@
 
 | 你想要 | 怎么做 |
 |---|---|
+| 一条命令配好某个编程助手 | `npx qiniu-coding-helper codex sk-xxx`，模型可作为第三个参数 |
 | 把本机装好的编程助手全部接入七牛 | `npx qiniu-coding-helper setup`，勾选后一次写完，最后给出汇总表 |
 | 不想动配置文件，只临时用七牛跑一次 | `npx qiniu-coding-helper run claude`，只对这次启动生效 |
 | 先看看会改哪些文件 | `npx qiniu-coding-helper setup --dry-run`，逐文件展示差异，Key 打码，不写入 |
@@ -33,15 +34,27 @@
 
 ## 🚀 快速开始
 
-无需安装，Node.js 18 以上直接运行：
+无需安装，Node.js 18 以上直接运行。**一条命令**：工具名 + API Key（[获取地址](https://portal.qiniu.com/ai-inference/api-key)）+ 可选的模型 ID：
 
 ```bash
-npx qiniu-coding-helper
+npx qiniu-coding-helper codex sk-xxx                              # 模型自动选择
+npx qiniu-coding-helper claude sk-xxx deepseek/deepseek-v4-pro    # 指定模型
+npx qiniu-coding-helper claude,codex,opencode sk-xxx              # 一次配多个
+npx qiniu-coding-helper all sk-xxx                                # 本机已安装的全部
 ```
 
-首次运行会进入 4 步向导：选择语言 → 选择线路（国内 / 海外）→ 输入 API Key（[获取地址](https://portal.qiniu.com/ai-inference/api-key)）→ 勾选要接入的编程助手（默认勾选已安装的）。每个编程助手选好模型后批量写入，最后显示每个工具的结果和原文件的备份位置。
+命令会依次校验 Key、账户和模型，全部通过后才写入配置，最后告诉你怎么启动、怎么撤销：
 
-之后再运行会进入主菜单，第一项「★ 一键配置编码工具」随时可以重新配置。
+```text
+✔ API Key 有效（国内线路 (api.qnaigc.com)）
+✔ 模型 deepseek/deepseek-v4-flash（自动选择，可用第三个参数指定）
+✔ 已配置 OpenCode
+
+运行 opencode 开始使用
+撤销：npx qiniu-coding-helper restore opencode
+```
+
+更喜欢一步步选？直接运行 `npx qiniu-coding-helper`，进入 4 步向导：选择语言 → 线路 → 输入 API Key → 勾选编程助手（默认勾选已安装的）。之后再运行会进入主菜单，第一项「★ 一键配置编码工具」随时可以重新配置。
 
 配置完成后**重启正在运行的编程助手**即可使用。
 
@@ -81,6 +94,7 @@ WorkBuddy 只有 Windows / macOS 桌面版，无法在 Linux 实测。它的配�
 
 | 命令 | 作用 |
 |---|---|
+| `coding-helper <工具\|all> [Key] [模型]` | 一条命令配置指定的编程助手 |
 | `coding-helper` | 首次运行进入向导，之后进入主菜单 |
 | `coding-helper setup` | 一键配置本机的编程助手 |
 | `coding-helper status` | 读取各编程助手的实际配置，显示是否已接入七牛 |
@@ -93,6 +107,31 @@ WorkBuddy 只有 Windows / macOS 桌面版，无法在 Linux 实测。它的配�
 | `coding-helper lang show` / `lang set zh_CN\|en_US` | 查看或切换界面语言 |
 
 以下示例中的 `coding-helper` 都可以写成 `npx qiniu-coding-helper`。工具名支持别名，如 `claude`、`qwen`、`kimi`、`mcode`、`factory`。
+
+### 🎯 一条命令：工具 + Key + 模型
+
+```bash
+coding-helper <工具[,工具…]|all> [API Key] [模型 ID] [选项]
+```
+
+| 位置 | 说明 |
+|---|---|
+| 工具 | 工具名或别名（`claude`、`codex`、`opencode`、`qwen`、`kimi`、`droid`、`grok`、`openclaw`、`mcode`、`copilot`、`codebuddy`、`workbuddy`、`hermes`），逗号分隔多个；`all` 表示本机已安装的全部 |
+| API Key | `sk-` 开头。省略时依次使用环境变量 `QINIU_API_KEY`、已保存的 Key，在终端里会弹出隐藏输入 |
+| 模型 ID | 如 `deepseek/deepseek-v4-flash`。省略时沿用已保存的选择，或从这个 Key 可用、且支持工具调用的模型里按推荐顺序自动选择。漏写厂商前缀（`deepseek-v4-pro`）会自动识别 |
+
+| 选项 | 说明 |
+|---|---|
+| `--intl` | 使用海外线路；不加时，Key 在国内线路无效会自动尝试海外线路 |
+| `--dry-run` | 只预览变更，不写入 |
+| `--json` | 输出 JSON（含 `endpoint`、`model`、`modelSource`、`toolModels`、每个工具的结果） |
+| `--no-save` | 不把 Key 和模型存入 `~/.coding-helper/config.yaml`，只写工具配置 |
+
+**写入前的检查：** Key 无效、账户欠费暂停、模型不可用或不支持工具调用时，命令直接停止（退出码 1），不改动任何文件，并给出下一步操作；模型名写错时会列出相近的模型。
+
+**Codex 的模型：** Codex 通过七牛的 Responses 接口工作，命令会先发一次最小请求确认模型可用。实测 GPT、Qwen、GLM、Kimi 系列可用，DeepSeek 暂不可用。不指定模型时 Codex 使用 `openai/gpt-6-astra`；和其他工具一起配置时，不兼容的模型只会跳过 Codex。
+
+**Key 的安全：** 写在命令里的 Key 会留在 shell 历史中，命令结束时会提示。更稳妥的写法是 `QINIU_API_KEY=sk-xxx npx qiniu-coding-helper codex`，或在命令前加一个空格（多数 shell 不记录）。
 
 ### ⚡ setup：一键配置
 

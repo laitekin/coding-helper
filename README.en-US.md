@@ -22,6 +22,7 @@ Running Claude Code, Codex and friends on the Qiniu API normally means opening e
 
 | You want to | Run |
 |---|---|
+| Configure one coding assistant in one command | `npx qiniu-coding-helper codex sk-xxx`, optional model as the third argument |
 | Connect every installed coding assistant to Qiniu | `npx qiniu-coding-helper setup` — pick the tools, everything is written in one go, then a summary table |
 | Use Qiniu for one session without touching config files | `npx qiniu-coding-helper run claude` |
 | See what would change first | `npx qiniu-coding-helper setup --dry-run` — a per-file diff with the key masked, nothing written |
@@ -33,15 +34,27 @@ Running Claude Code, Codex and friends on the Qiniu API normally means opening e
 
 ## 🚀 Quick start
 
-No install needed, Node.js 18+:
+No install needed, Node.js 18+. **One command**: tool name + API key ([get one](https://portal.qiniu.com/ai-inference/api-key)) + optional model ID:
 
 ```bash
-npx qiniu-coding-helper
+npx qiniu-coding-helper codex sk-xxx                              # model chosen automatically
+npx qiniu-coding-helper claude sk-xxx deepseek/deepseek-v4-pro    # pick a model
+npx qiniu-coding-helper claude,codex,opencode sk-xxx              # several tools
+npx qiniu-coding-helper all sk-xxx                                # every installed tool
 ```
 
-The first run is a 4-step wizard: language → endpoint (China / international) → API key ([get one](https://portal.qiniu.com/ai-inference/api-key)) → tick the coding assistants to connect (installed ones are pre-ticked). After choosing models, everything is written at once and you get a result for each tool plus where the original files were backed up.
+The key, account and model are checked before anything is written; the output ends with how to start and how to undo:
 
-Later runs open the main menu, whose first item "★ Set Up Coding Tools in One Go" reconfigures at any time.
+```text
+✔ API key is valid (China (api.qnaigc.com))
+✔ Model deepseek/deepseek-v4-flash (chosen automatically, pass a third argument to pick one)
+✔ Configured OpenCode
+
+Run opencode to start
+Undo: npx qiniu-coding-helper restore opencode
+```
+
+Prefer to choose step by step? Run `npx qiniu-coding-helper` for the 4-step wizard: language → endpoint → API key → tick coding assistants (installed ones pre-ticked). Later runs open the main menu, whose first item "★ Set Up Coding Tools in One Go" reconfigures at any time.
 
 **Restart any coding assistant that is already running** and you're done.
 
@@ -81,6 +94,7 @@ WorkBuddy only ships Windows / macOS desktop builds, so it can't be tested on Li
 
 | Command | What it does |
 |---|---|
+| `coding-helper <tool\|all> [key] [model]` | Configure the given coding assistants in one command |
 | `coding-helper` | Wizard on first run, main menu afterwards |
 | `coding-helper setup` | Configure the coding assistants on this machine |
 | `coding-helper status` | Read each tool's actual config and show whether it points to Qiniu |
@@ -93,6 +107,31 @@ WorkBuddy only ships Windows / macOS desktop builds, so it can't be tested on Li
 | `coding-helper lang show` / `lang set zh_CN\|en_US` | Show or change the UI language |
 
 `coding-helper` in the examples below can be written as `npx qiniu-coding-helper`. Tool names accept aliases such as `claude`, `qwen`, `kimi`, `mcode`, `factory`.
+
+### 🎯 One command: tool + key + model
+
+```bash
+coding-helper <tool[,tool…]|all> [API key] [model ID] [options]
+```
+
+| Position | Meaning |
+|---|---|
+| Tool | Name or alias (`claude`, `codex`, `opencode`, `qwen`, `kimi`, `droid`, `grok`, `openclaw`, `mcode`, `copilot`, `codebuddy`, `workbuddy`, `hermes`), comma-separated; `all` means every installed tool |
+| API key | Starts with `sk-`. If omitted: `QINIU_API_KEY`, then the saved key, then a hidden prompt in a terminal |
+| Model ID | e.g. `deepseek/deepseek-v4-flash`. If omitted: the saved choice, or the first recommended model this key can use that supports tool calling. A missing vendor prefix (`deepseek-v4-pro`) is resolved automatically |
+
+| Option | Meaning |
+|---|---|
+| `--intl` | Use the international endpoint; without it, a key rejected on the China endpoint is retried on the international one |
+| `--dry-run` | Preview only |
+| `--json` | JSON output (`endpoint`, `model`, `modelSource`, `toolModels`, per-tool results) |
+| `--no-save` | Don't store the key and model in `~/.coding-helper/config.yaml`; only write tool configs |
+
+**Checks before writing:** an invalid key, a billing-suspended account, or a model that's unavailable or lacks tool calling stops the command (exit code 1) without touching any file, and tells you what to do next; a mistyped model gets a list of similar ones.
+
+**Codex models:** Codex works through Qiniu's Responses API, so the command first sends one minimal request to confirm the model works there. GPT, Qwen, GLM and Kimi models work in testing; DeepSeek doesn't yet. Without a model, Codex uses `openai/gpt-6-astra`; when configured together with other tools, an incompatible model only skips Codex.
+
+**Keeping the key safe:** a key typed into the command stays in your shell history (you'll get a reminder). Safer: `QINIU_API_KEY=sk-xxx npx qiniu-coding-helper codex`, or prefix the command with a space (most shells won't record it).
 
 ### ⚡ setup
 
