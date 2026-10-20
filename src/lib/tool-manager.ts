@@ -9,6 +9,9 @@ import { QwenCodeTool } from './tools/qwen-code-tool.js';
 import { KimiCodeTool } from './tools/kimi-code-tool.js';
 import { DroidTool } from './tools/droid-tool.js';
 import { CopilotTool } from './tools/copilot-tool.js';
+import { GrokTool } from './tools/grok-tool.js';
+import { OpenClawTool } from './tools/openclaw-tool.js';
+import { MinimaxCodeTool } from './tools/minimax-code-tool.js';
 
 // 工具注册中心
 class ToolManager {
@@ -22,6 +25,9 @@ class ToolManager {
     this.register(new QwenCodeTool());
     this.register(new KimiCodeTool());
     this.register(new DroidTool());
+    this.register(new GrokTool());
+    this.register(new OpenClawTool());
+    this.register(new MinimaxCodeTool());
     this.register(new CopilotTool());
     this.register(new CodeBuddyTool());
     this.register(new WorkBuddyTool());

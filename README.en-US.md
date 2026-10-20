@@ -6,7 +6,7 @@
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Node.js Version](https://img.shields.io/node/v/qiniu-coding-helper.svg)](https://nodejs.org)
 
-**The CLI helper for configuring Claude Code, Codex, OpenCode, Qwen Code, Kimi Code, Factory Droid, Copilot CLI, CodeBuddy, WorkBuddy, and Hermes Agent with Qiniu AI API endpoints**
+**The CLI helper for configuring Claude Code, Codex, OpenCode, Qwen Code, Kimi Code, Factory Droid, Grok CLI, OpenClaw, MiniMax Code, Copilot CLI, CodeBuddy, WorkBuddy, and Hermes Agent with Qiniu AI API endpoints**
 
 [简体中文](README.md) · [Supported Tools](#-supported-tools) · [Features](#-features) · [Prerequisites](#-prerequisites) · [Quick Start](#-quick-start) · [Commands](#-commands) · [Configuration](#-configuration) · [FAQ](#-faq)
 
@@ -27,6 +27,9 @@
 | Qwen Code | CLI | `~/.qwen/settings.json` (key in `~/.qwen/.env`) |
 | Kimi Code CLI | CLI | `~/.kimi-code/config.toml` |
 | Factory Droid | CLI | `customModels` in `~/.factory/settings.json` |
+| Grok CLI | CLI | `[model.qiniu]` and `[models] default` in `~/.grok/config.toml` |
+| OpenClaw | CLI | `models.providers.qiniu` and the primary model in `~/.openclaw/openclaw.json` |
+| MiniMax Code | CLI | Runs `mcode provider add`, which writes `~/.minimax/config.yaml` |
 | GitHub Copilot CLI | CLI | No config file; launch with `coding-helper run copilot` |
 
 ## ✨ Features
@@ -164,7 +167,7 @@ npx qiniu-coding-helper run copilot
 npx qiniu-coding-helper run claude -- --continue
 ```
 
-OpenCode, Qwen Code, Kimi Code CLI, Factory Droid and Copilot CLI share one model: choose it once under "Configure Models" and `setup --yes` reuses it. `setup --dry-run` previews how each file would change (API Key masked) without writing anything.
+OpenCode, Qwen Code, Kimi Code CLI, Factory Droid, Grok CLI, OpenClaw, MiniMax Code and Copilot CLI share one model: choose it once under "Configure Models" and `setup --yes` reuses it. `setup --dry-run` previews how each file would change (API Key masked) without writing anything.
 
 ---
 
@@ -414,6 +417,14 @@ Treat `~/.hermes/config.yaml` like a password because the API Key is stored in p
 2. Run `npx qiniu-coding-helper auth reload hermes` to rewrite `~/.hermes/config.yaml`
 3. Confirm `model.provider` is `custom` in `~/.hermes/config.yaml`
 4. Restart Hermes Agent if it was already running
+
+### Is Gemini CLI supported?
+
+Not yet. Gemini CLI only speaks the native Gemini protocol (`/v1beta`), which Qiniu endpoints don't serve yet.
+
+### OpenClaw says the config is JSON5
+
+If `~/.openclaw/openclaw.json` contains comments or trailing commas, Coding Helper won't rewrite it so your comments aren't lost. Remove them and retry.
 
 ### API errors or authentication failures
 

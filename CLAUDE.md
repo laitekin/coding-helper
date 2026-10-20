@@ -45,7 +45,7 @@ node dist/cli.js lang show
 - `modelService` — 从 `/v1/models` 获取模型列表，带内存缓存
 - `toolManager` — 工具注册中心，当前只注册 ClaudeCodeTool
 
-**工具扩展**: 实现 `ITool` 接口 (`src/lib/tools/base-tool.ts`)，在 `ToolManager` 中注册即可。OpenAI 兼容的客户端（OpenCode、Qwen Code、Kimi Code CLI、Factory Droid、Copilot CLI）继承 `OpenAICompatTool`，共用 `toolModels` / `defaultModel` 模型配置；只支持环境变量的客户端设 `launchOnly` 并实现 `getLaunchEnv`。TOML / .env 用 `core/toml-edit.ts`、`core/dotenv-edit.ts` 按行编辑。
+**工具扩展**: 实现 `ITool` 接口 (`src/lib/tools/base-tool.ts`)，在 `ToolManager` 中注册即可。OpenAI 兼容的客户端（OpenCode、Qwen Code、Kimi Code CLI、Factory Droid、Grok CLI、OpenClaw、MiniMax Code、Copilot CLI）继承 `OpenAICompatTool`，共用 `toolModels` / `defaultModel` 模型配置；只支持环境变量的客户端设 `launchOnly` 并实现 `getLaunchEnv`。TOML / .env 用 `core/toml-edit.ts`、`core/dotenv-edit.ts` 按行编辑。MiniMax Code 的配置结构未公开，写入走官方 `mcode provider add`。Gemini CLI 需要 Gemini 原生协议（/v1beta），七牛线路暂无，未接入。
 
 **核心层** (`src/lib/core/`):
 - `safe-write.ts` — 写客户端配置一律用 `safeWriteFile`（备份到 `~/.coding-helper/backups/<时间戳>/` + 原子写入；`setDryRun` 时只记录变更，供 `setup --dry-run`）；读用户 JSON 用 `readJsonObjectStrict`，解析失败抛错，绝不按空对象覆盖

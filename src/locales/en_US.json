@@ -209,5 +209,7 @@
   "dry_run_modify": "modify",
   "dry_run_delete": "delete",
   "dry_run_no_changes": "No files would change",
-  "dry_run_footer": "Dry run: nothing above was written. Run again without --dry-run to apply."
+  "dry_run_footer": "Dry run: nothing above was written. Run again without --dry-run to apply.",
+  "openclaw_json5_unsupported": "{{file}} contains comments or trailing commas (JSON5) and cannot be rewritten safely. Remove them first, or add the Qiniu provider by hand",
+  "minimax_provider_add_failed": "mcode provider add failed: {{error}}"
 }

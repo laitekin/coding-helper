@@ -9,3 +9,6 @@ export { QwenCodeTool } from './qwen-code-tool.js';
 export { KimiCodeTool } from './kimi-code-tool.js';
 export { DroidTool } from './droid-tool.js';
 export { CopilotTool } from './copilot-tool.js';
+export { GrokTool } from './grok-tool.js';
+export { OpenClawTool } from './openclaw-tool.js';
+export { MinimaxCodeTool } from './minimax-code-tool.js';

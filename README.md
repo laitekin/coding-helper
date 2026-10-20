@@ -6,7 +6,7 @@
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Node.js Version](https://img.shields.io/node/v/qiniu-coding-helper.svg)](https://nodejs.org)
 
-**一站式配置 Claude Code、Codex、OpenCode、Qwen Code、Kimi Code、Factory Droid、Copilot CLI、CodeBuddy、WorkBuddy 和 Hermes Agent 使用七牛 AI API 端点的 CLI 工具**
+**一站式配置 Claude Code、Codex、OpenCode、Qwen Code、Kimi Code、Factory Droid、Grok CLI、OpenClaw、MiniMax Code、Copilot CLI、CodeBuddy、WorkBuddy 和 Hermes Agent 使用七牛 AI API 端点的 CLI 工具**
 
 [English](README.en-US.md) · [支持的工具](#-支持的工具) · [功能特性](#-功能特性) · [前置要求](#-前置要求) · [快速开始](#-快速开始) · [命令一览](#-命令一览) · [配置说明](#-配置说明) · [常见问题](#-常见问题)
 
@@ -27,6 +27,9 @@
 | Qwen Code | CLI | `~/.qwen/settings.json`（Key 写入 `~/.qwen/.env`） |
 | Kimi Code CLI | CLI | `~/.kimi-code/config.toml` |
 | Factory Droid | CLI | `~/.factory/settings.json` 的 `customModels` |
+| Grok CLI | CLI | `~/.grok/config.toml` 的 `[model.qiniu]` 与 `[models] default` |
+| OpenClaw | CLI | `~/.openclaw/openclaw.json` 的 `models.providers.qiniu` 与主模型 |
+| MiniMax Code | CLI | 调用 `mcode provider add` 写入 `~/.minimax/config.yaml` |
 | GitHub Copilot CLI | CLI | 无配置文件，通过 `coding-helper run copilot` 启动 |
 
 ## ✨ 功能特性
@@ -164,7 +167,7 @@ npx qiniu-coding-helper run copilot
 npx qiniu-coding-helper run claude -- --continue
 ```
 
-OpenCode、Qwen Code、Kimi Code CLI、Factory Droid、Copilot CLI 使用同一个模型：在「配置模型」中选一次，之后 `setup --yes` 会复用。`setup --dry-run` 可以先预览每个文件将如何改动（Key 打码），不写入任何文件。
+OpenCode、Qwen Code、Kimi Code CLI、Factory Droid、Grok CLI、OpenClaw、MiniMax Code、Copilot CLI 使用同一个模型：在「配置模型」中选一次，之后 `setup --yes` 会复用。`setup --dry-run` 可以先预览每个文件将如何改动（Key 打码），不写入任何文件。
 
 ---
 
@@ -412,6 +415,14 @@ model:
 2. 运行 `npx qiniu-coding-helper auth reload hermes` 重写 `~/.hermes/config.yaml`
 3. 检查 `~/.hermes/config.yaml` 中 `model.provider` 是否为 `custom`
 4. 如果 Hermes Agent 已经在运行，请重启
+
+### 支持 Gemini CLI 吗？
+
+暂不支持。Gemini CLI 只能使用 Gemini 原生协议（`/v1beta`），七牛线路目前还没有提供这个接口。
+
+### OpenClaw 提示配置是 JSON5
+
+`~/.openclaw/openclaw.json` 含注释或尾逗号时，为避免丢失注释，Coding Helper 不会改写它。删掉注释和尾逗号后重试即可。
 
 ### API 报错或认证失败
 

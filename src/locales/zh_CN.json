@@ -222,5 +222,7 @@
   "dry_run_modify": "修改",
   "dry_run_delete": "删除",
   "dry_run_no_changes": "没有需要修改的文件",
-  "dry_run_footer": "预演模式：以上变更均未写入。去掉 --dry-run 即可执行。"
+  "dry_run_footer": "预演模式：以上变更均未写入。去掉 --dry-run 即可执行。",
+  "openclaw_json5_unsupported": "{{file}} 含注释或尾逗号（JSON5），无法安全改写。请先删掉注释和尾逗号，或手动添加七牛 provider",
+  "minimax_provider_add_failed": "mcode provider add 失败：{{error}}"
 }

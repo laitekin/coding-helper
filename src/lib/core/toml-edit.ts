@@ -89,3 +89,61 @@ export function normalizeToml(content: string): string {
   const trimmed = content.trim();
   return trimmed ? `${trimmed}\n` : '';
 }
+
+// 表的行范围 [表头行, 下一个表头行)；不存在时返回 undefined
+function tableRange(lines: string[], tableName: string): [number, number] | undefined {
+  const start = lines.findIndex((line) => isTomlTableHeader(line) && tomlTableName(line) === tableName);
+  if (start < 0) return undefined;
+  let end = start + 1;
+  while (end < lines.length && !isTomlTableHeader(lines[end])) end++;
+  return [start, end];
+}
+
+// 读取 [table] 下某个键的原始值文本
+export function getTomlTableValue(content: string, tableName: string, key: string): string | undefined {
+  const lines = content.split('\n');
+  const range = tableRange(lines, tableName);
+  if (!range) return undefined;
+  const pattern = topLevelKeyPattern(key);
+  for (let i = range[0] + 1; i < range[1]; i++) {
+    const trimmed = lines[i].trim();
+    if (pattern.test(trimmed)) return trimmed.replace(pattern, '').trim();
+  }
+  return undefined;
+}
+
+// 设置 [table] 下的键；表不存在时追加到文件末尾
+export function upsertTomlTableKey(content: string, tableName: string, key: string, rawValue: string): string {
+  const lines = content.split('\n');
+  const line = `${key} = ${rawValue}`;
+  const range = tableRange(lines, tableName);
+  if (!range) {
+    const body = content.trim();
+    return `${body ? `${body}\n\n` : ''}[${tableName}]\n${line}\n`;
+  }
+  const pattern = topLevelKeyPattern(key);
+  for (let i = range[0] + 1; i < range[1]; i++) {
+    if (pattern.test(lines[i].trim())) {
+      lines[i] = line;
+      return lines.join('\n');
+    }
+  }
+  let insertAt = range[1];
+  while (insertAt > range[0] + 1 && lines[insertAt - 1].trim() === '') insertAt--;
+  lines.splice(insertAt, 0, line);
+  return lines.join('\n');
+}
+
+// 删除 [table] 下的键；表因此变空时连表头一起删除
+export function removeTomlTableKey(content: string, tableName: string, key: string): string {
+  const lines = content.split('\n');
+  const range = tableRange(lines, tableName);
+  if (!range) return content;
+  const pattern = topLevelKeyPattern(key);
+  const kept = lines.filter((line, i) => i <= range[0] || i >= range[1] || !pattern.test(line.trim()));
+  const after = tableRange(kept, tableName);
+  if (after && kept.slice(after[0] + 1, after[1]).every((l) => !l.trim())) {
+    kept.splice(after[0], after[1] - after[0]);
+  }
+  return kept.join('\n');
+}
