@@ -3,7 +3,7 @@
 支持多家 TTS，Key 一律从环境变量读取，不写进仓库：
   edge      edge-tts（免费，无需 Key）
   dashscope 阿里云百炼 CosyVoice        DASHSCOPE_API_KEY
-  volc      火山引擎豆包语音合成大模型    VOLC_TTS_TOKEN（控制台 API Key）
+  volc      火山引擎豆包语音合成 2.0      VOLC_TTS_APPID + VOLC_TTS_ACCESS_TOKEN，或 VOLC_TTS_TOKEN（API Key）
   minimax   MiniMax 语音合成             MINIMAX_API_KEY
 
 用法: .venv/bin/python audio/tts.py audio/lines.json audio/out/vo [--provider edge] [--voice 音色] [--only s01,s05]
@@ -62,9 +62,14 @@ def dashscope(text: str, voice: str, line: dict) -> bytes:
 
 
 def volc(text: str, voice: str, line: dict) -> bytes:
-    # 新版控制台的 API Key（UUID 格式）走 v3 接口的 X-Api-Key 鉴权；返回逐行 JSON，data 为 base64 音频分片
+    # v3 接口：有 AppID + Access Token 时用这对鉴权，否则用新版控制台的 API Key（X-Api-Key）
+    # 返回逐行 JSON，data 为 base64 音频分片；seed-tts-2.0 只能配 *_uranus_bigtts 这类 2.0 音色
+    if os.environ.get("VOLC_TTS_ACCESS_TOKEN"):
+        auth = {"X-Api-App-Id": os.environ["VOLC_TTS_APPID"], "X-Api-Access-Key": os.environ["VOLC_TTS_ACCESS_TOKEN"]}
+    else:
+        auth = {"X-Api-Key": os.environ["VOLC_TTS_TOKEN"]}
     headers = {
-        "X-Api-Key": os.environ["VOLC_TTS_TOKEN"],
+        **auth,
         "X-Api-Resource-Id": os.environ.get("VOLC_TTS_RESOURCE", "seed-tts-2.0"),
         "X-Api-Request-Id": str(uuid.uuid4()),
     }
