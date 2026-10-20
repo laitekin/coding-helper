@@ -17,6 +17,11 @@ on:
         required: true
         type: boolean
         default: false
+      package_name:
+        description: "发布到 npm 的包名（fork 仓库可改为自己的 scope，如 @your-name/coding-helper）"
+        required: true
+        type: string
+        default: qiniu-coding-helper
 
 permissions:
   contents: write
@@ -68,6 +73,7 @@ jobs:
         id: release
         env:
           BUMP: ${{ inputs.bump }}
+          PACKAGE_NAME: ${{ inputs.package_name }}
         run: |
           set -euo pipefail
 
@@ -91,8 +97,8 @@ jobs:
             exit 1
           fi
 
-          if npm view "qiniu-coding-helper@${VERSION}" version >/dev/null 2>&1; then
-            echo "npm version already exists: qiniu-coding-helper@${VERSION}" >&2
+          if npm view "${PACKAGE_NAME}@${VERSION}" version >/dev/null 2>&1; then
+            echo "npm version already exists: ${PACKAGE_NAME}@${VERSION}" >&2
             exit 1
           fi
 
@@ -139,6 +145,16 @@ jobs:
             const changelog = fs.readFileSync(changelogPath, "utf8");
             const today = new Date().toISOString().slice(0, 10);
             const versionNumber = version.replace(/^v/, "");
+
+            // 已手写「Unreleased」段落时，直接把它定为本次版本，不再追加自动生成的条目
+            if (/^## \[Unreleased\]\s*$/m.test(changelog)) {
+              fs.writeFileSync(
+                changelogPath,
+                changelog.replace(/^## \[Unreleased\]\s*$/m, `## [${versionNumber}] - ${today}`),
+              );
+              return;
+            }
+
             const entry = [
               `## [${versionNumber}] - ${today}`,
               "",
@@ -273,6 +289,7 @@ jobs:
           PREVIOUS_TAG: ${{ steps.release.outputs.previous_tag }}
           COMMIT_SHA: ${{ steps.commit.outputs.commit_sha }}
           PRERELEASE: ${{ inputs.prerelease }}
+          PACKAGE_NAME: ${{ inputs.package_name }}
         with:
           script: |
             const { owner, repo } = context.repo;
@@ -300,10 +317,12 @@ jobs:
                 .replace(/^\*Full Changelog\*: (.+)$/gm, "**完整变更记录**：$1");
             }
 
+            const packageName = process.env.PACKAGE_NAME;
             const npmIntro = [
               "## npm 包",
               "",
-              `- 包名：\`qiniu-coding-helper@${version.replace(/^v/, "")}\``,
+              `- 包名：\`${packageName}@${version.replace(/^v/, "")}\``,
+              `- 运行：\`npx ${packageName}\``,
               "",
             ].join("\n");
 
@@ -322,8 +341,18 @@ jobs:
               .addHeading(`已发布 ${version}`)
               .addLink("GitHub Release", release.data.html_url)
               .addBreak()
-              .addRaw(`npm 包：qiniu-coding-helper@${version.replace(/^v/, "")}`)
+              .addRaw(`npm 包：${process.env.PACKAGE_NAME}@${version.replace(/^v/, "")}`)
               .write();
 
+      # 包名只在发布时改，不写回仓库，便于 fork 与上游保持同一份代码
+      - name: Set package name
+        if: inputs.package_name != 'qiniu-coding-helper'
+        env:
+          PACKAGE_NAME: ${{ inputs.package_name }}
+        run: npm pkg set "name=${PACKAGE_NAME}"
+
+      # 优先使用仓库的 NPM_TOKEN secret；未配置时走 npm trusted publishing（OIDC）
       - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --access public --provenance

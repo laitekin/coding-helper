@@ -9,13 +9,14 @@
     "coding-helper": "dist/cli.js"
   },
   "scripts": {
-    "build": "tsc && rm -rf dist/locales && cp -r src/locales dist/locales",
+    "build": "tsc && node scripts/copy-locales.mjs",
     "test": "pnpm build && node --test tests/*.test.mjs",
     "test:interactive": "pnpm build && node scripts/codex-interactive-check.mjs",
     "dev": "tsc --watch",
     "start": "node dist/cli.js",
-    "clean": "rm -rf dist",
-    "prepublishOnly": "pnpm build"
+    "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
+    "prepare": "npm run build",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "qiniu",
