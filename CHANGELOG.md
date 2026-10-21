@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.6.3] - 2026-10-21
 
 ### 变更
 * **交互只用方向键、回车和 Esc。** 字母 / 数字快捷键不再显示，底部统一「↑↓ 选择 · 回车 确认 · Esc 返回」；需要搜索的列表直接打字
