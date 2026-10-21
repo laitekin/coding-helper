@@ -91,7 +91,7 @@ export async function setupCommand(options: SetupOptions): Promise<void> {
     if (explicit) {
       targets = explicit;
     } else if (interactive) {
-      targets = await selectTools(t('setup_select_tools'));
+      targets = (await selectTools(t('setup_select_tools'))) ?? [];
     } else {
       // 非交互：配置所有已安装的；未安装或无法检测的记为跳过
       targets = [];

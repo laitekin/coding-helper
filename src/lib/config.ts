@@ -19,6 +19,10 @@ export interface ModelConfig {
   toolModels?: Record<string, string>;
   // 通用客户端未单独选择时使用的默认模型
   defaultModel?: string;
+  // 单独设置的模型槽位：工具名 → 槽位 id → 模型；没有记录的槽位跟随主模型
+  slotModels?: Record<string, Record<string, string>>;
+  // 最近选过的模型（最新的在前）
+  recentModels?: string[];
 }
 
 export interface ClaudeCodeConfig {
@@ -73,6 +77,8 @@ interface Config {
   codexModel?: string;
   toolModels?: Record<string, string>;
   defaultModel?: string;
+  slotModels?: Record<string, Record<string, string>>;
+  recentModels?: string[];
 }
 
 // 配置管理器单例
@@ -210,6 +216,8 @@ class ConfigManager {
       codexModel: this.config.codexModel,
       toolModels: this.config.toolModels ? { ...this.config.toolModels } : undefined,
       defaultModel: this.config.defaultModel,
+      slotModels: this.config.slotModels ? structuredClone(this.config.slotModels) : undefined,
+      recentModels: this.config.recentModels ? [...this.config.recentModels] : undefined,
     };
   }
 
@@ -231,7 +239,24 @@ class ConfigManager {
         : undefined;
     }
     if ('defaultModel' in models) this.config.defaultModel = models.defaultModel;
+    // 按工具整体替换；空对象表示该工具的槽位全部跟随主模型
+    if ('slotModels' in models) {
+      const merged = { ...this.config.slotModels };
+      for (const [tool, slots] of Object.entries(models.slotModels ?? {})) {
+        if (Object.keys(slots).length) merged[tool] = { ...slots };
+        else delete merged[tool];
+      }
+      this.config.slotModels = Object.keys(merged).length ? merged : undefined;
+      if (!this.config.slotModels) delete this.config.slotModels;
+    }
+    if ('recentModels' in models) this.config.recentModels = models.recentModels;
     this.save();
+  }
+
+  // 记下最近选过的模型（最多 3 个），模型搜索页置顶显示
+  rememberModel(model: string): void {
+    const recent = [model, ...(this.getModels().recentModels ?? []).filter((m) => m !== model)].slice(0, 3);
+    this.setModels({ recentModels: recent });
   }
 
   // 根据当前线路获取 base URL
@@ -270,14 +295,14 @@ class ConfigManager {
   // 写入前的快照：模型与上下文，用于「查看改动」预演后恢复
   snapshotToolSettings(): string {
     this.load();
-    const { claudeCode, codeBuddyModels, workbuddyModels, hermesModel, codexModel, toolModels, defaultModel, context_windows, context_window } = this.config;
-    return JSON.stringify({ claudeCode, codeBuddyModels, workbuddyModels, hermesModel, codexModel, toolModels, defaultModel, context_windows, context_window });
+    const { claudeCode, codeBuddyModels, workbuddyModels, hermesModel, codexModel, toolModels, defaultModel, slotModels, context_windows, context_window } = this.config;
+    return JSON.stringify({ claudeCode, codeBuddyModels, workbuddyModels, hermesModel, codexModel, toolModels, defaultModel, slotModels, context_windows, context_window });
   }
 
   restoreToolSettings(snapshot: string): void {
     this.load();
     const saved = JSON.parse(snapshot) as Partial<Config>;
-    for (const key of ['claudeCode', 'codeBuddyModels', 'workbuddyModels', 'hermesModel', 'codexModel', 'toolModels', 'defaultModel', 'context_windows', 'context_window'] as const) {
+    for (const key of ['claudeCode', 'codeBuddyModels', 'workbuddyModels', 'hermesModel', 'codexModel', 'toolModels', 'defaultModel', 'slotModels', 'context_windows', 'context_window'] as const) {
       if (saved[key] === undefined) delete this.config[key];
       else (this.config as Record<string, unknown>)[key] = saved[key];
     }

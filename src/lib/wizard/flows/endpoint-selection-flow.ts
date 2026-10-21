@@ -2,7 +2,7 @@ import { t } from '../../i18n.js';
 import { configManager } from '../../config.js';
 import { CUSTOM_ENDPOINT, ENDPOINT_DEFINITIONS } from '../../endpoints.js';
 import { promptHelper } from '../ui/prompt-helper.js';
-import { uiRenderer } from '../ui/ui-renderer.js';
+import { uiRenderer, type StepInfo } from '../ui/ui-renderer.js';
 import { menuPrompt } from '../ui/prompts.js';
 import { modelService } from '../../model-service.js';
 import { marketModelService } from '../../market-model-service.js';
@@ -26,10 +26,9 @@ export async function pickEndpoint(current?: string, currentBaseUrl?: string): P
     default: current,
     escape: true,
     items: [
-      ...Object.entries(ENDPOINT_DEFINITIONS).map(([id, def], i) => ({ value: id, key: String(i + 1), label: t(def.i18nKey) })),
-      { value: CUSTOM_ENDPOINT, key: '3', label: t('endpoint_custom_option'), hint: current === CUSTOM_ENDPOINT ? currentBaseUrl : t('endpoint_custom_hint') },
+      ...Object.entries(ENDPOINT_DEFINITIONS).map(([id, def]) => ({ value: id, label: t(def.i18nKey) })),
+      { value: CUSTOM_ENDPOINT, label: t('endpoint_custom_option'), hint: current === CUSTOM_ENDPOINT ? currentBaseUrl : t('endpoint_custom_hint') },
     ],
-    footer: [['↑↓', t('ui_key_move')], ['⏎', t('ui_key_confirm')], ['esc', t('ui_key_back')]],
   });
   if (action === 'escape') return undefined;
   if (value !== CUSTOM_ENDPOINT) return [value, undefined];
@@ -43,15 +42,14 @@ export async function pickEndpoint(current?: string, currentBaseUrl?: string): P
   }
 }
 
-// 线路选择流程；step 用于首次向导的进度展示
-export async function runEndpointSelectionFlow(step?: { current: number; total: number }): Promise<void> {
-  uiRenderer.renderHeader();
-  if (step) uiRenderer.renderSteps(step.current, step.total, t('menu_configure_endpoint'));
+// 线路选择流程；step 用于首次向导的进度展示。选好返回 true，Esc 返回 false
+export async function runEndpointSelectionFlow(step?: StepInfo): Promise<boolean> {
+  uiRenderer.renderPage(t('menu_configure_endpoint'), step);
   const previous = configManager.getEndpoint();
   const previousUrl = configManager.baseUrl;
 
   const picked = await pickEndpoint(previous, previousUrl);
-  if (!picked) return;
+  if (!picked) return false;
   const [endpoint, customUrl] = picked;
 
   configManager.setEndpoint(endpoint, customUrl);
@@ -63,6 +61,7 @@ export async function runEndpointSelectionFlow(step?: { current: number; total: 
   // 线路变化后同步到已接入的客户端
   if (!step && configManager.baseUrl !== previousUrl && configManager.getApiKey()) {
     const results = await syncAfterChange();
-    if (results.length > 0) await promptHelper.pressEnter();
+    if (results.length > 0) await promptHelper.pressEnter(t('result_back_to_menu'));
   }
+  return true;
 }

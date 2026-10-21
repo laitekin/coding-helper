@@ -4,7 +4,7 @@ import { configManager } from '../../config.js';
 import { validateApiKey, checkAccountStatus, describeAccountStatus } from '../../api-validator.js';
 import { CUSTOM_ENDPOINT, getBaseUrl, otherEndpoint } from '../../endpoints.js';
 import { promptHelper } from '../ui/prompt-helper.js';
-import { uiRenderer } from '../ui/ui-renderer.js';
+import { uiRenderer, type StepInfo } from '../ui/ui-renderer.js';
 import { secretPrompt } from '../ui/prompts.js';
 import { modelService } from '../../model-service.js';
 import { marketModelService } from '../../market-model-service.js';
@@ -12,10 +12,12 @@ import { syncAfterChange } from '../ui/tool-view.js';
 import { logger } from '../../../utils/logger.js';
 import { theme } from '../ui/theme.js';
 
-function render(step?: { current: number; total: number }): void {
-  uiRenderer.renderHeader();
-  if (step) uiRenderer.renderSteps(step.current, step.total, t('menu_configure_apikey'));
+function render(step?: StepInfo): void {
+  uiRenderer.renderPage(t('menu_configure_apikey'), step);
 }
+
+// 完整的 Key（粘贴后自动校验）
+const KEY_PATTERN = /^sk-[A-Za-z0-9_-]{32,}$/;
 
 // 逐条校验：格式 → Key 有效（当前线路不通时自动试另一条）→ 账户可用 → 可用模型数
 async function verifyKey(apiKey: string): Promise<boolean> {
@@ -65,22 +67,30 @@ async function verifyKey(apiKey: string): Promise<boolean> {
   return true;
 }
 
-// API Key 输入和验证流程；step 用于首次向导的进度展示
-export async function runApiKeyFlow(step?: { current: number; total: number }): Promise<boolean> {
+// API Key 输入和验证流程；step 用于首次向导的进度展示。保存（或沿用已保存的 Key）返回 true，Esc 返回 false
+export async function runApiKeyFlow(step?: StepInfo): Promise<boolean> {
+  let error = '';
   while (true) {
     render(step);
+    const saved = configManager.getApiKey();
+    if (error) {
+      logger.log(`  ${theme.danger('✖')} ${error}`);
+      logger.newLine();
+    }
     const apiKey = await secretPrompt({
       message: t('apikey_prompt'),
-      hint: t('apikey_hint_short'),
-      escape: !step,
-      footer: [['⏎', t('ui_key_confirm')], ['ctrl+v', t('ui_key_paste')], ...(!step ? [['esc', t('ui_key_back')] as [string, string]] : [])],
+      hint: saved && step ? t('apikey_keep_hint', { key: uiRenderer.maskApiKey(saved) }) : t('apikey_hint_short'),
+      escape: true,
+      autoSubmit: (value) => KEY_PATTERN.test(value),
     });
+    if (apiKey === undefined) return false;
     if (!apiKey) {
-      if (!step) return false;
-      uiRenderer.renderError(t('apikey_empty'));
-      if (!(await promptHelper.confirm(t('apikey_retry')))) return false;
+      // 向导里回退后再前进：沿用已保存的 Key
+      if (step && saved) return true;
+      error = t('apikey_empty');
       continue;
     }
+    error = '';
 
     logger.newLine();
     if (await verifyKey(apiKey)) {
@@ -93,11 +103,12 @@ export async function runApiKeyFlow(step?: { current: number; total: number }): 
       uiRenderer.renderSuccess(t('apikey_saved'));
       // 换 Key 后同步到已接入的客户端
       if (!step && changed) await syncAfterChange();
-      if (!step) await promptHelper.pressEnter();
+      if (!step) await promptHelper.pressEnter(t('result_back_to_menu'));
       return true;
     }
 
     logger.newLine();
-    if (!(await promptHelper.confirm(t('apikey_retry')))) return false;
+    error = t('apikey_retry_hint');
+    await promptHelper.pressEnter(t('apikey_retry_enter'));
   }
 }

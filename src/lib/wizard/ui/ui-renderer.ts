@@ -16,7 +16,16 @@ export interface ConfigPanelItem {
 }
 
 // 首次向导的步骤
-export const WIZARD_STEP_KEYS = ['step_language', 'step_endpoint', 'step_apikey', 'step_tools', 'step_model'];
+export const WIZARD_STEP_KEYS = ['step_language', 'step_endpoint', 'step_apikey', 'step_tools', 'step_model', 'step_confirm'];
+// 接入 / 切换模型的步骤：选工具 → 选模型 → 确认
+export const FLOW_STEP_KEYS = ['step_tools', 'step_model', 'step_confirm'];
+
+// 流程进度：第几步、共几步、各步名称（默认为首次向导）
+export interface StepInfo {
+  current: number;
+  total: number;
+  keys?: string[];
+}
 
 // 配置文件当前指向七牛的工具
 export function connectedToolNames(): string[] {
@@ -109,9 +118,23 @@ export const uiRenderer = {
     logger.newLine();
   },
 
+  // 内容页页头：紧凑页头 + 进度条（流程中）或标题
+  renderPage(title: string, step?: StepInfo, subtitle?: string): void {
+    this.renderHeader();
+    if (step) {
+      this.renderSteps(step.current, step.total, title, step.keys);
+      if (subtitle) {
+        logger.log(`  ${theme.subtle(subtitle)}`);
+        logger.newLine();
+      }
+    } else {
+      this.renderTitle(title, subtitle);
+    }
+  },
+
   // 向导进度条：● 语言 ── ● 线路 ── ◉ API Key ── ○ 工具 ── ○ 模型   3/5
-  renderSteps(current: number, total: number, _title?: string): void {
-    const labels = WIZARD_STEP_KEYS.slice(0, total).map((key) => t(key));
+  renderSteps(current: number, total: number, _title?: string, keys: string[] = WIZARD_STEP_KEYS): void {
+    const labels = keys.slice(0, total).map((key) => t(key));
     const parts = labels.map((label, i) => {
       if (i < current - 1) return `${theme.success('●')} ${theme.value(label)}`;
       if (i === current - 1) return `${theme.brandBold('◉')} ${chalk.bold.hex('#E8F6FF')(label)}`;

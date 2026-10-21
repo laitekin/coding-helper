@@ -2,6 +2,7 @@ import {
   createPrompt,
   useKeypress,
   useState,
+  useEffect,
   usePagination,
   useMemo,
   isEnterKey,
@@ -16,10 +17,13 @@ import { theme } from './theme.js';
 import { t } from '../../i18n.js';
 import { padVisible, visibleWidth, truncate } from '../../../utils/string-width.js';
 
-// 底部快捷键条：[按键, 说明]
+// 交互只依赖 ↑↓←→、回车、Esc；字母 / 数字键只作为隐藏的加速键，界面上不提示
+
+// 底部提示：[按键, 说明]
 export type KeyHint = [string, string];
 
 const ACTIVE_BG = '#0F2633';
+const MATCH = chalk.hex('#19C2F0').underline;
 
 // 光标隐藏（与 @inquirer/select 一致，避免闪烁）
 const CURSOR_HIDE = '\x1B[?25l';
@@ -32,22 +36,38 @@ function isEscape(key: KeypressEvent): boolean {
   return key.name === 'escape';
 }
 
-// 快捷键条：放不下时按整组换行，不把一组拆开
+function isPrintable(key: KeypressEvent): boolean {
+  const seq = sequenceOf(key);
+  return !key.ctrl && seq.length === 1 && seq >= ' ' && seq !== '\x7f';
+}
+
+// 底部提示：一行，淡色；放不下时按整组换行
 export function renderKeyHints(hints: KeyHint[]): string {
   const max = terminalWidth() - 4;
   const lines: string[] = [];
   let line = '';
   for (const [k, text] of hints) {
-    const part = `${chalk.hex('#C9D3DC').bgHex('#1C2733')(` ${k} `)} ${theme.subtle(text)}`;
-    if (line && visibleWidth(line) + 2 + visibleWidth(part) > max) {
+    const part = `${theme.value(k)} ${theme.subtle(text)}`;
+    if (line && visibleWidth(line) + 5 + visibleWidth(part) > max) {
       lines.push(line);
       line = part;
     } else {
-      line = line ? `${line}  ${part}` : part;
+      line = line ? `${line}${theme.subtle('  ·  ')}${part}` : part;
     }
   }
   if (line) lines.push(line);
   return lines.join('\n  ');
+}
+
+// 标准提示：↑↓ 选择 · 回车 确认 · Esc 返回
+export function standardHints(options: { back?: boolean; search?: boolean; tabs?: boolean; enter?: string } = {}): KeyHint[] {
+  return [
+    ['↑↓', t('ui_key_move')],
+    ...(options.tabs ? [['←→', t('ui_key_tabs')] as KeyHint] : []),
+    [t('ui_key_enter'), options.enter ?? t('ui_key_confirm')],
+    ...(options.back !== false ? [['Esc', t('ui_key_back')] as KeyHint] : []),
+    ...(options.search ? [[t('ui_key_type'), t('ui_key_search')] as KeyHint] : []),
+  ];
 }
 
 function terminalWidth(): number {
@@ -64,6 +84,23 @@ function highlightRow(text: string, width: number): string {
   return chalk.bgHex(ACTIVE_BG)(padVisible(text, width));
 }
 
+// 在标签里高亮搜索词：按顺序匹配字母数字（忽略 - / . 和空格），匹配到的字符加下划线
+export function highlightMatch(label: string, query: string): string {
+  const q = query.toLowerCase().replace(/[^a-z0-9一-鿿]/g, '');
+  if (!q) return label;
+  let qi = 0;
+  let out = '';
+  for (const ch of label) {
+    if (qi < q.length && ch.toLowerCase() === q[qi]) {
+      out += MATCH(ch);
+      qi++;
+    } else {
+      out += ch;
+    }
+  }
+  return qi === q.length ? out : label;
+}
+
 // ─── 菜单 ─────────────────────────────────────────────────────────
 
 export interface MenuItem<T> {
@@ -73,13 +110,15 @@ export interface MenuItem<T> {
   hint?: string;
   // 选中时显示在列表下方
   description?: string;
-  // 快捷键：按下直接选中并确认（数字或字母）
+  // 隐藏的加速键（数字或字母），按下直接选中并确认；不可搜索的菜单才生效
   key?: string;
   // 左侧图标（已着色），需定宽
   icon?: string;
   disabled?: boolean;
   // 搜索时额外匹配的文本
   search?: string;
+  // 只在没有搜索词、且在第一个标签页时显示（如「最近使用」）
+  pinned?: boolean;
 }
 
 export interface MenuSeparator {
@@ -88,25 +127,42 @@ export interface MenuSeparator {
 
 export type MenuEntry<T> = MenuItem<T> | MenuSeparator;
 
+export interface MenuTab<T> {
+  label: string;
+  match: (item: MenuItem<T>) => boolean;
+}
+
 export interface MenuConfig<T> {
   message: string;
   items: MenuEntry<T>[];
   default?: T;
   footer?: KeyHint[];
-  // 作用于当前选中项的快捷键（如 m 换模型），按下后返回 { value, action }
+  // 作用于当前选中项的隐藏加速键，按下后返回 { value, action }
   actions?: string[];
-  // 允许 esc 返回（返回 action 'escape'）
+  // 允许 Esc 返回（返回 action 'escape'）
   escape?: boolean;
-  // 按 / 进入搜索
+  // 直接打字即过滤；filter 返回匹配分数（越小越靠前），undefined 表示不匹配
   searchable?: boolean;
+  filter?: (item: MenuItem<T>, query: string) => number | undefined;
   // 搜索时附加「使用输入的值」，选中返回 action 'custom' 与 query
   customLabel?: (query: string) => string;
+  // 没有匹配时显示的提示，以及可直接选择的建议（如最相近的几项）
+  emptyText?: (query: string) => string;
+  suggest?: (query: string) => MenuItem<T>[];
+  // 高亮用的搜索词（如去掉 200k、看图 这类过滤词）
+  highlight?: (query: string) => string;
+  // ←→ 切换的标签页；搜索时自动看全部
+  tabs?: MenuTab<T>[];
+  // 没有标签页时，→ / ← 返回 action 'right' / 'left'（如展开一行的详情）
+  arrows?: boolean;
+  // 选中项变化时异步取一行补充信息（如模型兼容性），结果按 value 缓存
+  asyncDetail?: (item: MenuItem<T>) => Promise<string> | string | undefined;
   pageSize?: number;
 }
 
 export interface MenuResult<T> {
   value: T;
-  // 触发的快捷操作；回车或 item.key 时为 undefined
+  // 'escape' | 'custom' | 'left' | 'right' | 隐藏加速键；回车选中时为 undefined
   action?: string;
   query?: string;
 }
@@ -115,32 +171,60 @@ function isSeparator<T>(entry: MenuEntry<T>): entry is MenuSeparator {
   return 'separator' in entry;
 }
 
-function selectable<T>(entry: MenuEntry<T>): entry is MenuItem<T> {
-  return !isSeparator(entry) && !entry.disabled;
+function selectable<T>(entry: MenuEntry<T> | undefined): entry is MenuItem<T> {
+  return !!entry && !isSeparator(entry) && !entry.disabled;
 }
 
 const CUSTOM = Symbol('custom');
 
+function defaultFilter<T>(item: MenuItem<T>, query: string): number | undefined {
+  const text = `${item.search ?? ''} ${item.label} ${String(item.value)}`.toLowerCase();
+  const index = text.indexOf(query.toLowerCase());
+  return index === -1 ? undefined : index;
+}
+
 const menuView = createPrompt(<T,>(config: MenuConfig<T>, done: (result: MenuResult<T>) => void) => {
   const [query, setQuery] = useState('');
-  const [searching, setSearching] = useState(false);
+  const [tab, setTab] = useState(0);
   const [status, setStatus] = useState<'idle' | 'done'>('idle');
+  const [details, setDetails] = useState<Record<string, string>>({});
 
-  // 搜索时只显示匹配项，末尾可附「使用输入的值」
+  // 搜索时跨所有标签过滤并排序；没有搜索时按当前标签筛选
   const items = useMemo((): MenuEntry<T | typeof CUSTOM>[] => {
-    if (!query) return config.items;
-    const q = query.toLowerCase();
-    const matched = config.items.filter((e): e is MenuItem<T> =>
-      selectable(e) && `${e.search ?? ''} ${e.label} ${String(e.value)}`.toLowerCase().includes(q));
-    const custom: MenuItem<typeof CUSTOM>[] = config.customLabel ? [{ value: CUSTOM, label: config.customLabel(query) }] : [];
-    return [...matched, ...custom];
-  }, [query, config.items]);
+    if (query) {
+      const filter = config.filter ?? defaultFilter;
+      const scored = config.items
+        .filter(selectable)
+        .filter((item) => !item.pinned)
+        .map((item, order) => ({ item, order, score: filter(item, query) }))
+        .filter((x): x is { item: MenuItem<T>; order: number; score: number } => x.score !== undefined)
+        .sort((a, b) => a.score - b.score || a.order - b.order)
+        .map((x) => x.item);
+      const custom: MenuItem<typeof CUSTOM>[] = config.customLabel ? [{ value: CUSTOM, label: config.customLabel(query) }] : [];
+      const suggested = scored.length ? [] : config.suggest?.(query) ?? [];
+      return [...scored, ...suggested, ...(custom.length ? [{ separator: '' }, ...custom] : [])];
+    }
+    const current = config.tabs?.[tab];
+    if (!current || tab === 0) return config.items;
+    return config.items.filter((e) => !isSeparator(e) && !e.pinned && current.match(e));
+  }, [query, tab, config.items]);
 
   const first = items.findIndex(selectable);
   const last = items.length - 1 - [...items].reverse().findIndex(selectable);
   const defaultIndex = config.default === undefined ? -1 : items.findIndex((e) => selectable(e) && e.value === config.default);
   const [active, setActive] = useState(defaultIndex === -1 ? first : defaultIndex);
-  const activeIndex = selectable(items[active] ?? { separator: '' }) ? active : first;
+  const activeIndex = selectable(items[active]) ? active : first;
+  const current = activeIndex >= 0 ? items[activeIndex] as MenuItem<T | typeof CUSTOM> : undefined;
+  const detailKey = current && current.value !== CUSTOM ? String(current.value) : '';
+
+  // 选中项变化时取补充信息（只取一次，结果缓存）
+  useEffect(() => {
+    if (!config.asyncDetail || !detailKey || detailKey in details) return;
+    const item = current as MenuItem<T>;
+    Promise.resolve(config.asyncDetail(item)).then((text) => {
+      if (text !== undefined) setDetails({ ...details, [detailKey]: text });
+    }).catch(() => {});
+  }, [detailKey]);
 
   const finish = (result: MenuResult<T>): void => {
     setStatus('done');
@@ -153,18 +237,14 @@ const menuView = createPrompt(<T,>(config: MenuConfig<T>, done: (result: MenuRes
   };
 
   useKeypress((key) => {
-    const current = activeIndex >= 0 ? items[activeIndex] as MenuItem<T | typeof CUSTOM> : undefined;
     if (isEnterKey(key)) {
       if (!current) return;
       if (current.value === CUSTOM) return finish({ value: undefined as T, action: 'custom', query });
       return finish({ value: current.value as T, query });
     }
     if (isEscape(key)) {
-      if (searching || query) {
-        setSearching(false);
-        updateQuery('');
-        return;
-      }
+      // 有搜索词时 Esc 先清空搜索
+      if (query) return updateQuery('');
       if (config.escape && current) finish({ value: current.value as T, action: 'escape' });
       return;
     }
@@ -178,17 +258,23 @@ const menuView = createPrompt(<T,>(config: MenuConfig<T>, done: (result: MenuRes
       if (next >= first && next <= last) setActive(next);
       return;
     }
+    if (key.name === 'left' || key.name === 'right') {
+      if (config.tabs?.length && !query) {
+        const count = config.tabs.length;
+        setTab((tab + (key.name === 'right' ? 1 : count - 1)) % count);
+        setActive(0);
+        return;
+      }
+      if (config.arrows && current && current.value !== CUSTOM) finish({ value: current.value as T, action: key.name });
+      return;
+    }
+    if (config.searchable) {
+      if (isBackspaceKey(key)) return updateQuery(query.slice(0, -1));
+      if (isPrintable(key)) return updateQuery(query + sequenceOf(key));
+      return;
+    }
     const seq = sequenceOf(key);
-    if (searching) {
-      if (isBackspaceKey(key)) updateQuery(query.slice(0, -1));
-      else if (seq && !key.ctrl && seq >= ' ' && seq.length === 1) updateQuery(query + seq);
-      return;
-    }
     if (!seq || key.ctrl) return;
-    if (seq === '/' && config.searchable) {
-      setSearching(true);
-      return;
-    }
     const hit = items.findIndex((e) => selectable(e) && e.key === seq);
     if (hit !== -1) {
       setActive(hit);
@@ -200,12 +286,12 @@ const menuView = createPrompt(<T,>(config: MenuConfig<T>, done: (result: MenuRes
   const all = config.items.filter((e): e is MenuItem<T> => !isSeparator(e));
   const labelWidth = Math.max(0, ...all.map((e) => visibleWidth(e.label)));
   const iconWidth = Math.max(0, ...all.map((e) => (e.icon ? visibleWidth(e.icon) + 1 : 0)));
-  const showHints = hintFits(7 + iconWidth, labelWidth, Math.max(0, ...all.map((e) => visibleWidth(e.hint ?? ''))));
+  const showHints = hintFits(4 + iconWidth, labelWidth, Math.max(0, ...all.map((e) => visibleWidth(e.hint ?? ''))));
   const hintOf = (item: MenuItem<unknown>): string => (showHints ? item.hint ?? '' : '');
-  // 选中行底色铺满：前缀「 ❯  k  」7 列 + 图标 + 标签 + 4 列间距 + 右侧值 + 2 列留白
+  // 选中行底色铺满：前缀「 ❯  」4 列 + 图标 + 标签 + 4 列间距 + 右侧值 + 2 列留白
   const width = Math.min(terminalWidth() - 2, Math.max(
     48,
-    ...all.map((e) => 7 + iconWidth + labelWidth + 4 + visibleWidth(hintOf(e)) + 2),
+    ...all.map((e) => 4 + iconWidth + labelWidth + 4 + visibleWidth(hintOf(e)) + 2),
   ));
 
   const page = usePagination({
@@ -214,40 +300,52 @@ const menuView = createPrompt(<T,>(config: MenuConfig<T>, done: (result: MenuRes
     pageSize: config.pageSize ?? 14,
     loop: false,
     renderItem({ item, isActive }) {
-      if (isSeparator(item)) return `  ${theme.subtle(item.separator)}`;
-      const key = item.key ? item.key : ' ';
+      if (isSeparator(item)) return item.separator ? `  ${theme.subtle(item.separator)}` : '';
       const icon = item.icon ? `${item.icon} ` : '';
+      const label = padVisible(query && item.value !== CUSTOM ? highlightMatch(item.label, config.highlight?.(query) ?? query) : item.label, labelWidth);
       if (item.disabled) {
-        return `    ${theme.subtle(key)}  ${icon}${theme.subtle(padVisible(item.label, labelWidth))}    ${theme.subtle(hintOf(item))}`;
+        return `    ${icon}${theme.subtle(label)}    ${theme.subtle(hintOf(item))}`;
       }
       if (isActive) {
-        const text = ` ${theme.brandBold('❯')}  ${theme.brand(key)}  ${icon}${chalk.bold.hex('#E8F6FF')(padVisible(item.label, labelWidth))}    ${chalk.hex('#8BE9FF')(hintOf(item))}`;
+        const text = ` ${theme.brandBold('❯')}  ${icon}${chalk.bold.hex('#E8F6FF')(label)}    ${chalk.hex('#8BE9FF')(hintOf(item))}`;
         return highlightRow(text, width);
       }
-      return `    ${theme.subtle(key)}  ${icon}${theme.value(padVisible(item.label, labelWidth))}    ${theme.subtle(hintOf(item))}`;
+      return `    ${icon}${theme.value(label)}    ${theme.subtle(hintOf(item))}`;
     },
   });
 
-  const current = activeIndex >= 0 ? items[activeIndex] as MenuItem<T> : undefined;
   if (status === 'done') {
     return `${theme.success('✔')} ${theme.heading(config.message)} ${theme.brand(current?.value === CUSTOM ? query : current?.label ?? '')}`;
   }
   const lines = [`${theme.brand('?')} ${theme.heading(config.message)}`];
-  if (searching || query) {
-    lines.push(`  ${theme.brand('/')} ${theme.value(query)}${chalk.bgHex('#19C2F0')(' ')}  ${theme.subtle(t('ui_search_matches', { count: String(items.filter((e) => selectable(e) && (e as MenuItem<unknown>).value !== CUSTOM).length) }))}`);
+  if (config.searchable) {
+    const matches = !query ? 0 : config.items.filter((e) => selectable(e) && !e.pinned && (config.filter ?? defaultFilter)(e, query) !== undefined).length;
+    lines.push(query
+      ? `  ${theme.brand('⌕')} ${theme.value(query)}${chalk.bgHex('#19C2F0')(' ')}   ${theme.subtle(t('ui_search_found', { count: String(matches) }))}`
+      : `  ${theme.subtle('⌕')} ${theme.subtle(t('ui_search_placeholder'))}`);
   }
-  lines.push(items.length ? page : `  ${theme.subtle(t('ui_search_empty'))}`);
-  if (current?.description) {
+  if (config.tabs?.length) {
+    lines.push(`  ${config.tabs.map((x, i) => {
+      const on = query ? i === 0 : i === tab;
+      return on ? chalk.bgHex('#1C2733').hex('#E8F6FF')(` ${x.label} `) : theme.subtle(` ${x.label} `);
+    }).join(' ')}`);
+  }
+  const hasMatches = query ? config.items.some((e) => selectable(e) && !e.pinned && (config.filter ?? defaultFilter)(e, query) !== undefined) : true;
+  if (!hasMatches) {
+    lines.push(`  ${theme.subtle(config.emptyText?.(query) ?? t('ui_search_empty'))}`);
+  }
+  if (items.length) lines.push(page);
+  const extra = detailKey ? details[detailKey] : undefined;
+  if (current?.description || extra) {
     lines.push('');
-    for (const line of current.description.split('\n')) lines.push(`  ${line}`);
+    for (const line of [current?.description, extra].filter(Boolean).join('\n').split('\n')) lines.push(`  ${line}`);
   }
-  if (config.footer?.length) {
-    lines.push('', `  ${renderKeyHints(searching ? [['esc', t('ui_key_clear_search')], ['⏎', t('ui_key_confirm')]] : config.footer)}`);
-  }
+  const footer = config.footer ?? standardHints({ back: config.escape, search: config.searchable, tabs: !!config.tabs?.length });
+  lines.push('', `  ${renderKeyHints(query ? [['Esc', t('ui_key_clear_search')], [t('ui_key_enter'), t('ui_key_confirm')]] : footer)}`);
   return `${lines.join('\n')}${CURSOR_HIDE}`;
 });
 
-// ─── 多选（宽终端两列） ───────────────────────────────────────────
+// ─── 多选：回车勾选，第一行「全选」，最后一行「继续」 ───────────────
 
 export interface CheckItem<T> {
   value: T;
@@ -255,78 +353,93 @@ export interface CheckItem<T> {
   icon?: string;
   tag?: string;
   checked?: boolean;
-  // a 键「全选」时选中的项（如已安装的工具）
+  // 「全选」时选中的项（如已安装的工具）
   preferred?: boolean;
 }
 
 export interface CheckConfig<T> {
   message: string;
   items: CheckItem<T>[];
-  footer?: KeyHint[];
+  // 「全选」行的文字
+  allLabel?: string;
+  // 「继续」行的文字（已选数量会自动附上）
+  nextLabel?: string;
+  // 允许一个都不选就继续（如「只保存，不改工具」）
+  allowEmpty?: boolean;
   // 根据当前勾选生成底部提示
   summary?: (values: T[]) => string;
-  columns?: number;
 }
 
-const checkView = createPrompt(<T,>(config: CheckConfig<T>, done: (values: T[]) => void) => {
+const checkView = createPrompt(<T,>(config: CheckConfig<T>, done: (values: T[] | undefined) => void) => {
   const { items } = config;
   const [checked, setChecked] = useState<boolean[]>(items.map((i) => !!i.checked));
-  const [active, setActive] = useState(0);
-  const [status, setStatus] = useState<'idle' | 'done'>('idle');
+  // 行号：0 = 全选，1..n = 工具，n + 1 = 继续
+  const [active, setActive] = useState(1);
+  const [status, setStatus] = useState<'idle' | 'done' | 'cancel'>('idle');
+  const [warning, setWarning] = useState('');
 
-  const cellWidth = Math.max(...items.map((i) => 8 + (i.icon ? visibleWidth(i.icon) + 1 : 0) + visibleWidth(i.label) + 2 + visibleWidth(i.tag ?? '')));
-  const columns = config.columns ?? (terminalWidth() >= cellWidth * 2 + 8 ? 2 : 1);
-  const rows = Math.ceil(items.length / columns);
+  const count = checked.filter(Boolean).length;
+  const preferred = items.map((i) => !!i.preferred);
+  const allChecked = items.every((item, i) => !item.preferred || checked[i]) && count > 0;
+  const nextRow = items.length + 1;
 
-  useKeypress((key) => {
-    if (isEnterKey(key)) {
-      setStatus('done');
-      done(items.filter((_, i) => checked[i]).map((i) => i.value));
+  const proceed = (): void => {
+    if (count === 0 && !config.allowEmpty) {
+      setWarning(t('ui_check_empty'));
       return;
     }
-    if (isSpaceKey(key)) {
-      setChecked(checked.map((c, i) => (i === active ? !c : c)));
-      return;
-    }
-    // 竖向按列排：第一列是前半部分
-    const col = Math.floor(active / rows);
-    const row = active % rows;
-    if (isUpKey(key) && row > 0) setActive(active - 1);
-    else if (isDownKey(key) && row < rows - 1 && active + 1 < items.length) setActive(active + 1);
-    else if (key.name === 'left' && col > 0) setActive(active - rows);
-    else if (key.name === 'right' && col < columns - 1) setActive(Math.min(items.length - 1, active + rows));
-    else if (key.name === 'a') setChecked(items.map((i) => !!i.preferred));
-    else if (key.name === 'n') setChecked(items.map(() => false));
-    else if (key.name === 'i') setChecked(checked.map((c) => !c));
-  });
-
-  const selectedValues = items.filter((_, i) => checked[i]).map((i) => i.value);
-  if (status === 'done') {
-    const names = items.filter((_, i) => checked[i]).map((i) => i.label).join(', ');
-    return `${theme.success('✔')} ${theme.heading(config.message)} ${theme.brand(truncate(names, 60))}`;
-  }
-
-  const cell = (index: number): string => {
-    const item = items[index];
-    if (!item) return '';
-    const box = checked[index] ? theme.brand('◼') : theme.subtle('◻');
-    const isActive = index === active;
-    const label = isActive ? chalk.bold.hex('#E8F6FF')(item.label) : item.preferred ? theme.value(item.label) : theme.subtle(item.label);
-    const icon = item.icon ? `${item.icon} ` : '';
-    const tag = item.tag ? `  ${theme.subtle(item.tag)}` : '';
-    const text = `${isActive ? theme.brandBold('❯') : ' '} ${box} ${icon}${label}${tag}`;
-    return isActive ? highlightRow(` ${text}`, cellWidth) : padVisible(` ${text}`, cellWidth);
+    setStatus('done');
+    done(items.filter((_, i) => checked[i]).map((i) => i.value));
   };
 
-  const lines = [
-    `${theme.brand('?')} ${theme.heading(config.message)}  ${theme.brand(t('ui_selected_count', { count: String(selectedValues.length) }))}`,
-  ];
-  for (let r = 0; r < rows; r++) {
-    lines.push(Array.from({ length: columns }, (_, c) => cell(c * rows + r)).join('  ').replace(/\s+$/, ''));
+  useKeypress((key) => {
+    setWarning('');
+    if (isEscape(key)) {
+      setStatus('cancel');
+      done(undefined);
+      return;
+    }
+    if (isUpKey(key)) return setActive(Math.max(0, active - 1));
+    if (isDownKey(key)) return setActive(Math.min(nextRow, active + 1));
+    if (key.name === 'right') return proceed();
+    if (isEnterKey(key) || isSpaceKey(key)) {
+      if (active === nextRow) return isEnterKey(key) ? proceed() : undefined;
+      if (active === 0) return setChecked(allChecked ? items.map(() => false) : preferred);
+      setChecked(checked.map((c, i) => (i === active - 1 ? !c : c)));
+      return;
+    }
+    // 兼容老习惯的隐藏加速键
+    if (key.name === 'a') setChecked(preferred);
+    else if (key.name === 'n') setChecked(items.map(() => false));
+  });
+
+  if (status !== 'idle') {
+    const names = items.filter((_, i) => checked[i]).map((i) => i.label.trim()).join(', ');
+    return status === 'cancel' ? '' : `${theme.success('✔')} ${theme.heading(config.message)} ${theme.brand(truncate(names || '—', 60))}`;
   }
-  const summary = config.summary?.(selectedValues);
-  if (summary) lines.push('', `  ${summary}`);
-  lines.push('', `  ${renderKeyHints(config.footer ?? [['space', t('ui_key_toggle')], ['a', t('ui_key_select_all')], ['n', t('ui_key_select_none')], ['i', t('ui_key_invert')], ['⏎', t('ui_key_confirm')]])}`);
+
+  const labelWidth = Math.max(...items.map((i) => visibleWidth(i.label)));
+  const rowWidth = Math.min(terminalWidth() - 2, Math.max(48, ...items.map((i) => 10 + (i.icon ? visibleWidth(i.icon) + 1 : 0) + labelWidth + 4 + visibleWidth(i.tag ?? ''))));
+  const row = (index: number, text: string): string =>
+    index === active ? highlightRow(` ${theme.brandBold('❯')} ${text}`, rowWidth) : `   ${text}`;
+
+  const lines = [`${theme.brand('?')} ${theme.heading(config.message)}`];
+  lines.push(row(0, `${allChecked ? theme.brand('☑') : theme.subtle('☐')} ${theme.value(config.allLabel ?? t('ui_check_all'))}`));
+  items.forEach((item, i) => {
+    const box = checked[i] ? theme.brand('☑') : theme.subtle('☐');
+    const icon = item.icon ? `${item.icon} ` : '';
+    const label = padVisible(item.label, labelWidth);
+    const name = i + 1 === active ? chalk.bold.hex('#E8F6FF')(label) : item.preferred ? theme.value(label) : theme.subtle(label);
+    lines.push(row(i + 1, `${box} ${icon}${name}    ${theme.subtle(item.tag ?? '')}`));
+  });
+  lines.push(`   ${theme.border('─'.repeat(Math.max(10, rowWidth - 4)))}`);
+  const nextText = `${config.nextLabel ?? t('ui_check_next')}${theme.subtle(`（${t('ui_selected_count', { count: String(count) })}）`)}  →`;
+  lines.push(row(nextRow, active === nextRow ? chalk.bold.hex('#E8F6FF')(nextText) : theme.brand(nextText)));
+
+  const summary = config.summary?.(items.filter((_, i) => checked[i]).map((i) => i.value));
+  if (warning) lines.push('', `  ${theme.warning(warning)}`);
+  else if (summary) lines.push('', `  ${summary}`);
+  lines.push('', `  ${renderKeyHints([['↑↓', t('ui_key_move')], [t('ui_key_enter'), t('ui_key_toggle')], ['→', t('ui_key_next')], ['Esc', t('ui_key_back')]])}`);
   return `${lines.join('\n')}${CURSOR_HIDE}`;
 });
 
@@ -336,8 +449,10 @@ export interface SecretConfig {
   message: string;
   hint?: string;
   footer?: KeyHint[];
-  // 允许 esc 取消（返回空字符串）
+  // 允许 Esc 返回（返回 undefined）
   escape?: boolean;
+  // 输入停顿片刻后，值满足条件就自动提交（粘贴 Key 后自动校验）
+  autoSubmit?: (value: string) => boolean;
 }
 
 export function maskSecret(value: string): string {
@@ -346,9 +461,19 @@ export function maskSecret(value: string): string {
   return `${value.slice(0, 4)}${theme.subtle('•'.repeat(Math.min(value.length - 8, 24)))}${value.slice(-4)}`;
 }
 
-const secretView = createPrompt((config: SecretConfig, done: (value: string) => void) => {
+const secretView = createPrompt((config: SecretConfig, done: (value: string | undefined) => void) => {
   const [value, setValue] = useState('');
   const [status, setStatus] = useState<'idle' | 'done'>('idle');
+
+  // 粘贴完成（停顿 400ms）且格式完整时自动提交
+  useEffect(() => {
+    if (status !== 'idle' || !config.autoSubmit?.(value.trim())) return;
+    const timer = setTimeout(() => {
+      setStatus('done');
+      done(value.trim());
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [value]);
 
   useKeypress((key, rl) => {
     if (isEnterKey(key)) {
@@ -358,7 +483,7 @@ const secretView = createPrompt((config: SecretConfig, done: (value: string) => 
     }
     if (isEscape(key) && config.escape) {
       setStatus('done');
-      done('');
+      done(undefined);
       return;
     }
     if (isBackspaceKey(key) && !rl.line) {
@@ -369,7 +494,7 @@ const secretView = createPrompt((config: SecretConfig, done: (value: string) => 
   });
 
   if (status === 'done') {
-    return `${theme.success('✔')} ${theme.heading(config.message)} ${maskSecret(value)}`;
+    return value ? `${theme.success('✔')} ${theme.heading(config.message)} ${maskSecret(value)}` : '';
   }
   const count = value ? theme.subtle(`  ${t('ui_secret_length', { count: String(value.length) })}`) : '';
   const lines = [
@@ -377,7 +502,7 @@ const secretView = createPrompt((config: SecretConfig, done: (value: string) => 
     `  ${theme.brandBold('❯')} ${maskSecret(value)}${chalk.bgHex('#19C2F0')(' ')}${count}`,
   ];
   if (config.hint) lines.push(`  ${theme.subtle(config.hint)}`);
-  if (config.footer?.length) lines.push('', `  ${renderKeyHints(config.footer)}`);
+  lines.push('', `  ${renderKeyHints(config.footer ?? [[t('ui_key_paste'), t('ui_key_paste_hint')], [t('ui_key_enter'), t('ui_key_confirm')], ...(config.escape ? [['Esc', t('ui_key_back')] as KeyHint] : [])])}`);
   return `${lines.join('\n')}${CURSOR_HIDE}`;
 });
 
@@ -386,10 +511,12 @@ export function menuPrompt<T>(config: MenuConfig<T>, context?: { signal?: AbortS
   return menuView(config as MenuConfig<unknown>, context) as Promise<MenuResult<T>>;
 }
 
-export function checkPrompt<T>(config: CheckConfig<T>): Promise<T[]> {
-  return checkView(config as CheckConfig<unknown>) as Promise<T[]>;
+// 返回勾选的值；按 Esc 返回 undefined
+export function checkPrompt<T>(config: CheckConfig<T>): Promise<T[] | undefined> {
+  return checkView(config as CheckConfig<unknown>) as Promise<T[] | undefined>;
 }
 
-export function secretPrompt(config: SecretConfig): Promise<string> {
-  return secretView(config) as Promise<string>;
+// 返回输入的值；按 Esc 返回 undefined
+export function secretPrompt(config: SecretConfig): Promise<string | undefined> {
+  return secretView(config) as Promise<string | undefined>;
 }

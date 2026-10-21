@@ -12,14 +12,13 @@ import { detectAllTools, detectTool, hasSavedToolModelConfig, removeTool, type T
 import { menuPrompt, type MenuEntry } from '../ui/prompts.js';
 import { savedModelFor } from '../../core/model-mapping.js';
 import { toolManager } from '../../tool-manager.js';
-import { setupTools } from '../flows/tool-setup-flow.js';
-import { theme as uiTheme } from '../ui/theme.js';
+import { runToolModelFlow } from '../flows/tool-setup-flow.js';
+import { theme as uiTheme, theme } from '../ui/theme.js';
 import { padVisible } from '../../../utils/string-width.js';
 
 // 工具菜单操作
 type ToolMenuAction =
   | 'switch'
-  | 'models'
   | 'load'
   | 'profile'
   | 'unload'
@@ -27,8 +26,6 @@ type ToolMenuAction =
   | 'update'
   | 'view'
   | 'back';
-
-const BACK = '__back__';
 
 // 工具的当前模型（未接入时为空）
 function currentModel(detection: ToolDetection): string | undefined {
@@ -61,12 +58,11 @@ function toolEntry(detection: ToolDetection, nameWidth: number): MenuEntry<strin
   };
 }
 
-// 工具列表：已安装 / 未安装分组；⏎ 打开 · m 换模型 · s 启动 · r 还原 · a 全部接入 · / 搜索
+// 我的工具：已安装 / 未安装分组，回车打开工具页，直接打字搜索
 export async function showToolSelector(): Promise<void> {
   let last: string | undefined;
   while (true) {
-    uiRenderer.renderHeader();
-    uiRenderer.renderTitle(t('menu_configure_tools'));
+    uiRenderer.renderPage(t('menu_my_tools'));
     const detections = detectAllTools();
     const nameWidth = Math.max(...detections.map((d) => d.tool.displayName.length));
     const installed = detections.filter((d) => d.installed !== false);
@@ -76,33 +72,18 @@ export async function showToolSelector(): Promise<void> {
       default: last,
       escape: true,
       searchable: true,
-      actions: ['m', 's', 'r', 'a'],
       pageSize: 18,
       items: [
         { separator: uiTheme.subtle(t('tool_group_installed', { count: String(installed.length) })) },
         ...installed.map((d) => toolEntry(d, nameWidth)),
         ...(missing.length ? [{ separator: uiTheme.subtle(t('tool_group_missing', { count: String(missing.length) })) }] : []),
         ...missing.map((d) => toolEntry(d, nameWidth)),
-        { separator: '' },
-        { value: BACK, key: 'q', label: t('tool_back') },
       ],
-      footer: [['↑↓', t('ui_key_move')], ['⏎', t('ui_key_open')], ['m', t('tool_key_model')], ['s', t('tool_key_launch')], ['r', t('tool_key_restore')], ['a', t('tool_key_all')], ['/', t('ui_key_search')], ['esc', t('ui_key_back')]],
     });
-    if (action === 'escape' || value === BACK) return;
+    if (action === 'escape') return;
     last = value;
-    if (action === 'a') {
-      const connected = new Set(detections.filter((d) => d.configured).map((d) => d.tool.name));
-      const todo = installed.filter((d) => !connected.has(d.tool.name) && !d.tool.launchOnly).map((d) => d.tool);
-      if (todo.length) await setupTools(todo);
-      continue;
-    }
     const tool = toolManager.get(value);
-    if (!tool) continue;
-    if (action === 'm') {
-      await setupTools([tool], undefined, t('menu_switch_model'));
-    } else if (action === 's') await launchTool(tool);
-    else if (action === 'r') await unloadWithConfirm(tool);
-    else await showToolMenu(tool);
+    if (tool) await showToolMenu(tool);
   }
 }
 
@@ -162,7 +143,6 @@ async function chooseToolProfile(tool: ITool): Promise<void> {
       { value: '', label: t('tool_profile_follow', { name: active ?? t('menu_hint_profile_none') }) },
       ...profiles.filter((p) => p.name !== active).map((p) => ({ value: p.name, label: p.name, hint: `${uiRenderer.maskApiKey(p.apiKey)} · ${uiRenderer.endpointLabel(p.endpoint, p.baseUrl)}` })),
     ],
-    footer: [['⏎', t('ui_key_confirm')], ['esc', t('ui_key_back')]],
   });
   if (action === 'escape') return;
   configManager.setToolProfile(tool.name, value || undefined);
@@ -171,9 +151,6 @@ async function chooseToolProfile(tool: ITool): Promise<void> {
 
 // 工具配置菜单
 export async function showToolMenu(tool: ITool): Promise<void> {
-  if (!hasSavedToolModelConfig(tool, configManager.getModels())) {
-    await runInitialToolSetup(tool);
-  }
 
   // 异步获取最新版本（不阻塞菜单渲染）
   let latestVersion: string | null = null;
@@ -213,19 +190,20 @@ export async function showToolMenu(tool: ITool): Promise<void> {
       const result = await menuPrompt<ToolMenuAction>({
         message: t('menu_select_action'),
         escape: true,
-        items: [
-          { value: 'load', key: '1', label: t('tool_load_config'), hint: detectTool(tool).configured ? t('tool_hint_rewrite') : '' },
-          { value: 'switch', key: 'm', label: t('menu_switch_model'), hint: currentModel(detectTool(tool)) ?? '' },
-          { value: 'models', key: 'a', label: t('tool_configure_models_advanced') },
-          ...(hasProfiles ? [{ value: 'profile' as const, key: 'p', label: t('tool_use_profile'), hint: configManager.getToolProfile(tool.name) ?? t('tool_profile_following') }] : []),
-          { value: 'launch', key: 's', label: t('tool_launch'), hint: tool.command },
-          { value: 'unload', key: 'r', label: t('tool_unload_config') },
-          { value: 'update', key: 'u', label: t('tool_update') },
-          { value: 'view', key: 'v', label: t('tool_view_config') },
-          { separator: '' },
-          { value: 'back', key: 'q', label: t('tool_back') },
-        ],
-        footer: [['↑↓', t('ui_key_move')], ['⏎', t('ui_key_confirm')], ['esc', t('ui_key_back')]],
+        items: tool.launchOnly
+          ? [
+              { value: 'launch', label: t('tool_launch'), hint: `coding-helper run ${tool.name}` },
+              { value: 'update', label: t('tool_update') },
+            ]
+          : [
+              { value: 'switch', label: t('tool_models'), hint: currentModel(detectTool(tool)) ?? theme.subtle(t('tool_detail_not_connected')) },
+              { value: 'load', label: detectTool(tool).configured ? t('tool_rewrite_config') : t('tool_load_config') },
+              ...(hasProfiles ? [{ value: 'profile' as const, label: t('tool_use_profile'), hint: configManager.getToolProfile(tool.name) ?? t('tool_profile_following') }] : []),
+              { value: 'launch', label: t('tool_launch'), hint: tool.command },
+              { value: 'unload', label: t('tool_unload_config') },
+              { value: 'update', label: t('tool_update') },
+              { value: 'view', label: t('tool_view_config') },
+            ],
       }, { signal: controller.signal });
       action = result.action === 'escape' ? 'back' : result.value;
     } catch (e: unknown) {
@@ -238,12 +216,8 @@ export async function showToolMenu(tool: ITool): Promise<void> {
 
     switch (action) {
       case 'switch':
-        await setupTools([tool], undefined, t('menu_switch_model'));
-        break;
-
-      case 'models':
-        // 高级设置（如 Claude Code 的 4 个模型槽位分别设置）：只写入这一个工具
-        if (await tool.runModelConfigFlow()) await applyConfig(tool);
+        // 主模型与各槽位（如 Claude Code 的兜底、子代理），只写入这一个工具
+        await runToolModelFlow(tool);
         break;
 
       case 'load':
@@ -293,12 +267,6 @@ export function isLatestVersionFetchPending(state: {
 // 兼容旧导入路径
 export { hasSavedToolModelConfig };
 
-async function runInitialToolSetup(tool: ITool): Promise<void> {
-  const completed = await tool.runModelConfigFlow();
-  if (!completed) return;
-  await applyConfig(tool);
-}
-
 export function getMissingLatestVersionDisplayKey(fetchCompleted: boolean): string {
   return fetchCompleted ? 'tool_version_unknown' : 'tool_version_checking';
 }
@@ -312,6 +280,11 @@ async function loadConfig(tool: ITool): Promise<void> {
     return;
   }
 
+  // 还没选过模型：先打开模型页
+  if (!hasSavedToolModelConfig(tool, configManager.getModels()) && !tool.defaultModel) {
+    await runToolModelFlow(tool);
+    return;
+  }
   // 清屏后二次确认
   uiRenderer.renderHeader();
   const confirmed = await promptHelper.confirm(
@@ -323,11 +296,10 @@ async function loadConfig(tool: ITool): Promise<void> {
 }
 
 async function applyConfig(tool: ITool): Promise<void> {
-  uiRenderer.renderHeader();
-  uiRenderer.renderTitle(t('setup_title'));
+  uiRenderer.renderPage(t('setup_title'));
   const results = await applyToolsWithProgress([tool]);
   renderResultSummary(results);
-  await promptHelper.pressEnter();
+  await promptHelper.pressEnter(t('result_back_to_menu'));
 }
 
 // 启动工具

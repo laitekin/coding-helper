@@ -161,9 +161,10 @@ export async function syncAfterChange(messageKey = 'sync_select_prompt'): Promis
       const profile = configManager.getToolProfile(tool.name);
       return profile ? t('sync_detail_pinned', { name: profile }) : t('sync_detail_following');
     },
-    footer: [['space', t('ui_key_toggle')], ['a', t('ui_key_select_all_short')], ['n', t('ui_key_select_none')], ['⏎', t('sync_key_confirm')]],
+    allowEmpty: true,
+    nextLabel: t('sync_next'),
   });
-  if (selected.length === 0) {
+  if (!selected || selected.length === 0) {
     uiRenderer.renderHint(t('sync_skipped'));
     return [];
   }

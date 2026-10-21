@@ -9,12 +9,11 @@ const SKIP_VALUE = '__skip__';
 
 // inquirer 封装 - 统一交互式 prompt
 export const promptHelper = {
-  // 单选列表（统一用新菜单样式，数字键直接选择）
+  // 单选列表（统一用新菜单样式）
   async select<T extends string>(message: string, choices: { name: string; value: T }[]): Promise<T> {
     const { value } = await menuPrompt<T>({
       message,
-      items: choices.map((choice, i) => ({ value: choice.value, label: choice.name, key: i < 9 ? String(i + 1) : undefined })),
-      footer: [['↑↓', t('ui_key_move')], ['⏎', t('ui_key_confirm')]],
+      items: choices.map((choice) => ({ value: choice.value, label: choice.name })),
     });
     return value;
   },

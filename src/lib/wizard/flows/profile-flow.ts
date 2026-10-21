@@ -15,7 +15,6 @@ import { theme } from '../ui/theme.js';
 import { logger } from '../../../utils/logger.js';
 
 const NEW = '__new__';
-const BACK = '__back__';
 
 // 使用某个配置档的工具：单独绑定的 + 当前配置档下跟随的
 export function toolsUsingProfile(name: string, ids = false): string[] {
@@ -43,11 +42,11 @@ function profileRow(p: Profile, active: string | undefined): MenuEntry<string> {
   };
 }
 
-// 配置档管理：⏎ 切换 · n 新建 · e 编辑 · d 删除 · t 测试连通
+// 配置档管理：回车打开某个配置档（使用 / 编辑 / 测试 / 删除），最后一行新建
 export async function runProfileMenu(): Promise<void> {
+  let last: string | undefined;
   while (true) {
-    uiRenderer.renderHeader();
-    uiRenderer.renderTitle(t('profile_title'));
+    uiRenderer.renderPage(t('profile_title'));
     const profiles = configManager.listProfiles();
     const active = configManager.getActiveProfile();
     if (profiles.length === 0) {
@@ -57,30 +56,46 @@ export async function runProfileMenu(): Promise<void> {
 
     const { value, action } = await menuPrompt<string>({
       message: t('menu_select_action'),
-      default: active,
+      default: last ?? active,
       escape: true,
-      actions: ['n', 'e', 'd', 't'],
       items: [
         ...profiles.map((p) => profileRow(p, active)),
         ...(profiles.length ? [{ separator: '' }] : []),
-        { value: NEW, key: '+', label: t('profile_new') },
-        { value: BACK, key: 'q', label: t('tool_back') },
+        { value: NEW, label: t('profile_new') },
       ],
-      footer: [['⏎', t('profile_key_use')], ['n', t('profile_key_new')], ['e', t('profile_key_edit')], ['d', t('profile_key_delete')], ['t', t('profile_key_test')], ['esc', t('ui_key_back')]],
     });
 
-    if (action === 'escape' || value === BACK) return;
-    if (value === NEW || action === 'n') {
+    if (action === 'escape') return;
+    last = value;
+    if (value === NEW) {
       await createOrEditProfile();
       continue;
     }
     const profile = configManager.getProfile(value);
-    if (!profile) continue;
-    if (action === 'e') await createOrEditProfile(profile);
-    else if (action === 'd') await deleteProfile(profile);
-    else if (action === 't') await testProfile(profile);
-    else await useProfile(profile.name);
+    if (profile) await profileActions(profile);
   }
+}
+
+// 一个配置档的操作
+async function profileActions(profile: Profile): Promise<void> {
+  uiRenderer.renderPage(t('profile_actions_title', { name: profile.name }), undefined,
+    `${uiRenderer.maskApiKey(profile.apiKey)} · ${uiRenderer.endpointLabel(profile.endpoint, profile.baseUrl)}`);
+  const active = configManager.getActiveProfile() === profile.name;
+  const { value, action } = await menuPrompt<'use' | 'edit' | 'test' | 'delete'>({
+    message: t('menu_select_action'),
+    escape: true,
+    items: [
+      { value: 'use', label: t('profile_action_use'), hint: active ? t('profile_action_use_current') : '', disabled: active },
+      { value: 'edit', label: t('profile_action_edit') },
+      { value: 'test', label: t('profile_action_test') },
+      { value: 'delete', label: t('profile_action_delete') },
+    ],
+  });
+  if (action === 'escape') return;
+  if (value === 'use') await useProfile(profile.name);
+  else if (value === 'edit') await createOrEditProfile(profile);
+  else if (value === 'test') await testProfile(profile);
+  else await deleteProfile(profile);
 }
 
 // 切换当前配置档并同步到已接入的工具
@@ -91,7 +106,7 @@ export async function useProfile(name: string): Promise<void> {
   uiRenderer.renderHeader();
   uiRenderer.renderSuccess(t('profile_switched', { name }));
   await syncAfterChange();
-  await promptHelper.pressEnter();
+  await promptHelper.pressEnter(t('result_back_to_menu'));
 }
 
 async function createOrEditProfile(existing?: Profile): Promise<void> {
@@ -118,8 +133,8 @@ async function createOrEditProfile(existing?: Profile): Promise<void> {
       message: existing ? t('profile_key_prompt_edit') : t('apikey_prompt'),
       hint: t('apikey_hint'),
       escape: true,
-      footer: [['⏎', t('ui_key_confirm')], ['esc', t('ui_key_back')]],
     });
+    if (input === undefined) return;
     if (input) apiKey = input;
     if (!apiKey) return;
   }

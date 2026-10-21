@@ -45,11 +45,10 @@ export async function runContextFlow(): Promise<void> {
     message: t('context_prompt'),
     escape: true,
     items: [
-      { value: 0, key: '1', label: t('context_auto'), hint: t('context_auto_hint') },
-      ...PRESETS.map((tokens, i) => ({ value: tokens, key: String(i + 2), label: formatContextSize(tokens), hint: t(`context_hint_${tokens}`) })),
-      { value: 'custom' as const, key: 'c', label: t('context_custom'), hint: t('context_custom_hint') },
+      { value: 0, label: t('context_auto'), hint: t('context_auto_hint') },
+      ...PRESETS.map((tokens) => ({ value: tokens, label: formatContextSize(tokens), hint: t(`context_hint_${tokens}`) })),
+      { value: 'custom' as const, label: t('context_custom'), hint: t('context_custom_hint') },
     ],
-    footer: [['↑↓', t('ui_key_move')], ['⏎', t('ui_key_confirm')], ['c', t('context_custom')], ['esc', t('ui_key_back')]],
   });
   if (action === 'escape') return;
 
@@ -75,7 +74,7 @@ export async function runContextFlow(): Promise<void> {
   uiRenderer.renderHeader();
   uiRenderer.renderTitle(t('context_title'), t('context_targets_hint', { value: contextLabel(tokens) }));
   const targets = await selectTargets(t('targets_prompt'), candidates, { detail: (tool) => t('context_current', { value: toolContextLabel(tool) }) });
-  if (targets.length === 0) return;
+  if (!targets || targets.length === 0) return;
 
   const items: PlanItem[] = targets.map((tool) => ({
     tool,
@@ -84,5 +83,5 @@ export async function runContextFlow(): Promise<void> {
   }));
   const untouched = toolManager.getAll().filter((tool) => connected.includes(tool.name) && !targets.includes(tool));
   const results = await confirmAndWrite(t('context_title'), items, untouched);
-  if (results) await promptHelper.pressEnter();
+  if (results !== 'back') await promptHelper.pressEnter(t('result_back_to_menu'));
 }

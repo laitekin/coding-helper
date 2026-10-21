@@ -15,16 +15,21 @@ import {
   removeYamlLine,
   restoreYamlValue,
   setYamlLine,
+  setYamlValue,
   stringifyYamlDocument,
 } from '../core/yaml-edit.js';
 import { isMap } from 'yaml';
 import { runHermesModelSelectionFlow } from '../wizard/flows/hermes-model-selection-flow.js';
 import { uiRenderer } from '../wizard/ui/ui-renderer.js';
 import { promptHelper } from '../wizard/ui/prompt-helper.js';
+import { slotOverrides } from '../core/model-slots.js';
 
 const HERMES_DIR = path.join(os.homedir(), '.hermes');
 const HERMES_CONFIG_FILE = path.join(HERMES_DIR, 'config.yaml');
 const MANAGED_MODEL_KEYS = ['provider', 'default', 'base_url', 'api_key'] as const;
+// 看图（视觉）辅助模型；Hermes 默认 auto = 跟随主模型，单独设置时才写入
+const VISION_PATH = ['auxiliary', 'vision'];
+const VISION_KEYS = ['provider', 'model', 'base_url', 'api_key'] as const;
 
 // Hermes Agent 工具实现
 export class HermesTool implements ITool {
@@ -55,7 +60,8 @@ export class HermesTool implements ITool {
 
   clearModelConfig(): void {
     if (!stateStore.getPriors(this.name) && !this.isConfigured()) return;
-    writeHermesConfig(removeManagedHermesConfig(readHermesConfig(), stateStore.getPriors(this.name)));
+    const priors = stateStore.getPriors(this.name);
+    writeHermesConfig(applyHermesVision(removeManagedHermesConfig(readHermesConfig(), priors), undefined, priors ?? {}));
   }
 
   async loadConfig(apiKey: string, baseUrl: string, models: ModelConfig): Promise<void> {
@@ -73,7 +79,10 @@ export class HermesTool implements ITool {
       const priors = captureHermesPriors(existing);
       if (priors) stateStore.recordPriors(this.name, priors);
     }
-    writeHermesConfig(buildHermesConfig(existing, baseUrl, apiKey, models.hermesModel));
+    stateStore.recordPriors(this.name, captureHermesVisionPriors(existing));
+    const vision = slotOverrides(this.name, models).vision;
+    const next = buildHermesConfig(existing, baseUrl, apiKey, models.hermesModel);
+    writeHermesConfig(applyHermesVision(next, vision ? { model: vision, baseUrl, apiKey } : undefined, stateStore.getPriors(this.name) ?? {}));
   }
 
   async unloadConfig(): Promise<void> {
@@ -140,6 +149,35 @@ export function removeManagedHermesConfig(existing: string, priors?: PriorValues
     next = typeof prior === 'string' ? setYamlLine(next, 'model', key, prior) : removeYamlLine(next, 'model', key);
   }
   return verifiedOrDocument(next, existing, values);
+}
+
+function visionIsOurs(doc: ReturnType<typeof parseYamlDocument>): boolean {
+  return isQiniuBaseUrl(getYamlValue(doc, [...VISION_PATH, 'base_url']));
+}
+
+export function captureHermesVisionPriors(existing: string): PriorValues {
+  const doc = parseYamlDocument(existing);
+  if (visionIsOurs(doc)) return {};
+  const priors: PriorValues = {};
+  for (const key of VISION_KEYS) priors[`auxiliary.vision.${key}`] = getYamlValue(doc, [...VISION_PATH, key]) ?? null;
+  return priors;
+}
+
+// 单独设置看图模型时写入 auxiliary.vision；跟随主模型时把我们写过的值还原
+export function applyHermesVision(
+  existing: string,
+  vision: { model: string; baseUrl: string; apiKey: string } | undefined,
+  priors: PriorValues,
+): string {
+  const doc = parseYamlDocument(existing);
+  if (vision) {
+    const values = { provider: 'custom', model: vision.model, base_url: `${vision.baseUrl.replace(/\/+$/, '')}/v1`, api_key: vision.apiKey };
+    for (const key of VISION_KEYS) setYamlValue(doc, [...VISION_PATH, key], values[key]);
+    return stringifyYamlDocument(doc);
+  }
+  if (!visionIsOurs(doc)) return existing;
+  for (const key of VISION_KEYS) restoreYamlValue(doc, [...VISION_PATH, key], priors[`auxiliary.vision.${key}`] ?? null);
+  return stringifyYamlDocument(doc);
 }
 
 // 首次写入前的原值（旧版本写过七牛配置时不记录）

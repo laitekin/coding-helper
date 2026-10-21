@@ -19,7 +19,11 @@ import {
   removeTomlTablesWhere,
   removeTopLevelTomlKey,
   upsertTopLevelTomlKey,
+  getTomlTableValue,
+  upsertTomlTableKey,
+  removeTomlTableKey,
 } from '../core/toml-edit.js';
+import { slotModel } from '../core/model-slots.js';
 
 // 兼容旧导入路径
 export { getTopLevelTomlValue, upsertTopLevelTomlKey, removeTopLevelTomlKey };
@@ -90,6 +94,13 @@ export class CodexTool implements ITool {
     return await probeResponsesStream(ctx.baseUrl, ctx.apiKey, model) ? undefined : 'quick_codex_model_unsupported';
   }
 
+  // 依据实测：GPT、qwen、glm、kimi 可用，deepseek 不可用；其他选定后再检测
+  modelSupport(model: string): boolean | undefined {
+    if (/deepseek/i.test(model)) return false;
+    if (/gpt|qwen|glm|kimi/i.test(model)) return true;
+    return undefined;
+  }
+
   clearModelConfig(): void {
     const content = readCodexConfig();
     safeWriteFile(CODEX_CONFIG_FILE, normalizeToml(removeTomlTable(content, 'profiles.qn-gpt')));
@@ -110,6 +121,13 @@ export class CodexTool implements ITool {
     const model = models.codexModel || this.defaultModel;
     let content = mergeCodexConfig(existingConfig, baseUrl, model, CODEX_CATALOG_FILE);
     content = applyContextWindow(content, model, stateStore.getPriors(this.name) ?? {});
+    // 代码审查、子代理、记忆整理默认是 OpenAI 的模型名，七牛上不可用，一律指向七牛模型（默认跟随主模型）
+    stateStore.recordPriors(this.name, captureCodexSlotPriors(existingConfig));
+    content = applyCodexSlots(content, {
+      review: slotModel(this.name, 'review', model),
+      subagent: slotModel(this.name, 'subagent', model),
+      memory: slotModel(this.name, 'memory', model),
+    });
     // 每个配置档写一个 provider + 配置档文件，之后可用 codex -p qn-<配置档> 直接切换
     const profiles = configManager.listProfiles();
     content = mergeCodexProfiles(content, profiles);
@@ -244,6 +262,52 @@ export function applyContextWindow(content: string, model: string, priors: Prior
     : removeTopLevelTomlKey(content, 'model_context_window');
 }
 
+// 模型槽位对应的 Codex 配置项：[表名, 键名, 槽位]；表名为空表示顶层
+export const CODEX_SLOT_KEYS: [string, string, 'review' | 'subagent' | 'memory'][] = [
+  ['', 'review_model', 'review'],
+  ['agents', 'default_subagent_model', 'subagent'],
+  ['memories', 'extract_model', 'memory'],
+  ['memories', 'consolidation_model', 'memory'],
+];
+
+function slotPriorKey(table: string, key: string): string {
+  return `config.${table ? `${table}.` : ''}${key}`;
+}
+
+function getSlotValue(content: string, table: string, key: string): string | undefined {
+  return table ? getTomlTableValue(content, table, key) : getTopLevelTomlValue(content, key);
+}
+
+function setSlotValue(content: string, table: string, key: string, raw: string | null): string {
+  if (raw === null) return table ? removeTomlTableKey(content, table, key) : removeTopLevelTomlKey(content, key);
+  return table ? upsertTomlTableKey(content, table, key, raw) : upsertTopLevelTomlKey(content, key, raw);
+}
+
+// 槽位原值（第一次写入前的值；之后 recordPriors 不会覆盖）
+export function captureCodexSlotPriors(content: string): PriorValues {
+  const priors: PriorValues = {};
+  for (const [table, key] of CODEX_SLOT_KEYS) priors[slotPriorKey(table, key)] = getSlotValue(content, table, key) ?? null;
+  return priors;
+}
+
+export function applyCodexSlots(content: string, models: Record<'review' | 'subagent' | 'memory', string>): string {
+  let next = content;
+  for (const [table, key, slot] of CODEX_SLOT_KEYS) next = setSlotValue(next, table, key, `"${escapeTomlString(models[slot])}"`);
+  return normalizeToml(next);
+}
+
+// 还原槽位：有原值写回，没有则删除
+export function restoreCodexSlots(content: string, priors: PriorValues): string {
+  let next = content;
+  for (const [table, key] of CODEX_SLOT_KEYS) {
+    const priorKey = slotPriorKey(table, key);
+    if (!(priorKey in priors)) continue;
+    const prior = priors[priorKey];
+    next = setSlotValue(next, table, key, typeof prior === 'string' ? prior : null);
+  }
+  return next;
+}
+
 // 配置档对应的 Codex 表名：provider qnaigc-<名>、profile qn-<名>
 const PROFILE_PROVIDER_PREFIX = `${PROVIDER_NAME}-`;
 const PROFILE_TABLE_PREFIX = 'qn-';
@@ -342,6 +406,7 @@ export function restoreCodexConfig(existing: string, priors: PriorValues): strin
   if (!('config.model' in priors) && managed) content = removeTopLevelModel(content);
   if (!('config.model_provider' in priors)) content = removeTopLevelQnaigcModelProvider(content);
   if (!('config.model_catalog_json' in priors)) content = removeTopLevelCatalogPath(content);
+  content = restoreCodexSlots(content, priors);
   return normalizeToml(removeManagedTables(content));
 }
 

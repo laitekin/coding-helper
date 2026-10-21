@@ -1,25 +1,24 @@
 import { t } from '../../i18n.js';
 import { configManager } from '../../config.js';
 import { promptHelper } from '../ui/prompt-helper.js';
-import { uiRenderer } from '../ui/ui-renderer.js';
+import { uiRenderer, connectedToolNames, FLOW_STEP_KEYS, type StepInfo } from '../ui/ui-renderer.js';
 import { checkPrompt } from '../ui/prompts.js';
 import { toolIcon } from '../ui/tool-view.js';
 import { detectAllTools } from '../../core/tool-service.js';
-import { chooseModel, buildModelPlan } from './model-pick-flow.js';
-import { confirmAndWrite, type PlanItem } from '../ui/write-plan.js';
-import { savedModelFor } from '../../core/model-mapping.js';
+import { buildModelPlan, currentMainModel, pickModel } from './model-pick-flow.js';
+import { editToolModels } from './model-slots-flow.js';
+import { confirmAndWrite, selectTargets } from '../ui/write-plan.js';
 import { toolManager } from '../../tool-manager.js';
-import { connectedToolNames } from '../ui/ui-renderer.js';
 import type { ITool } from '../../tools/base-tool.js';
 import { theme } from '../ui/theme.js';
 
-// 多选客户端：默认勾选已安装的；返回用户选择的工具
-export async function selectTools(message: string): Promise<ITool[]> {
+// 多选客户端：已安装的在前，默认一个不勾；返回用户选择的工具，按 Esc 返回 undefined
+export async function selectTools(message: string): Promise<ITool[] | undefined> {
   const detections = detectAllTools().filter((d) => !d.tool.launchOnly);
-  // 已安装的排在前面
   detections.sort((a, b) => Number(b.installed !== false) - Number(a.installed !== false));
   const selected = await checkPrompt<string>({
     message,
+    allLabel: t('ui_check_all_installed'),
     items: detections.map((d) => {
       const installed = d.installed !== false;
       return {
@@ -27,57 +26,112 @@ export async function selectTools(message: string): Promise<ITool[]> {
         label: d.tool.displayName,
         icon: toolIcon(d.tool.name, !installed),
         tag: d.installed === null ? t('tool_badge_desktop') : installed ? t('tool_badge_installed') : t('tool_badge_not_installed'),
-        // 默认不勾选：只改用户明确选择的工具（a 一键全选已安装）
         checked: false,
+        // 第一行「全选已安装」只选这些
         preferred: installed,
       };
     }),
     summary: (values) => values.length
       ? `${theme.brand('i')} ${theme.value(t('setup_preview', { count: String(values.length) }))} ${theme.subtle('~/.coding-helper/backups/')}`
       : theme.subtle(t('setup_none_hint')),
-    footer: [['space', t('ui_key_toggle')], ['a', t('ui_key_select_all')], ['n', t('ui_key_select_none')], ['i', t('ui_key_invert')], ['⏎', t('ui_key_next')]],
   });
+  if (!selected) return undefined;
   return detections.filter((d) => selected.includes(d.tool.name)).map((d) => d.tool);
 }
 
-// 选模型（统一选或按工具分别选）→ 确认页 → 只写入选中的工具
-export async function setupTools(tools: ITool[], step?: { current: number; total: number }, title = t('setup_title')): Promise<void> {
-  if (!configManager.getApiKey()) {
-    uiRenderer.renderWarning(t('apikey_not_set'));
-    return;
-  }
-  const targets = tools.filter((tool) => !tool.launchOnly);
-  const choice = await chooseModel(targets, step);
-  if (choice === 'cancelled') return;
-
-  let items: PlanItem[];
-  if (choice === 'per_tool') {
-    items = [];
-    // 按工具分别选：各工具自己的流程（如 Claude Code 的 4 个模型槽位），取消的只跳过它
-    for (const tool of targets) {
-      if (!(await tool.runModelConfigFlow())) continue;
-      const model = savedModelFor(tool, configManager.getModels()) ?? tool.defaultModel ?? '';
-      items.push({ tool, changes: [{ label: t('plan_model'), after: model }] });
-    }
-  } else {
-    items = await buildModelPlan(targets, choice.model);
-  }
-  const chosen = new Set(items.map((item) => item.tool.name));
-  const untouched = toolManager.getAll().filter((tool) => connectedToolNames().includes(tool.name) && !chosen.has(tool.name));
-  const results = await confirmAndWrite(title, items, untouched);
-  if (results) await promptHelper.pressEnter();
+export interface FlowSteps {
+  // 第一步（选工具）在整个流程中的序号
+  first: number;
+  total: number;
+  keys: string[];
 }
 
-// 初始化向导：第 4 步多选工具 → 第 5 步选模型 → 批量装载
-export async function runToolSetupFlow(step?: { current: number; total: number }): Promise<void> {
-  uiRenderer.renderHeader();
-  if (step) uiRenderer.renderSteps(step.current, step.total);
-  else uiRenderer.renderTitle(t('menu_configure_tools'));
+const FLOW_STEPS: FlowSteps = { first: 1, total: FLOW_STEP_KEYS.length, keys: FLOW_STEP_KEYS };
 
-  const tools = await selectTools(t('setup_select_tools'));
+// 选工具 → 选模型 → 确认写入；每一步 Esc 回到上一步，第一步 Esc 返回 'back'
+export async function toolsModelFlow(
+  title: string,
+  select: (step: StepInfo) => Promise<ITool[] | undefined>,
+  steps: FlowSteps = FLOW_STEPS,
+): Promise<'back' | 'done'> {
+  const at = (offset: number): StepInfo => ({ current: steps.first + offset, total: steps.total, keys: steps.keys });
+  let stage = 0;
+  let tools: ITool[] = [];
+  let model = '';
+  while (true) {
+    if (stage === 0) {
+      uiRenderer.renderPage(title, at(0));
+      const picked = await select(at(0));
+      if (!picked || picked.length === 0) return 'back';
+      tools = picked.filter((tool) => !tool.launchOnly);
+      stage = 1;
+      continue;
+    }
+    if (stage === 1) {
+      const saved = configManager.getModels();
+      const current = model || (tools[0] ? currentMainModel(tools[0], saved) : undefined) || saved.defaultModel;
+      const picked = await pickModel({ tools, title, step: at(1), current });
+      if (picked === 'back' || !('model' in picked)) {
+        stage = 0;
+        continue;
+      }
+      model = picked.model;
+      stage = 2;
+      continue;
+    }
+    const items = await buildModelPlan(tools, model);
+    const chosen = new Set(items.map((item) => item.tool.name));
+    const untouched = toolManager.getAll().filter((tool) => connectedToolNames().includes(tool.name) && !chosen.has(tool.name));
+    const results = await confirmAndWrite(title, items, untouched, {
+      step: at(2),
+      edit: (item) => editToolModels(item.tool, item),
+    });
+    if (results === 'back') {
+      stage = 1;
+      continue;
+    }
+    await promptHelper.pressEnter(t('result_back_to_menu'));
+    return 'done';
+  }
+}
+
+// 接入编码工具：勾选工具（全部工具，已安装的在前）→ 选模型 → 确认
+export async function runSetupFlow(steps?: FlowSteps): Promise<'back' | 'done'> {
+  if (!configManager.getApiKey()) {
+    uiRenderer.renderWarning(t('apikey_not_set'));
+    await promptHelper.pressEnter();
+    return 'back';
+  }
+  return toolsModelFlow(t('menu_setup_tools'), () => selectTools(t('setup_select_tools')), steps);
+}
+
+// 切换模型：只列已接入的工具
+export async function runSwitchModelFlow(): Promise<void> {
+  const connected = connectedToolNames();
+  const tools = toolManager.getAll().filter((tool) => connected.includes(tool.name) && !tool.launchOnly);
   if (tools.length === 0) {
-    uiRenderer.renderHint(t('setup_none_selected'));
+    uiRenderer.renderPage(t('menu_switch_model'));
+    uiRenderer.renderHint(t('menu_switch_model_none'));
+    await promptHelper.pressEnter();
     return;
   }
-  await setupTools(tools, step ? { current: step.current + 1, total: step.total } : undefined);
+  const models = configManager.getModels();
+  await toolsModelFlow(t('menu_switch_model'), () => selectTargets(t('targets_prompt'), tools, {
+    detail: (tool) => currentMainModel(tool, models) ?? '—',
+  }));
+}
+
+// 单个工具的模型页 → 确认写入（工具菜单用）；确认页 Esc 回到模型页
+export async function runToolModelFlow(tool: ITool): Promise<void> {
+  let item = await editToolModels(tool);
+  while (item) {
+    const results = await confirmAndWrite(t('slots_title', { tool: tool.displayName }), [item], [], {
+      edit: (current) => editToolModels(current.tool, current),
+    });
+    if (results !== 'back') {
+      await promptHelper.pressEnter(t('result_back_to_menu'));
+      return;
+    }
+    item = await editToolModels(tool, item);
+  }
 }
