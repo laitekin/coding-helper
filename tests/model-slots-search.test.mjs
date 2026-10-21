@@ -15,6 +15,8 @@ const { applyDroidSettings, revertDroidSettings, captureDroidPriors, droidCustom
 const { applyGrokConfig, revertGrokConfig } = await import('../dist/lib/tools/grok-tool.js');
 const { applyHermesVision, captureHermesVisionPriors } = await import('../dist/lib/tools/hermes-tool.js');
 const { highlightMatch } = await import('../dist/lib/wizard/ui/prompts.js');
+const { setYamlPathLine, removeYamlPathLine } = await import('../dist/lib/core/yaml-edit.js');
+const { buildCodexModelCatalog } = await import('../dist/lib/tools/codex-tool.js');
 
 const IDS = ['deepseek/deepseek-v4-flash', 'qwen/qwen3.7-plus', 'z-ai/glm-5.2', 'moonshotai/kimi-k3', 'minimax/minimax-m3', 'openai/gpt-5.4'];
 const model = (id, context = 200000, vision = false) => ({ id, context, toolCall: true, vision });
@@ -161,4 +163,33 @@ test('Hermes: vision slot is written only when set, and restored', () => {
   const back = applyHermesVision(set, undefined, priors);
   assert.match(back, /provider: auto/);
   assert.doesNotMatch(back, /qwen-vl|api_key/);
+});
+
+test('YAML line editing keeps comments and spacing, and undoes added blocks', () => {
+  const base = '# top\nauxiliary:\n  vision:\n    provider: auto  # keep\n    model: ""\n  web:\n    provider: auto\nterminal:\n  backend: local   # c\n';
+  const set = setYamlPathLine(base, ['auxiliary', 'vision', 'model'], 'qwen-vl');
+  assert.equal(set, base.replace('model: ""', 'model: "qwen-vl"'));
+  const added = setYamlPathLine(base, ['auxiliary', 'vision', 'api_key'], 'sk-x');
+  assert.match(added, /    model: ""\n    api_key: sk-x\n  web:/);
+  assert.equal(removeYamlPathLine(added, ['auxiliary', 'vision', 'api_key']), base);
+
+  const plain = 'model:\n  provider: x   # mine\n';
+  const created = setYamlPathLine(plain, ['auxiliary', 'vision', 'provider'], 'custom');
+  assert.equal(created, 'model:\n  provider: x   # mine\n\nauxiliary:\n  vision:\n    provider: custom\n');
+  assert.equal(removeYamlPathLine(created, ['auxiliary', 'vision', 'provider']), plain);
+});
+
+test('Codex catalog lists non-GPT models without reasoning effort', () => {
+  const catalog = JSON.parse(buildCodexModelCatalog([
+    { id: 'openai/gpt-5.4', context_length: 1050000, max_tokens: 128000 },
+    { id: 'z-ai/glm-5.2', context_length: 200000, max_tokens: 8192, plain: true, images: false },
+    { id: 'other/not-listed', context_length: 1, max_tokens: 1 },
+  ]));
+  assert.deepEqual(catalog.models.map((m) => m.slug), ['openai/gpt-5.4', 'z-ai/glm-5.2']);
+  const glm = catalog.models[1];
+  assert.equal(glm.context_window, 200000);
+  assert.equal(glm.default_reasoning_level, null);
+  assert.deepEqual(glm.supported_reasoning_levels, []);
+  assert.deepEqual(glm.input_modalities, ['text']);
+  assert.equal(catalog.models[0].default_reasoning_level, 'medium');
 });

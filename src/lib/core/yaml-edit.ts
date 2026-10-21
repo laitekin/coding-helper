@@ -148,3 +148,101 @@ export function removeYamlLine(content: string, parent: string, key: string): st
   }
   return lines.join('\n');
 }
+
+// ---- 按行编辑多层的块状 YAML（如 auxiliary.vision.model），其余每一行原样保留 ----
+
+function indentOf(line: string): number {
+  return line.match(/^\s*/)![0].length;
+}
+
+function isContent(line: string): boolean {
+  return !!line.trim() && !line.trim().startsWith('#');
+}
+
+// 找到 path 对应的块（如 ['auxiliary', 'vision']）；不存在或结构特殊时返回 undefined
+function findNestedBlock(lines: string[], path: string[]): BlockRange | undefined {
+  let block = findBlock(lines, path[0]);
+  for (const segment of path.slice(1)) {
+    if (!block?.childIndent) return undefined;
+    const indent = block.childIndent;
+    const pattern = new RegExp(`^${indent}${segment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:\\s*(#.*)?$`);
+    let header = -1;
+    for (let i = block.header + 1; i < block.end; i++) {
+      if (pattern.test(lines[i])) {
+        header = i;
+        break;
+      }
+    }
+    if (header < 0) return undefined;
+    let end = header + 1;
+    let childIndent: string | undefined;
+    while (end < block.end) {
+      const line = lines[end];
+      if (isContent(line) && indentOf(line) <= indent.length) break;
+      if (!childIndent && isContent(line)) childIndent = line.match(/^\s+/)![0];
+      end++;
+    }
+    while (end > header + 1 && !isContent(lines[end - 1])) end--;
+    block = { header, end, childIndent };
+  }
+  return block;
+}
+
+// 设置 path 的字符串值（如 ['auxiliary', 'vision', 'model']）；父级块不存在时返回 undefined，由调用方改用文档级编辑
+export function setYamlPathLine(content: string, path: string[], value: string): string | undefined {
+  const lines = content.split('\n');
+  const block = findNestedBlock(lines, path.slice(0, -1));
+  if (!block) return appendYamlPath(lines, path, value);
+  const key = path[path.length - 1];
+  const index = keyLineIndex(lines, block, key);
+  if (index >= 0) {
+    const prefix = lines[index].slice(0, lines[index].indexOf(':') + 1);
+    const { raw, rest } = splitValue(lines[index].slice(prefix.length));
+    lines[index] = `${prefix}${formatLike(raw, value)}${rest}`;
+    return lines.join('\n');
+  }
+  const indent = block.childIndent ?? `${' '.repeat(indentOf(lines[block.header]))}  `;
+  lines.splice(block.end, 0, `${indent}${key}: ${formatLike(' ', value).trim()}`);
+  return lines.join('\n');
+}
+
+// 父级块不存在：补上缺的各层，插在已有的最深一层末尾（一层都没有时追加到文件末尾）
+function appendYamlPath(lines: string[], path: string[], value: string): string | undefined {
+  let depth = path.length - 2;
+  while (depth > 0 && !findNestedBlock(lines, path.slice(0, depth))) depth--;
+  const existing = depth > 0 ? findNestedBlock(lines, path.slice(0, depth)) : undefined;
+  // 已有的块是行内写法（如 auxiliary: {}）时无法按行插入
+  if (depth > 0 && !existing) return undefined;
+  const base = existing ? (existing.childIndent?.length ?? indentOf(lines[existing.header]) + 2) : 0;
+  const added = path.slice(depth).map((segment, i) => {
+    const pad = ' '.repeat(base + i * 2);
+    return i === path.length - depth - 1 ? `${pad}${segment}: ${formatLike(' ', value).trim()}` : `${pad}${segment}:`;
+  });
+  if (existing) {
+    lines.splice(existing.end, 0, ...added);
+  } else {
+    while (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
+    if (lines.length) lines.push('');
+    lines.push(...added, '');
+  }
+  return lines.join('\n');
+}
+
+// 删除 path 这一行；父级块因此变空时一并删除
+export function removeYamlPathLine(content: string, path: string[]): string {
+  let lines = content.split('\n');
+  const block = findNestedBlock(lines, path.slice(0, -1));
+  if (!block) return content;
+  const index = keyLineIndex(lines, block, path[path.length - 1]);
+  if (index < 0) return content;
+  lines.splice(index, 1);
+  for (let depth = path.length - 1; depth > 0; depth--) {
+    const parent = findNestedBlock(lines, path.slice(0, depth));
+    if (!parent || lines.slice(parent.header + 1, parent.end).some(isContent)) break;
+    // 块在文件末尾时，连同它前面的空行一起删（撤销 appendYamlPath 加的分隔空行）
+    const atEnd = lines.slice(parent.end).every((line) => !line.trim());
+    const start = atEnd && depth === 1 && parent.header > 0 && !lines[parent.header - 1].trim() ? parent.header - 1 : parent.header;
+    lines = [...lines.slice(0, start), ...lines.slice(parent.end)];
+  }
+  return lines.join('\n');
+}

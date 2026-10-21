@@ -7,7 +7,7 @@ import type { ITool } from './base-tool.js';
 import { configManager, type ModelConfig } from '../config.js';
 import { t } from '../i18n.js';
 import { isQiniuBaseUrl } from '../endpoints.js';
-import { ConfigParseError, safeWriteFile } from '../core/safe-write.js';
+import { ConfigParseError, safeWriteFile, writeTextOrRemove } from '../core/safe-write.js';
 import { stateStore, type PriorValues } from '../core/state-store.js';
 import {
   getYamlValue,
@@ -15,7 +15,8 @@ import {
   removeYamlLine,
   restoreYamlValue,
   setYamlLine,
-  setYamlValue,
+  setYamlPathLine,
+  removeYamlPathLine,
   stringifyYamlDocument,
 } from '../core/yaml-edit.js';
 import { isMap } from 'yaml';
@@ -163,21 +164,44 @@ export function captureHermesVisionPriors(existing: string): PriorValues {
   return priors;
 }
 
-// 单独设置看图模型时写入 auxiliary.vision；跟随主模型时把我们写过的值还原
+// 单独设置看图模型时写入 auxiliary.vision；跟随主模型时把我们写过的值还原。
+// 优先按行编辑（只动这几行，注释与空格原样保留），结构特殊时退回文档级编辑
 export function applyHermesVision(
   existing: string,
   vision: { model: string; baseUrl: string; apiKey: string } | undefined,
   priors: PriorValues,
 ): string {
   const doc = parseYamlDocument(existing);
+  let values: Record<string, unknown>;
   if (vision) {
-    const values = { provider: 'custom', model: vision.model, base_url: `${vision.baseUrl.replace(/\/+$/, '')}/v1`, api_key: vision.apiKey };
-    for (const key of VISION_KEYS) setYamlValue(doc, [...VISION_PATH, key], values[key]);
-    return stringifyYamlDocument(doc);
+    values = { provider: 'custom', model: vision.model, base_url: `${vision.baseUrl.replace(/\/+$/, '')}/v1`, api_key: vision.apiKey };
+  } else {
+    if (!visionIsOurs(doc)) return existing;
+    values = Object.fromEntries(VISION_KEYS.map((key) => [key, priors[`auxiliary.vision.${key}`] ?? null]));
   }
-  if (!visionIsOurs(doc)) return existing;
-  for (const key of VISION_KEYS) restoreYamlValue(doc, [...VISION_PATH, key], priors[`auxiliary.vision.${key}`] ?? null);
+  const byLine = editVisionLines(existing, values);
+  if (byLine !== undefined) {
+    try {
+      const check = parseYamlDocument(byLine);
+      if (VISION_KEYS.every((key) => (getYamlValue(check, [...VISION_PATH, key]) ?? null) === (values[key] ?? null))) return byLine;
+    } catch {
+      // 落到下面的文档级编辑
+    }
+  }
+  for (const key of VISION_KEYS) restoreYamlValue(doc, [...VISION_PATH, key], values[key] ?? null);
   return stringifyYamlDocument(doc);
+}
+
+function editVisionLines(content: string, values: Record<string, unknown>): string | undefined {
+  let next: string | undefined = content;
+  for (const key of VISION_KEYS) {
+    const value = values[key];
+    if (value === null || value === undefined) next = removeYamlPathLine(next, [...VISION_PATH, key]);
+    else if (typeof value === 'string') next = setYamlPathLine(next, [...VISION_PATH, key], value);
+    else return undefined;
+    if (next === undefined) return undefined;
+  }
+  return next;
 }
 
 // 首次写入前的原值（旧版本写过七牛配置时不记录）
@@ -201,6 +225,11 @@ function readHermesConfig(): string {
 }
 
 function writeHermesConfig(content: string): void {
+  // 还原后为空说明文件是我们创建的，直接删除
+  if (!content.trim()) {
+    writeTextOrRemove(HERMES_CONFIG_FILE, '');
+    return;
+  }
   safeWriteFile(HERMES_CONFIG_FILE, content);
   applyHermesConfigPermissions(HERMES_DIR, HERMES_CONFIG_FILE);
 }

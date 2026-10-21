@@ -23,9 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   * Codex：`review_model`、`[agents] default_subagent_model`、`[memories] extract_model` / `consolidation_model`（默认是 OpenAI 的模型名，七牛线路不可用）
   * Grok CLI：`[models] session_summary`（会话标题与摘要）
   * Hermes Agent：`auxiliary.vision`（单独设置时写入）
-  * 均记录原值，`restore` 时写回；已用 codex-cli 0.163.0（`--strict-config`、`codex review`）与 grok 1.0.62 实测生效
+  * 均记录原值，`restore` 时写回。已用真实客户端实测：Claude Code 2.1（主模型 / `--model haiku` / 子代理调用）、codex-cli 0.163.0（`--strict-config`、`exec`、`codex review`）、grok 1.0.62（会话标题请求）、Factory Droid 0.245.0（`exec`、`--use-spec`）、Hermes 0.19.0（`--image` 看图），还原后文件与原来一致
 
 ### 修复
+* Codex 使用非 GPT 模型（如 glm）时提示「Model metadata not found」：模型目录里之前只有 GPT 模型，其他模型 Codex 用兜底元数据，不知道真实上下文上限（自动压缩时机可能不对），还会当成支持图片。现在主模型和各槽位用到的模型都写进目录（上下文、输出上限、是否支持图片取自七牛模型列表；不发送推理强度，与原来实测可用的请求一致）
+* Hermes：还原时原本不存在的 `config.yaml` 不再留下空文件；看图模型按行写入，用户文件里的注释与空格原样保留
 * Factory Droid 接入后仍使用官方默认模型：之前只把七牛模型加进 `customModels`，现在同时设置 `sessionDefaultSettings.model`（和 Spec 模式的 `specModeModel`）为七牛模型，还原时写回原值
 * Claude Code 切换模型后仍在用旧模型：在 Claude Code 里用 `/model` 选过的模型保存在 `settings.json` 的 `model`，会盖过写入的模型槽位。现在切换模型时一并清掉它（以及 `ANTHROPIC_MODEL`），`/model` 回到「Default」并跟随主模型；同时写入旧版的 `ANTHROPIC_SMALL_FAST_MODEL`。确认页会列出「/model 当前选择 → Default」，`restore` 时写回原值
 * Claude Code `/model` 列表里的 Fable 项指向 Opus 槽位的模型（`ANTHROPIC_DEFAULT_FABLE_MODEL`），七牛线路没有 Fable，之前选中会报错；各项说明改为「七牛 · 主模型 / 兜底模型 / Opus 槽位 / Fable 槽位」

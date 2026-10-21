@@ -24,6 +24,7 @@ import {
   removeTomlTableKey,
 } from '../core/toml-edit.js';
 import { slotModel } from '../core/model-slots.js';
+import { marketModelService, getModelCapabilities, type MarketModelInfo } from '../market-model-service.js';
 
 // 兼容旧导入路径
 export { getTopLevelTomlValue, upsertTopLevelTomlKey, removeTopLevelTomlKey };
@@ -42,6 +43,9 @@ export interface CodexCatalogModel {
   id: string;
   context_length: number;
   max_tokens: number;
+  // 非 GPT 模型：不发送推理强度（与 Codex 的兜底行为一致，已实测可用），按实际能力声明是否支持图片
+  plain?: boolean;
+  images?: boolean;
 }
 
 const GPT_MODELS: CodexCatalogModel[] = [
@@ -113,12 +117,15 @@ export class CodexTool implements ITool {
 
     // 备份 + 原子写入；只增删七牛条目，用户的 MCP、沙箱策略、其他 provider 原样保留
     writeJson(CODEX_AUTH_FILE, JSON.parse(buildCodexAuthJson(JSON.stringify(existingAuth), apiKey)));
-    safeWriteFile(CODEX_CATALOG_FILE, buildCodexModelCatalog(GPT_MODELS));
     // 旧版本装载时没记录上下文原值，这里补记（已有记录时不覆盖）
     if (stateStore.getPriors(this.name)) {
       stateStore.recordPriors(this.name, { 'config.model_context_window': getTopLevelTomlValue(existingConfig, 'model_context_window') ?? null });
     }
     const model = models.codexModel || this.defaultModel;
+    // 模型目录：GPT 模型 + 用到的非 GPT 模型（主模型与各槽位）。不在目录里的模型 Codex 会用兜底元数据，
+    // 不知道上下文上限（自动压缩的时机会错），还会当成支持图片
+    const used = [model, ...(['review', 'subagent', 'memory'] as const).map((slot) => slotModel(this.name, slot, model))];
+    safeWriteFile(CODEX_CATALOG_FILE, buildCodexModelCatalog([...GPT_MODELS, ...await catalogEntries(used, baseUrl, apiKey)]));
     let content = mergeCodexConfig(existingConfig, baseUrl, model, CODEX_CATALOG_FILE);
     content = applyContextWindow(content, model, stateStore.getPriors(this.name) ?? {});
     // 代码审查、子代理、记忆整理默认是 OpenAI 的模型名，七牛上不可用，一律指向七牛模型（默认跟随主模型）
@@ -456,12 +463,12 @@ export function buildCodexModelCatalog(models: CodexCatalogModel[]): string {
       effort === 'high' ? 'Greater reasoning depth for complex problems' :
       'Extra high reasoning depth for complex problems',
   }));
-  return JSON.stringify({ models: models.filter((model) => model.id.startsWith('openai/gpt')).map((model, index) => ({
+  return JSON.stringify({ models: models.filter((model) => model.plain || model.id.startsWith('openai/gpt')).map((model, index) => ({
     slug: model.id,
-    display_name: model.id.replace('openai/', '').replace(/(^|[-.])([a-z])/g, (_, prefix, letter) => `${prefix}${letter.toUpperCase()}`),
+    display_name: model.plain ? model.id : model.id.replace('openai/', '').replace(/(^|[-.])([a-z])/g, (_, prefix, letter) => `${prefix}${letter.toUpperCase()}`),
     description: `${model.id.replace('openai/', '')} coding model.`,
-    default_reasoning_level: 'medium',
-    supported_reasoning_levels: reasoningLevels,
+    default_reasoning_level: model.plain ? null : 'medium',
+    supported_reasoning_levels: model.plain ? [] : reasoningLevels,
     shell_type: 'unified_exec',
     visibility: 'list',
     supported_in_api: true,
@@ -471,13 +478,30 @@ export function buildCodexModelCatalog(models: CodexCatalogModel[]): string {
     context_window: model.context_length,
     max_context_window: model.context_length,
     effective_context_window_percent: 95,
-    input_modalities: ['text', 'image'],
+    input_modalities: model.plain && !model.images ? ['text'] : ['text', 'image'],
     used_fallback_model_metadata: false,
     support_verbosity: false,
     truncation_policy: { mode: 'tokens', limit: 10000 },
     experimental_supported_tools: [],
     base_instructions: 'You are Codex, a coding agent based on GPT-5.',
   })) }) + '\n';
+}
+
+// 非 GPT 模型的目录条目：上下文、输出上限与是否支持图片取自七牛模型列表
+async function catalogEntries(ids: string[], baseUrl: string, apiKey: string): Promise<CodexCatalogModel[]> {
+  const wanted = [...new Set(ids)].filter((id) => !GPT_MODELS.some((m) => m.id === id));
+  if (wanted.length === 0) return [];
+  let market: MarketModelInfo[] = [];
+  try {
+    market = await marketModelService.fetchModels(baseUrl.replace(/\/+$/, ''), apiKey);
+  } catch {
+    // 取不到时用默认上限
+  }
+  return wanted.map((id) => {
+    const info = market.find((m) => m.id === id);
+    const caps = info ? getModelCapabilities(info) : undefined;
+    return { id, context_length: caps?.maxInputTokens ?? 128000, max_tokens: caps?.maxOutputTokens ?? 8192, plain: true, images: caps?.images ?? false };
+  });
 }
 
 function readCodexConfig(): string {
