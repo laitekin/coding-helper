@@ -104,6 +104,8 @@ export async function runApiKeyFlow(step?: StepInfo): Promise<boolean> {
       // 换 Key 后同步到已接入的客户端
       if (!step && changed) await syncAfterChange();
       if (!step) await promptHelper.pressEnter(t('result_back_to_menu'));
+      // 向导里稍停片刻，让用户看到校验结果再进入下一步
+      else await new Promise((resolve) => setTimeout(resolve, 1200));
       return true;
     }
 

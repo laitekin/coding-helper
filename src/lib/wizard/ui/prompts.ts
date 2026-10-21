@@ -145,10 +145,12 @@ export interface MenuConfig<T> {
   searchable?: boolean;
   filter?: (item: MenuItem<T>, query: string) => number | undefined;
   // 搜索时附加「使用输入的值」，选中返回 action 'custom' 与 query
-  customLabel?: (query: string) => string;
+  customLabel?: (query: string) => string | undefined;
   // 没有匹配时显示的提示，以及可直接选择的建议（如最相近的几项）
   emptyText?: (query: string) => string;
   suggest?: (query: string) => MenuItem<T>[];
+  // 搜索框里的提示文字
+  placeholder?: string;
   // 高亮用的搜索词（如去掉 200k、看图 这类过滤词）
   highlight?: (query: string) => string;
   // ←→ 切换的标签页；搜索时自动看全部
@@ -200,7 +202,8 @@ const menuView = createPrompt(<T,>(config: MenuConfig<T>, done: (result: MenuRes
         .filter((x): x is { item: MenuItem<T>; order: number; score: number } => x.score !== undefined)
         .sort((a, b) => a.score - b.score || a.order - b.order)
         .map((x) => x.item);
-      const custom: MenuItem<typeof CUSTOM>[] = config.customLabel ? [{ value: CUSTOM, label: config.customLabel(query) }] : [];
+      const customText = config.customLabel?.(query);
+      const custom: MenuItem<typeof CUSTOM>[] = customText ? [{ value: CUSTOM, label: customText }] : [];
       const suggested = scored.length ? [] : config.suggest?.(query) ?? [];
       return [...scored, ...suggested, ...(custom.length ? [{ separator: '' }, ...custom] : [])];
     }
@@ -322,7 +325,7 @@ const menuView = createPrompt(<T,>(config: MenuConfig<T>, done: (result: MenuRes
     const matches = !query ? 0 : config.items.filter((e) => selectable(e) && !e.pinned && (config.filter ?? defaultFilter)(e, query) !== undefined).length;
     lines.push(query
       ? `  ${theme.brand('⌕')} ${theme.value(query)}${chalk.bgHex('#19C2F0')(' ')}   ${theme.subtle(t('ui_search_found', { count: String(matches) }))}`
-      : `  ${theme.subtle('⌕')} ${theme.subtle(t('ui_search_placeholder'))}`);
+      : `  ${theme.subtle('⌕')} ${theme.subtle(config.placeholder ?? t('ui_search_placeholder'))}`);
   }
   if (config.tabs?.length) {
     lines.push(`  ${config.tabs.map((x, i) => {

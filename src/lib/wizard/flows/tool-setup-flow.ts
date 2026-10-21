@@ -25,7 +25,10 @@ export async function selectTools(message: string): Promise<ITool[] | undefined>
         value: d.tool.name,
         label: d.tool.displayName,
         icon: toolIcon(d.tool.name, !installed),
-        tag: d.installed === null ? t('tool_badge_desktop') : installed ? t('tool_badge_installed') : t('tool_badge_not_installed'),
+        tag: [
+          d.installed === null ? t('tool_badge_desktop') : installed ? t('tool_badge_installed') : t('tool_badge_not_installed'),
+          d.configured ? theme.success(t('tool_badge_configured')) : '',
+        ].filter(Boolean).join(theme.subtle(' · ')),
         checked: false,
         // 第一行「全选已安装」只选这些
         preferred: installed,

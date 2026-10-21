@@ -7,7 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### 变更
+* **交互只用方向键、回车和 Esc。** 字母 / 数字快捷键不再显示，底部统一「↑↓ 选择 · 回车 确认 · Esc 返回」；需要搜索的列表直接打字
+* 主菜单收为 6 项：接入编码工具 / 切换模型 / 我的工具 / 账号与线路（API Key、线路、配置档）/ 健康检查 / 更多…（上下文大小、还原、语言、更新、清除）；主菜单按 Esc 退出
+* 多选：回车勾选，第一行「全选已安装 / 全选」，最后一行「继续（已选 N）→」，→ 直接继续，Esc 返回；默认一个不勾
+* 确认页：每个工具一行，→ 展开看每一项与会改的文件，回车单独调整这个工具；「写入 N 个工具」/「查看具体改动」
+* 首次向导：语言 → 线路 → API Key → 工具 → 模型 → 确认，每一步 Esc 回到上一步并保留已填内容；粘贴完整的 API Key 后自动校验；回到 Key 这一步直接回车沿用已保存的 Key
+* 配置档页：回车打开某个配置档（设为当前 / 编辑 / 测试连通 / 删除），最后一行新建
+* 工具页：模型 / 重新写入配置 / 使用配置档 / 启动 / 还原 / 更新 / 查看配置
+
+### 新增
+* **模型搜索：** 顶部搜索框，打字即过滤并高亮匹配字符；忽略 `- / .` 和空格（`glm5` → glm-5.2）；认识中文厂商名（智谱 / 千问 / 月之暗面 / 深度求索）；`200k` / `1m` 按上下文过滤，`看图` / `vision` 按能力过滤；排序为开头匹配 > 推荐 > 最近使用；←→ 切换厂商；最近使用的 3 个置顶；找不到时列出最相近的 3 个模型和「使用自定义模型 ID」（缺厂商前缀时自动补全）；选中行显示每个工具能否使用
+* **模型槽位：** 主模型之外的槽位默认跟随主模型，单独设置的保持不变（工具页「模型」里每个工具一页）
+  * Claude Code：兜底（Haiku）、子代理
+  * Codex：`review_model`、`[agents] default_subagent_model`、`[memories] extract_model` / `consolidation_model`（默认是 OpenAI 的模型名，七牛线路不可用）
+  * Grok CLI：`[models] session_summary`（会话标题与摘要）
+  * Hermes Agent：`auxiliary.vision`（单独设置时写入）
+  * 均记录原值，`restore` 时写回；已用 codex-cli 0.163.0（`--strict-config`、`codex review`）与 grok 1.0.62 实测生效
+
 ### 修复
+* Factory Droid 接入后仍使用官方默认模型：之前只把七牛模型加进 `customModels`，现在同时设置 `sessionDefaultSettings.model`（和 Spec 模式的 `specModeModel`）为七牛模型，还原时写回原值
 * Claude Code 切换模型后仍在用旧模型：在 Claude Code 里用 `/model` 选过的模型保存在 `settings.json` 的 `model`，会盖过写入的模型槽位。现在切换模型时一并清掉它（以及 `ANTHROPIC_MODEL`），`/model` 回到「Default」并跟随主模型；同时写入旧版的 `ANTHROPIC_SMALL_FAST_MODEL`。确认页会列出「/model 当前选择 → Default」，`restore` 时写回原值
 * Claude Code `/model` 列表里的 Fable 项指向 Opus 槽位的模型（`ANTHROPIC_DEFAULT_FABLE_MODEL`），七牛线路没有 Fable，之前选中会报错；各项说明改为「七牛 · 主模型 / 兜底模型 / Opus 槽位 / Fable 槽位」
 

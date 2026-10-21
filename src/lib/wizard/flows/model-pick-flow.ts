@@ -155,10 +155,14 @@ export async function pickModel(options: PickOptions): Promise<PickResult> {
           recent: recent.includes(m.id),
         });
       },
+      placeholder: t('model_search_placeholder'),
       highlight: (q) => parseModelQuery(q).words.join(''),
       emptyText: (q) => t('model_search_none', { query: q }),
       suggest: (q) => closestModels(usable.map((m) => m.id), q).map((id) => modelRow(byId.get(id)!, options)),
-      customLabel: (q) => t('model_custom_value', { value: resolveModelId(q, models.map((m) => m.id)) }),
+      // 像模型 ID 的输入才提供「使用自定义模型 ID」（中文厂商名、200k、看图 这类过滤词不算）
+      customLabel: (q) => /^[\w.\-/:]+$/.test(q.trim()) && !parseModelQuery(q).minContext
+        ? t('model_custom_value', { value: resolveModelId(q, models.map((m) => m.id)) })
+        : undefined,
     });
     if (action === 'escape') return 'back';
     if (value === SHOW_ALL) {

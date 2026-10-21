@@ -396,7 +396,7 @@
   "targets_prompt": "Choose the tools to change",
   "targets_prompt_restore": "Choose the tools to restore",
   "targets_summary": "{{count}} of {{total}} tools will change; the rest stay as they are",
-  "targets_none": "Nothing selected — press space to select; Enter alone changes nothing",
+  "targets_none": "Enter to toggle, first row selects all; → to continue",
   "ui_key_select_all_short": "all",
   "plan_subtitle": "These {{count}} tools will be written. Nothing changes until you confirm",
   "plan_model": "Main model",
@@ -429,12 +429,12 @@
   "sync_detail_following": "follows active",
   "sync_detail_pinned": "bound to {{name}}",
   "sync_key_confirm": "confirm (none = save only)",
-  "sync_skipped": "Saved. No tool configs were changed.",
+  "sync_skipped": "No tools updated; settings saved only",
   "sync_cli_hint": "Saved; tool configs unchanged. Add --sync to update connected tools, or run auth reload <tool>.",
   "profile_removed_pinned_hint": "{{tools}} keep their previous key; run {{command}} to switch them to the active connection.",
   "tool_configure_models_advanced": "Advanced model settings",
 
-  "setup_none_hint": "Press space to select tools, a for all installed",
+  "setup_none_hint": "Enter to toggle tools; the first row selects all installed",
 
   "plan_claude_selected": "/model selection",
   "plan_claude_follow_main": "Default (follows main model)",
@@ -450,7 +450,7 @@
   "ui_key_type": "Type",
   "ui_key_paste_hint": "to check automatically",
   "ui_search_found": "{{count}} matches",
-  "ui_search_placeholder": "Type to search, e.g. glm5, kimi, 200k, vision",
+  "ui_search_placeholder": "Type to search",
   "ui_check_all": "Select all",
   "ui_check_all_installed": "Select all installed",
   "ui_check_next": "Continue",
@@ -514,5 +514,7 @@
   "slot_grok_summary": "Session summary",
   "slot_grok_summary_hint": "Session titles and summaries ([models] session_summary)",
   "slot_hermes_vision": "Vision",
-  "slot_hermes_vision_hint": "Model for images and screenshots (auxiliary.vision); Hermes picks automatically when following"
+  "slot_hermes_vision_hint": "Model for images and screenshots (auxiliary.vision); Hermes picks automatically when following",
+
+  "model_search_placeholder": "Type to search, e.g. glm5, kimi, 200k, vision"
 }

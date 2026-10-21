@@ -79,7 +79,7 @@ export async function editToolModels(tool: ITool, from?: PlanItem): Promise<Plan
     const picked = await pickModel({
       tools: [tool],
       title: isMain ? title : `${title} · ${t(slots.find((s) => s.id === value)!.labelKey)}`,
-      current: isMain ? main : overrides[value] ?? main,
+      current: isMain ? main : overrides[value],
       follow: isMain ? undefined : main ?? '',
     });
     if (picked === 'back') continue;

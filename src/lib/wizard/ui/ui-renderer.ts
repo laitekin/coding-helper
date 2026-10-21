@@ -140,7 +140,7 @@ export const uiRenderer = {
       if (i === current - 1) return `${theme.brandBold('◉')} ${chalk.bold.hex('#E8F6FF')(label)}`;
       return `${theme.subtle('○')} ${theme.subtle(label)}`;
     });
-    logger.log(`  ${parts.join(theme.border(' ── '))}   ${theme.subtle(`${current} / ${total}`)}`);
+    logger.log(`  ${parts.join(theme.border(' ── '))}   ${theme.subtle(`${Math.min(current, total)} / ${total}`)}`);
     logger.newLine();
   },
 
