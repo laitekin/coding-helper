@@ -43,13 +43,9 @@ node dist/cli.js lang show
 - `configManager` — 管理 `~/.coding-helper/config.yaml`，存储语言、线路、API Key、模型配置
 - `i18n` — 国际化，从 `src/locales/*.json` 加载翻译，支持 `{{param}}` 模板替换，回退到 en_US
 - `modelService` — 从 `/v1/models` 获取模型列表，带内存缓存
-- `toolManager` — 工具注册中心
+- `toolManager` — 工具注册中心，当前只注册 ClaudeCodeTool
 
-**工具扩展**: 实现 `ITool` 接口 (`src/lib/tools/base-tool.ts`)，在 `ToolManager` 中注册即可。OpenAI 兼容的客户端继承 `OpenAICompatTool`（`tools/openai-compat-tool.ts`），共用 `toolModels` / `defaultModel` 模型配置与模型选择流程。
-
-**核心层** (`src/lib/core/`):
-- `safe-write.ts` — 写客户端配置用 `safeWriteFile`（备份到 `~/.coding-helper/backups/<时间戳>/` + 原子写入）；读用户 JSON 用 `readJsonObjectStrict`，解析失败抛错，绝不按空对象覆盖；`writeJson` 沿用原文件的缩进风格
-- `state-store.ts` — `~/.coding-helper/state.json`，记录首次写入前的原值（priors），卸载按原值还原；清除配置时保留
+**工具扩展**: 实现 `ITool` 接口 (`src/lib/tools/base-tool.ts`)，在 `ToolManager` 中注册即可。Phase 1 仅支持 Claude Code。
 
 **向导系统** (`src/lib/wizard/`):
 - `flows/` — 独立配置流程（语言、线路、API Key、模型选择）
@@ -58,7 +54,6 @@ node dist/cli.js lang show
 
 **配置写入目标**:
 - `~/.coding-helper/config.yaml` — coding-helper 自身配置（语言、线路、API Key、模型）
-- `~/.coding-helper/state.json`、`backups/` — 原值记录与原文件备份（清除配置时保留）
 - `~/.claude/settings.json` — Claude Code 环境变量 (ANTHROPIC_BASE_URL、ANTHROPIC_AUTH_TOKEN 等)
 - `~/.claude.json` — Claude Code onboarding 标记
 
