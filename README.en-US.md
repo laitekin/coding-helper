@@ -6,7 +6,7 @@
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Node.js Version](https://img.shields.io/node/v/qiniu-coding-helper.svg)](https://nodejs.org)
 
-**The CLI helper for configuring Claude Code, Codex, CodeBuddy, WorkBuddy, and Hermes Agent with Qiniu AI API endpoints**
+**The CLI helper for configuring Claude Code, Codex, CodeBuddy, WorkBuddy, Hermes Agent, and OpenCode with Qiniu AI API endpoints**
 
 [简体中文](README.md) · [Supported Tools](#-supported-tools) · [Features](#-features) · [Prerequisites](#-prerequisites) · [Quick Start](#-quick-start) · [Commands](#-commands) · [Configuration](#-configuration) · [FAQ](#-faq)
 
@@ -23,6 +23,7 @@
 | CodeBuddy | CLI | `~/.codebuddy/models.json` |
 | WorkBuddy | Desktop app | `~/.workbuddy/models.json` |
 | Hermes Agent | CLI | `~/.hermes/config.yaml` |
+| OpenCode | CLI | `~/.config/opencode/opencode.json` |
 
 ## ✨ Features
 
@@ -35,6 +36,8 @@
 - **🤝 CodeBuddy Integration** — Multi-select Qiniu market models and write them into `~/.codebuddy/models.json`
 - **🤝 WorkBuddy Integration** — Multi-select Qiniu market models and write them into `~/.workbuddy/models.json`
 - **☤ Hermes Agent Integration** — Select a default Qiniu market model and write it into `~/.hermes/config.yaml`
+- **🧱 OpenCode Integration** — Add a Qiniu provider and make it the default model; unloading restores the previous values
+- **🛡️ Safe writes** — Back up the original file to `~/.coding-helper/backups/` and write atomically; a config that fails to parse is reported, never overwritten
 - **🔍 Health Check** — Built-in `doctor` command to verify config, API Key, network, tools, Git, and Node.js
 - **🌍 Internationalization** — Supports Chinese (zh_CN) and English (en_US)
 
@@ -203,6 +206,7 @@ npx qiniu-coding-helper enter hermes
 | **CodeBuddy Models** | `~/.codebuddy/models.json` | Qiniu model entries (URL, API Key, capabilities) |
 | **WorkBuddy Models** | `~/.workbuddy/models.json` | Qiniu model entries (URL, API Key, capabilities) |
 | **Hermes Agent Config** | `~/.hermes/config.yaml` | Qiniu custom provider, default model, and API Key |
+| **OpenCode Config** | `~/.config/opencode/opencode.json` | Qiniu provider (`qiniu`) and default model |
 
 ### 🌍 Region Endpoints
 
@@ -309,6 +313,25 @@ model:
 Unloading the configuration removes the Coding Helper managed `model.provider`, `model.default`, `model.base_url`, and `model.api_key` fields while preserving other Hermes settings.
 
 Treat `~/.hermes/config.yaml` like a password because the API Key is stored in plaintext.
+
+### 🔧 OpenCode Configuration
+
+OpenCode's global config lives at `~/.config/opencode/opencode.json` (under `XDG_CONFIG_HOME` when set; `opencode.jsonc` is used when it is the only file). Loading adds an OpenAI-compatible provider named `qiniu` and sets the default model to `qiniu/<model>`, leaving other providers and settings untouched:
+
+```json
+{
+  "provider": {
+    "qiniu": {
+      "npm": "@ai-sdk/openai-compatible",
+      "options": { "baseURL": "https://api.qnaigc.com/v1", "apiKey": "<your-api-key>" },
+      "models": { "deepseek-v3": { "name": "deepseek-v3" } }
+    }
+  },
+  "model": "qiniu/deepseek-v3"
+}
+```
+
+Unloading removes the `qiniu` provider and restores `model` to its previous value; if Coding Helper created the file, it is deleted. The original values are recorded in `~/.coding-helper/state.json` and the original file is backed up under `~/.coding-helper/backups/`; "Clear Coding Helper Configuration" keeps both.
 
 ---
 
