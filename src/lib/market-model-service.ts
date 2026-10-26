@@ -5,7 +5,8 @@ export interface MarketModelInfo {
   id: string;
   name: string;
   description: string;
-  features: string[];
+  // 海外线路部分模型（如图片生成模型）返回 null
+  features: string[] | null;
   model_constraints: {
     context_length: number;
     max_tokens: number;
@@ -55,17 +56,20 @@ export interface ModelCapabilities {
 }
 
 // 推断模型能力（features 字段优先，architecture 兜底）
+// 接口字段可能为 null 或缺失（海外线路的图片模型 features 为 null），一律按不支持处理
 export function getModelCapabilities(model: MarketModelInfo): ModelCapabilities {
-  const contextLength = model.model_constraints.context_length;
-  const maxTokens = model.model_constraints.max_tokens;
+  const features = model.features ?? [];
+  const architecture = model.architecture;
+  const contextLength = model.model_constraints?.context_length ?? 0;
+  const maxTokens = model.model_constraints?.max_tokens ?? 0;
   return {
     toolCall:
-      model.features.includes(FEATURE_TOOL_CALL) ||
-      model.architecture.function_calling.supported,
-    images: model.architecture.input_modalities.includes(MODALITY_IMAGE),
+      features.includes(FEATURE_TOOL_CALL) ||
+      architecture?.function_calling?.supported === true,
+    images: architecture?.input_modalities?.includes(MODALITY_IMAGE) ?? false,
     reasoning:
-      model.features.includes(FEATURE_REASONING) ||
-      model.architecture.reasoning.supported,
+      features.includes(FEATURE_REASONING) ||
+      architecture?.reasoning?.supported === true,
     maxInputTokens: contextLength > 0 ? contextLength : DEFAULT_CONTEXT_LENGTH,
     maxOutputTokens: maxTokens > 0 ? maxTokens : DEFAULT_MAX_TOKENS,
   };

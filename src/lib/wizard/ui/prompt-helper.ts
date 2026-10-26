@@ -2,7 +2,7 @@ import inquirer from 'inquirer';
 import search from '@inquirer/search';
 import { t } from '../../i18n.js';
 import { theme } from './theme.js';
-import { menuPrompt } from './prompts.js';
+import { continuePrompt, menuPrompt, textPrompt } from './prompts.js';
 
 // 搜索选择的跳过标记
 const SKIP_VALUE = '__skip__';
@@ -31,39 +31,27 @@ export const promptHelper = {
     return answer as string;
   },
 
-  // 文本输入
+  // 文本输入；按 Esc 返回空字符串（调用方按「取消」处理）
   async input(message: string, defaultValue?: string): Promise<string> {
-    const { answer } = await inquirer.prompt([
-      {
-        type: 'input',
-        name: 'answer',
-        message,
-        default: defaultValue,
-      },
-    ]);
-    return answer as string;
+    return (await textPrompt({ message, default: defaultValue })) ?? '';
   },
 
   // 确认：y / n 直接选择
   async confirm(message: string, defaultValue = true): Promise<boolean> {
     const yes = { value: true, key: 'y', label: `${theme.icon('✔')} ${t('confirm_yes')}` };
     const no = { value: false, key: 'n', label: `${theme.dimIcon('✘')} ${t('confirm_no')}` };
-    const { value } = await menuPrompt<boolean>({
+    const { value, action } = await menuPrompt<boolean>({
       message,
       items: defaultValue ? [yes, no] : [no, yes],
+      escape: true,
     });
-    return value;
+    // Esc 视为取消
+    return action === 'escape' ? false : value;
   },
 
-  // 按回车继续（不显示 Yes/No，仅等待用户按回车）
+  // 按回车（或 Esc）继续
   async pressEnter(message?: string): Promise<void> {
-    await inquirer.prompt([
-      {
-        type: 'input',
-        name: 'answer',
-        message: message || t('press_enter_to_continue'),
-      },
-    ]);
+    await continuePrompt(message || t('press_enter_to_continue'));
   },
 
   // 多选列表

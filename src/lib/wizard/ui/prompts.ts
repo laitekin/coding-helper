@@ -348,7 +348,7 @@ const menuView = createPrompt(<T,>(config: MenuConfig<T>, done: (result: MenuRes
   return `${lines.join('\n')}${CURSOR_HIDE}`;
 });
 
-// ─── 多选：回车勾选，第一行「全选」，最后一行「继续」 ───────────────
+// ─── 多选：空格勾选，回车确认（没勾选时直接处理当前行），第一行「全选」，最后一行「继续」 ───
 
 export interface CheckItem<T> {
   value: T;
@@ -386,13 +386,17 @@ const checkView = createPrompt(<T,>(config: CheckConfig<T>, done: (values: T[] |
   const allChecked = items.every((item, i) => !item.preferred || checked[i]) && count > 0;
   const nextRow = items.length + 1;
 
+  const finish = (values: T[]): void => {
+    setStatus('done');
+    done(values);
+  };
+
   const proceed = (): void => {
     if (count === 0 && !config.allowEmpty) {
       setWarning(t('ui_check_empty'));
       return;
     }
-    setStatus('done');
-    done(items.filter((_, i) => checked[i]).map((i) => i.value));
+    finish(items.filter((_, i) => checked[i]).map((i) => i.value));
   };
 
   useKeypress((key) => {
@@ -405,11 +409,19 @@ const checkView = createPrompt(<T,>(config: CheckConfig<T>, done: (values: T[] |
     if (isUpKey(key)) return setActive(Math.max(0, active - 1));
     if (isDownKey(key)) return setActive(Math.min(nextRow, active + 1));
     if (key.name === 'right') return proceed();
-    if (isEnterKey(key) || isSpaceKey(key)) {
-      if (active === nextRow) return isEnterKey(key) ? proceed() : undefined;
+    if (isSpaceKey(key)) {
+      if (active === nextRow) return;
       if (active === 0) return setChecked(allChecked ? items.map(() => false) : preferred);
       setChecked(checked.map((c, i) => (i === active - 1 ? !c : c)));
       return;
+    }
+    if (isEnterKey(key)) {
+      // 「全选」行：回车切换全选
+      if (active === 0) return setChecked(allChecked ? items.map(() => false) : preferred);
+      // 工具行：没勾选任何项时直接处理当前行，否则按已勾选的继续；
+      // allowEmpty 时「不勾选」本身有含义（如只保存），回车按当前勾选继续
+      if (active !== nextRow && count === 0 && !config.allowEmpty) return finish([items[active - 1].value]);
+      return proceed();
     }
     // 兼容老习惯的隐藏加速键
     if (key.name === 'a') setChecked(preferred);
@@ -417,7 +429,10 @@ const checkView = createPrompt(<T,>(config: CheckConfig<T>, done: (values: T[] |
   });
 
   if (status !== 'idle') {
-    const names = items.filter((_, i) => checked[i]).map((i) => i.label.trim()).join(', ');
+    // 回车直接处理当前行时没有勾选，显示当前行
+    const picked = items.filter((_, i) => checked[i]);
+    const single = picked.length || config.allowEmpty ? [] : items.filter((_, i) => i === active - 1);
+    const names = (picked.length ? picked : single).map((i) => i.label.trim()).join(', ');
     return status === 'cancel' ? '' : `${theme.success('✔')} ${theme.heading(config.message)} ${theme.brand(truncate(names || '—', 60))}`;
   }
 
@@ -442,7 +457,8 @@ const checkView = createPrompt(<T,>(config: CheckConfig<T>, done: (values: T[] |
   const summary = config.summary?.(items.filter((_, i) => checked[i]).map((i) => i.value));
   if (warning) lines.push('', `  ${theme.warning(warning)}`);
   else if (summary) lines.push('', `  ${summary}`);
-  lines.push('', `  ${renderKeyHints([['↑↓', t('ui_key_move')], [t('ui_key_enter'), t('ui_key_toggle')], ['→', t('ui_key_next')], ['Esc', t('ui_key_back')]])}`);
+  const enterText = active !== 0 && active !== nextRow && count === 0 && !config.allowEmpty ? t('ui_key_this_one') : t('ui_key_next');
+  lines.push('', `  ${renderKeyHints([['↑↓', t('ui_key_move')], [t('ui_key_space'), t('ui_key_toggle')], [t('ui_key_enter'), enterText], ['Esc', t('ui_key_back')]])}`);
   return `${lines.join('\n')}${CURSOR_HIDE}`;
 });
 
@@ -509,6 +525,60 @@ const secretView = createPrompt((config: SecretConfig, done: (value: string | un
   return `${lines.join('\n')}${CURSOR_HIDE}`;
 });
 
+// ─── 文本输入：Esc 返回 ─────────────────────────────────────────────
+
+export interface TextConfig {
+  message: string;
+  // 预填的值，可直接修改
+  default?: string;
+}
+
+const textView = createPrompt((config: TextConfig, done: (value: string | undefined) => void) => {
+  const [value, setValue] = useState(config.default ?? '');
+  const [status, setStatus] = useState<'idle' | 'done' | 'cancel'>('idle');
+
+  useEffect((rl) => {
+    if (config.default) rl.write(config.default);
+  }, []);
+
+  useKeypress((key, rl) => {
+    if (isEnterKey(key)) {
+      setStatus('done');
+      done(value.trim());
+      return;
+    }
+    if (isEscape(key)) {
+      setStatus('cancel');
+      done(undefined);
+      return;
+    }
+    setValue(rl.line);
+  });
+
+  if (status === 'cancel') return '';
+  if (status === 'done') return `${theme.success('✔')} ${theme.heading(config.message)} ${theme.brand(value.trim())}`;
+  return [
+    `${theme.brand('?')} ${theme.heading(config.message)}`,
+    `  ${theme.brandBold('❯')} ${value}${chalk.bgHex('#19C2F0')(' ')}`,
+    '',
+    `  ${renderKeyHints([[t('ui_key_enter'), t('ui_key_confirm')], ['Esc', t('ui_key_back')]])}`,
+  ].join('\n') + CURSOR_HIDE;
+});
+
+// ─── 按回车（或 Esc）继续 ────────────────────────────────────────────
+
+const continueView = createPrompt((config: { message: string }, done: (value: void) => void) => {
+  const [status, setStatus] = useState<'idle' | 'done'>('idle');
+  useKeypress((key) => {
+    if (isEnterKey(key) || isEscape(key)) {
+      setStatus('done');
+      done();
+    }
+  });
+  if (status === 'done') return '';
+  return `${theme.subtle(config.message)}${CURSOR_HIDE}`;
+});
+
 // 对外的类型化入口（createPrompt 推导出的类型不能直接导出）
 export function menuPrompt<T>(config: MenuConfig<T>, context?: { signal?: AbortSignal }): Promise<MenuResult<T>> {
   return menuView(config as MenuConfig<unknown>, context) as Promise<MenuResult<T>>;
@@ -522,4 +592,14 @@ export function checkPrompt<T>(config: CheckConfig<T>): Promise<T[] | undefined>
 // 返回输入的值；按 Esc 返回 undefined
 export function secretPrompt(config: SecretConfig): Promise<string | undefined> {
   return secretView(config) as Promise<string | undefined>;
+}
+
+// 返回输入的值；按 Esc 返回 undefined
+export function textPrompt(config: TextConfig): Promise<string | undefined> {
+  return textView(config) as Promise<string | undefined>;
+}
+
+// 等待回车或 Esc
+export function continuePrompt(message: string): Promise<void> {
+  return continueView({ message }) as Promise<void>;
 }
