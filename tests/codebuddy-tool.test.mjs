@@ -124,3 +124,12 @@ test('CodeBuddy refuses corrupt config or missing models without overwriting fil
   await assert.rejects(tool.loadConfig('test-key', 'https://example.test', { codeBuddyModels: ['missing'] }));
   assert.equal(fs.readFileSync(file, 'utf8'), '{"keep":true}');
 });
+
+
+test('unload preserves duplicate entries owned by other vendors', () => {
+  const mine = { id: 'same', vendor: 'Mine' };
+  const other = { id: 'same', vendor: 'Other' };
+  const next = mergeQiniuModels({ models: [mine, other, { id: 'qiniu', vendor: 'Qiniu' }] }, []);
+  assert.deepEqual(next.models, [mine, other]);
+  assert.deepEqual(next.availableModels, ['same', 'same']);
+});

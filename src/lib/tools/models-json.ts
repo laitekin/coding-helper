@@ -36,8 +36,13 @@ export function mergeQiniuModels(
   qiniuModels: QiniuModel[],
 ): Record<string, unknown> {
   const current = Array.isArray(existing.models) ? existing.models as QiniuModel[] : [];
+  const remaining = current.filter(model => model.vendor !== 'Qiniu');
+  // 卸载仅移除七牛条目，保留其他供应商重复项，与原有 clearModelConfig 一致。
+  if (qiniuModels.length === 0) {
+    return { ...existing, models: remaining, availableModels: remaining.map(model => model.id) };
+  }
   const seen = new Set<string>();
-  const models = [...current.filter(model => model.vendor !== 'Qiniu'), ...qiniuModels].filter(model => {
+  const models = [...remaining, ...qiniuModels].filter(model => {
     if (seen.has(model.id)) return false;
     seen.add(model.id);
     return true;
