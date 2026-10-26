@@ -2,11 +2,14 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { t, i18n } from '../lib/i18n.js';
 import { configManager } from '../lib/config.js';
-import { validateApiKey } from '../lib/api-validator.js';
-import { toolManager } from '../lib/tool-manager.js';
+import { validateApiKey, checkAccountStatus, describeAccountStatus } from '../lib/api-validator.js';
+import { detectAllTools } from '../lib/core/tool-service.js';
 import { uiRenderer } from '../lib/wizard/ui/ui-renderer.js';
 import { logger } from '../utils/logger.js';
 import { execSync } from 'node:child_process';
+
+// 会覆盖 ~/.claude/settings.json 中 env 的 shell 环境变量
+const CLAUDE_OVERRIDE_ENV_KEYS = ['ANTHROPIC_BASE_URL', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY'];
 
 // 健康检查项
 interface CheckItem {
@@ -43,6 +46,16 @@ export async function doctorCommand(): Promise<void> {
       detail: result.valid ? uiRenderer.maskApiKey(apiKey) : (result.error || t('doctor_fail')),
     });
 
+    // Key 有效时再确认账户能真正调用模型（欠费暂停时 Key 校验仍会通过）
+    if (result.valid) {
+      const account = await checkAccountStatus(apiKey, configManager.baseUrl);
+      checks.push({
+        label: t('doctor_account'),
+        status: account.usable ? 'pass' : 'fail',
+        detail: account.usable ? t('doctor_account_ok') : describeAccountStatus(account),
+      });
+    }
+
     // 3. 网络连接检查
     checks.push({
       label: t('doctor_network'),
@@ -76,24 +89,37 @@ export async function doctorCommand(): Promise<void> {
     }
   }
 
-  // 4. 工具安装检查
-  for (const tool of toolManager.getAll()) {
-    const installed = tool.isInstalled();
+  // 4. 工具安装与接入检查
+  for (const detection of detectAllTools()) {
+    const { tool, installed, version, configured } = detection;
+    const installText = installed === null
+      ? t('tool_badge_desktop')
+      : installed ? (version ? `v${version}` : t('doctor_found')) : t('doctor_not_found');
     checks.push({
       label: t('doctor_tool_installed', { tool: tool.displayName }),
-      status: installed ? 'pass' : 'warn',
-      detail: installed ? t('doctor_found') : t('doctor_not_found'),
+      status: installed === false ? 'warn' : 'pass',
+      detail: `${installText} · ${configured ? t('tool_badge_configured') : t('tool_badge_not_configured')}`,
     });
   }
 
-  // 5. Node.js 检查
+  // 5. shell 环境变量会覆盖 Claude Code 配置文件，导致看似不生效
+  const overriding = CLAUDE_OVERRIDE_ENV_KEYS.filter((key) => process.env[key]);
+  if (overriding.length > 0) {
+    checks.push({
+      label: t('doctor_env_override'),
+      status: 'warn',
+      detail: t('doctor_env_override_detail', { keys: overriding.join(', ') }),
+    });
+  }
+
+  // 6. Node.js 检查
   checks.push({
     label: t('doctor_node'),
     status: 'pass',
     detail: process.version,
   });
 
-  // 6. Git 检查
+  // 7. Git 检查
   try {
     const gitVersion = execSync('git --version', { encoding: 'utf-8' }).trim();
     checks.push({

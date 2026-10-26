@@ -8,8 +8,9 @@ import {
   buildCodexConfig,
   buildCodexAuthJson,
   buildCodexModelCatalog,
-  backupCodexFile,
-  formatCodexBackupNote,
+  mergeCodexConfig,
+  restoreCodexConfig,
+  getTopLevelTomlValue,
   removeManagedCodexConfig,
 } from '../dist/lib/tools/codex-tool.js';
 
@@ -63,38 +64,6 @@ test('buildCodexConfig replaces existing TOML to avoid configuration conflicts',
   assert.doesNotMatch(next, /\[profiles\.keep\]/);
   assert.doesNotMatch(next, /https:\/\/old\.example/);
   assert.doesNotMatch(next, /model = "old-model"/);
-});
-
-test('backupCodexFile copies an existing file and returns its backup path', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'coding-helper-codex-'));
-  const file = path.join(dir, 'config.toml');
-  fs.writeFileSync(file, 'customer config\n');
-
-  const backup = backupCodexFile(file, new Date(2026, 8, 11, 12, 34, 56));
-
-  assert.equal(backup, `${file}.bak-fenno-20260911123456`);
-  assert.equal(fs.readFileSync(backup, 'utf8'), 'customer config\n');
-  fs.rmSync(dir, { recursive: true, force: true });
-});
-
-test('backupCodexFile avoids overwriting an existing same-second backup', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'coding-helper-codex-'));
-  const file = path.join(dir, 'config.toml');
-  const timestamp = new Date(2026, 8, 11, 12, 34, 56);
-  fs.writeFileSync(file, 'first\n');
-  const first = backupCodexFile(file, timestamp);
-  fs.writeFileSync(file, 'second\n');
-  const second = backupCodexFile(file, timestamp);
-
-  assert.equal(fs.readFileSync(first, 'utf8'), 'first\n');
-  assert.equal(fs.readFileSync(second, 'utf8'), 'second\n');
-  assert.notEqual(first, second);
-  fs.rmSync(dir, { recursive: true, force: true });
-});
-
-test('formatCodexBackupNote always includes the backup path when translation is missing', () => {
-  const note = formatCodexBackupNote('/tmp/config.toml.bak-fenno-20260911123456', () => 'codex_backup_created');
-  assert.match(note, /Codex 原配置已备份到：\/tmp\/config\.toml\.bak-fenno-20260911123456/);
 });
 
 test('removeManagedCodexConfig removes the managed catalog path', () => {
@@ -202,4 +171,82 @@ test('buildCodexAuthJson stores the API key in Codex API key auth mode and prese
     tokens: { refresh_token: 'keep-refresh-token' },
     last_refresh: '2026-05-20T00:00:00Z',
   });
+});
+
+const USER_CONFIG = [
+  '# 用户自己的注释',
+  'model = "gpt-5"',
+  'approval_policy = "on-request"',
+  '',
+  '[model_providers.other]',
+  'name = "Other"',
+  '',
+  '[mcp_servers.docs]',
+  'command = "docs-mcp"',
+  '',
+  '[profiles.keep]',
+  'model = "keep-model"',
+  '',
+].join('\n');
+
+test('mergeCodexConfig keeps user content and adds the managed provider', () => {
+  const next = mergeCodexConfig(USER_CONFIG, 'https://api.qnaigc.com', 'openai/gpt-5.5', '/home/user/.codex/model-catalogs/qnaigc.json');
+
+  assert.match(next, /# 用户自己的注释/);
+  assert.match(next, /approval_policy = "on-request"/);
+  assert.match(next, /\[model_providers\.other\]/);
+  assert.match(next, /\[mcp_servers\.docs\]\ncommand = "docs-mcp"/);
+  assert.match(next, /\[profiles\.keep\]/);
+  assert.equal(getTopLevelTomlValue(next, 'model'), '"openai/gpt-5.5"');
+  assert.equal(getTopLevelTomlValue(next, 'model_provider'), '"qnaigc"');
+  assert.equal(getTopLevelTomlValue(next, 'model_catalog_json'), '"/home/user/.codex/model-catalogs/qnaigc.json"');
+  assert.match(next, /\[model_providers\.qnaigc\]\nname = "Qiniu"/);
+  assert.match(next, /\[profiles\.qn-gpt\]/);
+});
+
+test('mergeCodexConfig is idempotent', () => {
+  const once = mergeCodexConfig(USER_CONFIG, 'https://api.qnaigc.com', 'openai/gpt-5.5', '/home/user/.codex/model-catalogs/qnaigc.json');
+  const twice = mergeCodexConfig(once, 'https://api.qnaigc.com', 'openai/gpt-5.5', '/home/user/.codex/model-catalogs/qnaigc.json');
+  assert.equal(twice, once);
+});
+
+test('mergeCodexConfig switches the managed base URL when the endpoint changes', () => {
+  const china = mergeCodexConfig(USER_CONFIG, 'https://api.qnaigc.com', 'openai/gpt-5.5', '/home/user/.codex/model-catalogs/qnaigc.json');
+  const intl = mergeCodexConfig(china, 'https://api.modelink.ai', 'openai/gpt-5.5', '/home/user/.codex/model-catalogs/qnaigc.json');
+  assert.match(intl, /base_url = "https:\/\/api\.modelink\.ai\/bypass\/openai\/v1"/);
+  assert.doesNotMatch(intl, /api\.qnaigc\.com/);
+  assert.equal((intl.match(/\[model_providers\.qnaigc\]/g) || []).length, 1);
+});
+
+test('restoreCodexConfig returns the original file after merge', () => {
+  const priors = {
+    'config.model': getTopLevelTomlValue(USER_CONFIG, 'model') ?? null,
+    'config.model_provider': null,
+    'config.model_catalog_json': null,
+  };
+  const merged = mergeCodexConfig(USER_CONFIG, 'https://api.qnaigc.com', 'openai/gpt-5.5', '/home/user/.codex/model-catalogs/qnaigc.json');
+  const restored = restoreCodexConfig(merged, priors);
+  assert.equal(restored, USER_CONFIG);
+});
+
+test('restoreCodexConfig restores a user-owned provider and catalog', () => {
+  const original = 'model_provider = "azure"\nmodel_catalog_json = "/tmp/custom.json"\n\n[model_providers.azure]\nname = "Azure"\n';
+  const priors = {
+    'config.model': null,
+    'config.model_provider': '"azure"',
+    'config.model_catalog_json': '"/tmp/custom.json"',
+  };
+  const merged = mergeCodexConfig(original, 'https://api.qnaigc.com', 'openai/gpt-5.5', '/home/user/.codex/model-catalogs/qnaigc.json');
+  assert.equal(getTopLevelTomlValue(merged, 'model_provider'), '"qnaigc"');
+  const restored = restoreCodexConfig(merged, priors);
+  assert.equal(getTopLevelTomlValue(restored, 'model_provider'), '"azure"');
+  assert.equal(getTopLevelTomlValue(restored, 'model_catalog_json'), '"/tmp/custom.json"');
+  assert.equal(getTopLevelTomlValue(restored, 'model'), undefined);
+  assert.match(restored, /\[model_providers\.azure\]/);
+  assert.doesNotMatch(restored, /qnaigc/);
+});
+
+test('mergeCodexConfig works on an empty file', () => {
+  const next = mergeCodexConfig('', 'https://api.qnaigc.com', 'openai/gpt-5.5', '/home/user/.codex/model-catalogs/qnaigc.json');
+  assert.match(next, /^model = "openai\/gpt-5\.5"\nmodel_provider = "qnaigc"\nmodel_catalog_json = "[^"]+"\n\n\[model_providers\.qnaigc\]/);
 });

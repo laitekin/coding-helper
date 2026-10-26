@@ -1,3 +1,4 @@
+import { getSyncTargets } from '../lib/core/tool-service.js';
 import { t, i18n } from '../lib/i18n.js';
 import { configManager } from '../lib/config.js';
 import { validateApiKey } from '../lib/api-validator.js';
@@ -6,7 +7,8 @@ import { marketModelService } from '../lib/market-model-service.js';
 import { toolManager } from '../lib/tool-manager.js';
 import { uiRenderer } from '../lib/wizard/ui/ui-renderer.js';
 import { runApiKeyFlow } from '../lib/wizard/flows/api-key-flow.js';
-import { promptHelper } from '../lib/wizard/ui/prompt-helper.js';
+import { applyToolsWithProgress, renderResultSummary, syncAfterChange } from '../lib/wizard/ui/tool-view.js';
+import { exitCodeFor } from '../lib/core/tool-service.js';
 import ora from 'ora';
 
 // 拼接已注册工具名称及别名，用于 auth reload 的提示文案
@@ -21,7 +23,7 @@ function formatAvailableTools(): string {
 }
 
 // auth 命令 - API Key 管理
-export async function authCommand(tokenOrAction?: string): Promise<void> {
+export async function authCommand(tokenOrAction?: string, options: { sync?: boolean } = {}): Promise<void> {
   i18n.init();
 
   if (tokenOrAction === 'revoke') {
@@ -52,20 +54,9 @@ export async function authCommand(tokenOrAction?: string): Promise<void> {
       return;
     }
 
-    try {
-      if (tool.name === 'codex') {
-        const confirmed = await promptHelper.confirm(t('tool_config_load_confirm', { tool: tool.displayName }));
-        if (!confirmed) return;
-      }
-      await tool.loadConfig(apiKey, configManager.baseUrl, configManager.getModels());
-      uiRenderer.renderSuccess(t('tool_config_loaded', { tool: tool.displayName }));
-      for (const note of tool.getLoadConfigNotes?.() ?? []) uiRenderer.renderHint(note);
-    } catch (err: unknown) {
-      uiRenderer.renderError(
-        err instanceof Error ? err.message : t('tool_config_load_failed', { tool: tool.displayName }),
-      );
-      for (const note of tool.getLoadConfigNotes?.() ?? []) uiRenderer.renderHint(note);
-    }
+    const results = await applyToolsWithProgress([tool]);
+    renderResultSummary(results);
+    process.exitCode = exitCodeFor(results);
     return;
   }
 
@@ -75,10 +66,21 @@ export async function authCommand(tokenOrAction?: string): Promise<void> {
 
     if (result.valid) {
       spinner.succeed(t('apikey_valid'));
+      const changed = configManager.getApiKey() !== tokenOrAction;
       configManager.setApiKey(tokenOrAction);
       modelService.clearCache();
       marketModelService.clearCache();
       uiRenderer.renderSuccess(t('apikey_saved'));
+      // 换 Key 后：--sync 时更新所有跟随当前连接的工具；交互终端里让用户勾选；否则只保存
+      if (changed && options.sync) {
+        const targets = getSyncTargets().filter((tool) => !configManager.getToolProfile(tool.name));
+        const results = await applyToolsWithProgress(targets);
+        if (results.length) renderResultSummary(results);
+      } else if (changed && process.stdin.isTTY) {
+        await syncAfterChange();
+      } else if (changed && getSyncTargets().length) {
+        uiRenderer.renderHint(t('sync_cli_hint'));
+      }
     } else {
       spinner.fail(t('apikey_invalid', { error: result.error || '' }));
     }

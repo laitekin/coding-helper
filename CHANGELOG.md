@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### 新增
+* 支持一条命令配置多个编程助手，以及 setup、status、restore、run 命令。
+* 编程助手适配从 5 个增加到 13 个，新增 OpenCode、Qwen Code、Kimi Code CLI、Factory Droid、Grok CLI、OpenClaw、MiniMax Code、GitHub Copilot CLI。
+* 支持多配置档、自定义线路、按工具绑定配置档、上下文大小和模型槽位。
+* 模型搜索支持规范化匹配、中文厂商名、上下文与能力过滤、相近模型建议。
+
+### 改进
+* 配置写入前展示确认与差异，支持 dry-run、备份、原子写入和按原值还原。
+* 更新终端向导与工具菜单，支持方向键、空格勾选、回车确认及 Esc 返回。
+* 更新中英文文档、向导截图、自动化测试和跨平台构建；npm 包名仍为 qiniu-coding-helper，可执行命令仍为 coding-helper。
+* Release 工作流支持指定包名、发布前认证检查和将 Unreleased 条目转为正式版本记录。
+
+### 修复
+* 海外模型能力字段为空或缺失时不再导致模型选择崩溃。
+* 改善 Claude Code 本地安装检测、主模型与槽位切换，完善 Codex 模型目录和模型元数据。
+* 保留 Codex、Claude Code、Hermes、CodeBuddy、WorkBuddy 等客户端配置原值与格式，修复还原后的残留配置。
+
 ## [0.4.0] - 2026-09-11
 
 ### 更新内容

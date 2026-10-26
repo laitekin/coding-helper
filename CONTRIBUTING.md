@@ -81,3 +81,20 @@ Translation files are in `src/locales/`. To add or modify translations:
 ## Reporting Issues
 
 Please use [GitHub Issues](https://github.com/qiniu/coding-helper/issues) to report bugs or request features.
+
+## Publishing a release
+
+The default npm package is `qiniu-coding-helper`. The executable remains `coding-helper`.
+
+On GitHub, open **Actions → Release → Run workflow**, select `main`, choose the version bump, and keep `package_name` set to `qiniu-coding-helper`. The workflow updates the version and changelog, runs tests, builds the package, and publishes it with public access. npm authentication requires either the repository's `NPM_TOKEN` secret or a trusted publisher configured for this repository and workflow.
+
+To publish manually, first update the package version, `src/lib/version.ts`, and `CHANGELOG.md` to a new, unpublished version. Then run:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm build
+pnpm test
+npm publish --access public
+```
+
+Users run the latest published version with `npx qiniu-coding-helper@latest`.

@@ -1,3 +1,4 @@
+import { capContextWindow } from './openai-compat-tool.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -9,6 +10,9 @@ import {
   type MarketModelInfo,
 } from '../market-model-service.js';
 import { t } from '../i18n.js';
+import { readJsonObjectStrict, writeJson, writeJsonOrRemove } from '../core/safe-write.js';
+import { stateStore } from '../core/state-store.js';
+import { QINIU_VENDOR, applyModelsJson, captureModelsJsonPriors, hasQiniuModels, revertModelsJson } from './models-json.js';
 import { runWorkBuddyModelSelectionFlow } from '../wizard/flows/workbuddy-model-selection-flow.js';
 import { uiRenderer } from '../wizard/ui/ui-renderer.js';
 import { promptHelper } from '../wizard/ui/prompt-helper.js';
@@ -16,11 +20,8 @@ import { promptHelper } from '../wizard/ui/prompt-helper.js';
 const WORKBUDDY_DIR = path.join(os.homedir(), '.workbuddy');
 const WORKBUDDY_MODELS_FILE = path.join(WORKBUDDY_DIR, 'models.json');
 
-const QINIU_VENDOR = 'Qiniu';
 const DEFAULT_TEMPERATURE = 0.7;
 
-// 由本工具管理的顶层字段，写回时这些字段会被覆盖；其他字段保留原值
-const MANAGED_TOP_LEVEL_KEYS = new Set(['models', 'availableModels']);
 
 export interface WorkBuddyModel {
   id: string;
@@ -38,6 +39,7 @@ export interface WorkBuddyModel {
 export class WorkBuddyTool implements ITool {
   name = 'workbuddy';
   displayName = 'WorkBuddy';
+  requiresModelSelection = true;
   command = 'workbuddy';
   // WorkBuddy 是桌面端应用，不是 npm 包
   installCommand = '';
@@ -66,17 +68,15 @@ export class WorkBuddyTool implements ITool {
     return {};
   }
 
-  // 移除七牛模型，保留其他供应商配置及用户其他自定义字段
+  isConfigured(): boolean {
+    return hasQiniuModels(this.getConfig());
+  }
+
+  // 移除七牛模型，保留其他供应商配置及用户其他自定义字段；原本不存在的字段与文件一并删除
   clearModelConfig(): void {
-    const existing = this.getConfig();
-    const models = existing.models;
-    if (!Array.isArray(models)) {
-      return;
-    }
-    const nonQiniuModels = (models as WorkBuddyModel[]).filter(
-      m => m.vendor !== QINIU_VENDOR,
-    );
-    this.writeConfig(existing, nonQiniuModels);
+    const existing = readJsonObjectStrict(WORKBUDDY_MODELS_FILE);
+    if (!hasQiniuModels(existing)) return;
+    writeJsonOrRemove(WORKBUDDY_MODELS_FILE, revertModelsJson(existing, stateStore.getPriors(this.name) ?? {}));
   }
 
   // 根据 models.workbuddyModels 中的 ID 列表，从市场获取详情后写入
@@ -106,16 +106,13 @@ export class WorkBuddyTool implements ITool {
       );
     }
 
-    const existing = this.getConfig();
-    const existingModels = Array.isArray(existing.models)
-      ? (existing.models as WorkBuddyModel[])
-      : [];
-    const nonQiniuModels = existingModels.filter(m => m.vendor !== QINIU_VENDOR);
-
-    const qiniuModels = selectedModels.map(m => this.toWorkBuddyModel(m, apiKey, normalizedBaseUrl));
-    const allCombined = this.deduplicateModels([...nonQiniuModels, ...qiniuModels]);
-
-    this.writeConfig(existing, allCombined);
+    // 严格读取：文件损坏时报错，不覆盖用户配置
+    const existing = readJsonObjectStrict(WORKBUDDY_MODELS_FILE);
+    if (!stateStore.getPriors(this.name) && !hasQiniuModels(existing)) {
+      stateStore.recordPriors(this.name, captureModelsJsonPriors(existing));
+    }
+    const qiniuModels = selectedModels.map(m => this.toModel(m, apiKey, normalizedBaseUrl));
+    writeJson(WORKBUDDY_MODELS_FILE, applyModelsJson(existing, qiniuModels));
   }
 
   async unloadConfig(): Promise<void> {
@@ -144,7 +141,7 @@ export class WorkBuddyTool implements ITool {
     uiRenderer.renderModelConfigItem(t('config_view_workbuddy_models'), value);
   }
 
-  private toWorkBuddyModel(
+  private toModel(
     market: MarketModelInfo,
     apiKey: string,
     baseUrl: string,
@@ -156,7 +153,7 @@ export class WorkBuddyTool implements ITool {
       vendor: QINIU_VENDOR,
       url: `${baseUrl}/v1/chat/completions`,
       apiKey,
-      maxInputTokens: caps.maxInputTokens,
+      maxInputTokens: capContextWindow(caps.maxInputTokens, this.name),
       maxOutputTokens: caps.maxOutputTokens,
       temperature: DEFAULT_TEMPERATURE,
       supportsToolCall: caps.toolCall,
@@ -164,32 +161,5 @@ export class WorkBuddyTool implements ITool {
     };
   }
 
-  // 合并写入：保留用户在 models.json 里手动添加的其他顶层字段，仅覆盖 models / availableModels
-  private writeConfig(existing: Record<string, unknown>, models: WorkBuddyModel[]): void {
-    const merged: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(existing)) {
-      if (!MANAGED_TOP_LEVEL_KEYS.has(key)) {
-        merged[key] = value;
-      }
-    }
-    merged.models = models;
-    merged.availableModels = models.map(m => m.id);
 
-    // mkdirSync 配合 recursive: true 是幂等的，不需要预检查
-    fs.mkdirSync(WORKBUDDY_DIR, { recursive: true, mode: 0o700 });
-    fs.writeFileSync(
-      WORKBUDDY_MODELS_FILE,
-      JSON.stringify(merged, null, 2) + '\n',
-      { encoding: 'utf-8', mode: 0o600 },
-    );
-  }
-
-  private deduplicateModels(models: WorkBuddyModel[]): WorkBuddyModel[] {
-    const seen = new Set<string>();
-    return models.filter(m => {
-      if (seen.has(m.id)) return false;
-      seen.add(m.id);
-      return true;
-    });
-  }
 }

@@ -1,7 +1,8 @@
+import { findCommand, commandVersion } from '../../utils/find-command.js';
+import { capContextWindow } from './openai-compat-tool.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { execSync } from 'node:child_process';
 import type { ITool } from './base-tool.js';
 import { configManager, type ModelConfig } from '../config.js';
 import {
@@ -10,6 +11,9 @@ import {
   type MarketModelInfo,
 } from '../market-model-service.js';
 import { t } from '../i18n.js';
+import { readJsonObjectStrict, writeJson, writeJsonOrRemove } from '../core/safe-write.js';
+import { stateStore } from '../core/state-store.js';
+import { QINIU_VENDOR, applyModelsJson, captureModelsJsonPriors, hasQiniuModels, revertModelsJson } from './models-json.js';
 import { runCodeBuddyModelSelectionFlow } from '../wizard/flows/codebuddy-model-selection-flow.js';
 import { uiRenderer } from '../wizard/ui/ui-renderer.js';
 import { promptHelper } from '../wizard/ui/prompt-helper.js';
@@ -17,11 +21,8 @@ import { promptHelper } from '../wizard/ui/prompt-helper.js';
 const CODEBUDDY_DIR = path.join(os.homedir(), '.codebuddy');
 const CODEBUDDY_MODELS_FILE = path.join(CODEBUDDY_DIR, 'models.json');
 
-const QINIU_VENDOR = 'Qiniu';
 const DEFAULT_TEMPERATURE = 0.7;
 
-// 由本工具管理的顶层字段，写回时这些字段会被覆盖；其他字段保留原值
-const MANAGED_TOP_LEVEL_KEYS = new Set(['models', 'availableModels']);
 
 export interface CodeBuddyModel {
   id: string;
@@ -39,28 +40,18 @@ export interface CodeBuddyModel {
 export class CodeBuddyTool implements ITool {
   name = 'codebuddy';
   displayName = 'CodeBuddy';
+  requiresModelSelection = true;
   command = 'codebuddy';
   installCommand = 'npm install -g @tencent-ai/codebuddy-code';
   npmPackageName = '@tencent-ai/codebuddy-code';
 
   getVersion(): string | null {
-    try {
-      const output = execSync('codebuddy --version', { stdio: 'pipe', encoding: 'utf-8' }).trim();
-      const match = output.match(/(\d+\.\d+\.\d+)/);
-      return match ? match[1] : output;
-    } catch {
-      return null;
-    }
+    const file = findCommand(this.command);
+    return file ? commandVersion(file) : null;
   }
 
   isInstalled(): boolean {
-    try {
-      const command = process.platform === 'win32' ? 'where codebuddy' : 'which codebuddy';
-      execSync(command, { stdio: 'pipe' });
-      return true;
-    } catch {
-      return false;
-    }
+    return !!findCommand(this.command);
   }
 
   getConfig(): Record<string, unknown> {
@@ -75,17 +66,15 @@ export class CodeBuddyTool implements ITool {
     return {};
   }
 
-  // 移除七牛模型，保留其他供应商配置及用户其他自定义字段
+  isConfigured(): boolean {
+    return hasQiniuModels(this.getConfig());
+  }
+
+  // 移除七牛模型，保留其他供应商配置及用户其他自定义字段；原本不存在的字段与文件一并删除
   clearModelConfig(): void {
-    const existing = this.getConfig();
-    const models = existing.models;
-    if (!Array.isArray(models)) {
-      return;
-    }
-    const nonQiniuModels = (models as CodeBuddyModel[]).filter(
-      m => m.vendor !== QINIU_VENDOR,
-    );
-    this.writeConfig(existing, nonQiniuModels);
+    const existing = readJsonObjectStrict(CODEBUDDY_MODELS_FILE);
+    if (!hasQiniuModels(existing)) return;
+    writeJsonOrRemove(CODEBUDDY_MODELS_FILE, revertModelsJson(existing, stateStore.getPriors(this.name) ?? {}));
   }
 
   // 根据 models.codeBuddyModels 中的 ID 列表，从市场获取详情后写入
@@ -115,16 +104,13 @@ export class CodeBuddyTool implements ITool {
       );
     }
 
-    const existing = this.getConfig();
-    const existingModels = Array.isArray(existing.models)
-      ? (existing.models as CodeBuddyModel[])
-      : [];
-    const nonQiniuModels = existingModels.filter(m => m.vendor !== QINIU_VENDOR);
-
-    const qiniuModels = selectedModels.map(m => this.toCodeBuddyModel(m, apiKey, normalizedBaseUrl));
-    const allCombined = this.deduplicateModels([...nonQiniuModels, ...qiniuModels]);
-
-    this.writeConfig(existing, allCombined);
+    // 严格读取：文件损坏时报错，不覆盖用户配置
+    const existing = readJsonObjectStrict(CODEBUDDY_MODELS_FILE);
+    if (!stateStore.getPriors(this.name) && !hasQiniuModels(existing)) {
+      stateStore.recordPriors(this.name, captureModelsJsonPriors(existing));
+    }
+    const qiniuModels = selectedModels.map(m => this.toModel(m, apiKey, normalizedBaseUrl));
+    writeJson(CODEBUDDY_MODELS_FILE, applyModelsJson(existing, qiniuModels));
   }
 
   async unloadConfig(): Promise<void> {
@@ -153,7 +139,7 @@ export class CodeBuddyTool implements ITool {
     uiRenderer.renderModelConfigItem(t('config_view_codebuddy_models'), value);
   }
 
-  private toCodeBuddyModel(
+  private toModel(
     market: MarketModelInfo,
     apiKey: string,
     baseUrl: string,
@@ -165,7 +151,7 @@ export class CodeBuddyTool implements ITool {
       vendor: QINIU_VENDOR,
       url: `${baseUrl}/v1/chat/completions`,
       apiKey,
-      maxInputTokens: caps.maxInputTokens,
+      maxInputTokens: capContextWindow(caps.maxInputTokens, this.name),
       maxOutputTokens: caps.maxOutputTokens,
       temperature: DEFAULT_TEMPERATURE,
       supportsToolCall: caps.toolCall,
@@ -173,32 +159,5 @@ export class CodeBuddyTool implements ITool {
     };
   }
 
-  // 合并写入：保留用户在 models.json 里手动添加的其他顶层字段，仅覆盖 models / availableModels
-  private writeConfig(existing: Record<string, unknown>, models: CodeBuddyModel[]): void {
-    const merged: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(existing)) {
-      if (!MANAGED_TOP_LEVEL_KEYS.has(key)) {
-        merged[key] = value;
-      }
-    }
-    merged.models = models;
-    merged.availableModels = models.map(m => m.id);
 
-    // mkdirSync 配合 recursive: true 是幂等的，不需要预检查
-    fs.mkdirSync(CODEBUDDY_DIR, { recursive: true, mode: 0o700 });
-    fs.writeFileSync(
-      CODEBUDDY_MODELS_FILE,
-      JSON.stringify(merged, null, 2) + '\n',
-      { encoding: 'utf-8', mode: 0o600 },
-    );
-  }
-
-  private deduplicateModels(models: CodeBuddyModel[]): CodeBuddyModel[] {
-    const seen = new Set<string>();
-    return models.filter(m => {
-      if (seen.has(m.id)) return false;
-      seen.add(m.id);
-      return true;
-    });
-  }
 }

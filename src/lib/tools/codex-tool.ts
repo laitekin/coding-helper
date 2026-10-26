@@ -1,13 +1,33 @@
+import { findCommand, commandVersion } from '../../utils/find-command.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { execSync } from 'node:child_process';
 import type { ITool } from './base-tool.js';
 import { configManager, type ModelConfig } from '../config.js';
 import { DEFAULT_ENDPOINT, getBaseUrl } from '../endpoints.js';
 import { t } from '../i18n.js';
 import { uiRenderer } from '../wizard/ui/ui-renderer.js';
 import { promptHelper } from '../wizard/ui/prompt-helper.js';
+import { readJsonObjectStrict, safeWriteFile, writeJsonOrRemove, writeJson, writeTextOrRemove } from '../core/safe-write.js';
+import { stateStore, type PriorValues } from '../core/state-store.js';
+import {
+  escapeTomlString,
+  getTopLevelTomlValue,
+  topLevelEnd,
+  normalizeToml,
+  removeTomlTable,
+  removeTomlTablesWhere,
+  removeTopLevelTomlKey,
+  upsertTopLevelTomlKey,
+  getTomlTableValue,
+  upsertTomlTableKey,
+  removeTomlTableKey,
+} from '../core/toml-edit.js';
+import { slotModel } from '../core/model-slots.js';
+import { marketModelService, getModelCapabilities, type MarketModelInfo } from '../market-model-service.js';
+
+// 兼容旧导入路径
+export { getTopLevelTomlValue, upsertTopLevelTomlKey, removeTopLevelTomlKey };
 
 const CODEX_DIR = path.join(os.homedir(), '.codex');
 const CODEX_CONFIG_FILE = path.join(CODEX_DIR, 'config.toml');
@@ -23,6 +43,9 @@ export interface CodexCatalogModel {
   id: string;
   context_length: number;
   max_tokens: number;
+  // 非 GPT 模型：不发送推理强度（与 Codex 的兜底行为一致，已实测可用），按实际能力声明是否支持图片
+  plain?: boolean;
+  images?: boolean;
 }
 
 const GPT_MODELS: CodexCatalogModel[] = [
@@ -47,26 +70,14 @@ export class CodexTool implements ITool {
   updateCommand = 'npm install -g @openai/codex@latest';
   npmPackageName = '@openai/codex';
   aliases = ['openai-codex'];
-  private lastBackupPaths: string[] = [];
 
   getVersion(): string | null {
-    try {
-      const output = execSync('codex --version', { stdio: 'pipe', encoding: 'utf-8' }).trim();
-      const match = output.match(/(\d+\.\d+\.\d+)/);
-      return match ? match[1] : output;
-    } catch {
-      return null;
-    }
+    const file = findCommand(this.command);
+    return file ? commandVersion(file) : null;
   }
 
   isInstalled(): boolean {
-    try {
-      const command = process.platform === 'win32' ? 'where codex' : 'which codex';
-      execSync(command, { stdio: 'pipe' });
-      return true;
-    } catch {
-      return false;
-    }
+    return !!findCommand(this.command);
   }
 
   getConfig(): Record<string, unknown> {
@@ -78,29 +89,89 @@ export class CodexTool implements ITool {
     };
   }
 
+  isConfigured(): boolean {
+    return hasManagedCodexConfig(readCodexConfig());
+  }
+
+  // Codex 走七牛的 OpenAI Responses 接口；GPT 模型不出现在 /v1/models 中，所以一律发一次最小的流式请求确认
+  async checkModel(model: string, ctx: { apiKey: string; baseUrl: string }): Promise<string | undefined> {
+    return await probeResponsesStream(ctx.baseUrl, ctx.apiKey, model) ? undefined : 'quick_codex_model_unsupported';
+  }
+
+  // 依据实测：GPT、qwen、glm、kimi 可用，deepseek 不可用；其他选定后再检测
+  modelSupport(model: string): boolean | undefined {
+    if (/deepseek/i.test(model)) return false;
+    if (/gpt|qwen|glm|kimi/i.test(model)) return true;
+    return undefined;
+  }
+
   clearModelConfig(): void {
     const content = readCodexConfig();
-    writeCodexConfig(removeTomlTable(content, 'profiles.qn-gpt'));
+    safeWriteFile(CODEX_CONFIG_FILE, normalizeToml(removeTomlTable(content, 'profiles.qn-gpt')));
   }
 
   async loadConfig(apiKey: string, baseUrl: string, models: ModelConfig): Promise<void> {
-    this.lastBackupPaths = [
-      backupCodexFile(CODEX_CONFIG_FILE),
-      backupCodexFile(CODEX_CATALOG_FILE),
-    ].filter((backup): backup is string => !!backup);
-    writeCodexAuth(buildCodexAuthJson(readCodexAuth(), apiKey));
-    writeCodexCatalog(buildCodexModelCatalog(GPT_MODELS));
-    writeCodexConfig(buildCodexConfig('', baseUrl, models.codexModel || this.defaultModel, CODEX_CATALOG_FILE));
-  }
+    const existingConfig = readCodexConfig();
+    const existingAuth = readJsonObjectStrict(CODEX_AUTH_FILE);
+    this.recordPriors(existingConfig, existingAuth);
 
-  getLoadConfigNotes(): string[] {
-    return this.lastBackupPaths.map((path) => formatCodexBackupNote(path));
+    // 备份 + 原子写入；只增删七牛条目，用户的 MCP、沙箱策略、其他 provider 原样保留
+    writeJson(CODEX_AUTH_FILE, JSON.parse(buildCodexAuthJson(JSON.stringify(existingAuth), apiKey)));
+    // 旧版本装载时没记录上下文原值，这里补记（已有记录时不覆盖）
+    if (stateStore.getPriors(this.name)) {
+      stateStore.recordPriors(this.name, { 'config.model_context_window': getTopLevelTomlValue(existingConfig, 'model_context_window') ?? null });
+    }
+    const model = models.codexModel || this.defaultModel;
+    // 模型目录：GPT 模型 + 用到的非 GPT 模型（主模型与各槽位）。不在目录里的模型 Codex 会用兜底元数据，
+    // 不知道上下文上限（自动压缩的时机会错），还会当成支持图片
+    const used = [model, ...(['review', 'subagent', 'memory'] as const).map((slot) => slotModel(this.name, slot, model))];
+    safeWriteFile(CODEX_CATALOG_FILE, buildCodexModelCatalog([...GPT_MODELS, ...await catalogEntries(used, baseUrl, apiKey)]));
+    let content = mergeCodexConfig(existingConfig, baseUrl, model, CODEX_CATALOG_FILE);
+    content = applyContextWindow(content, model, stateStore.getPriors(this.name) ?? {});
+    // 代码审查、子代理、记忆整理默认是 OpenAI 的模型名，七牛上不可用，一律指向七牛模型（默认跟随主模型）
+    stateStore.recordPriors(this.name, captureCodexSlotPriors(existingConfig));
+    content = applyCodexSlots(content, {
+      review: slotModel(this.name, 'review', model),
+      subagent: slotModel(this.name, 'subagent', model),
+      memory: slotModel(this.name, 'memory', model),
+    });
+    // 每个配置档写一个 provider + 配置档文件，之后可用 codex -p qn-<配置档> 直接切换
+    const profiles = configManager.listProfiles();
+    content = mergeCodexProfiles(content, profiles);
+    safeWriteFile(CODEX_CONFIG_FILE, content);
+    writeCodexProfileFiles(profiles, model, CODEX_CATALOG_FILE);
   }
 
   async unloadConfig(): Promise<void> {
-    const content = readCodexConfig();
-    writeCodexConfig(removeManagedCodexConfig(content));
+    const priors = stateStore.getPriors(this.name) ?? {};
+    // 还原后为空说明文件是我们创建的，直接删除
+    writeTextOrRemove(CODEX_CONFIG_FILE, restoreCodexConfig(readCodexConfig(), priors));
+    for (const file of managedProfileFiles()) writeTextOrRemove(file, '');
     if (fs.existsSync(CODEX_CATALOG_FILE)) fs.rmSync(CODEX_CATALOG_FILE);
+    // 目录是我们创建的，清空后一并删除
+    if (fs.existsSync(CODEX_CATALOG_DIR) && fs.readdirSync(CODEX_CATALOG_DIR).length === 0) {
+      fs.rmdirSync(CODEX_CATALOG_DIR);
+    }
+
+    // 有记录时才还原 auth.json，避免误删用户自己的 OpenAI Key
+    if ('auth.OPENAI_API_KEY' in priors) {
+      const auth = readJsonObjectStrict(CODEX_AUTH_FILE);
+      restoreJsonValue(auth, 'OPENAI_API_KEY', priors['auth.OPENAI_API_KEY']);
+      restoreJsonValue(auth, 'auth_mode', priors['auth.auth_mode']);
+      writeJsonOrRemove(CODEX_AUTH_FILE, auth);
+    }
+  }
+
+  // 首次写入前记录被覆盖的顶层键与 auth.json 字段；旧版本已写过时不记录
+  private recordPriors(config: string, auth: Record<string, unknown>): void {
+    if (stateStore.getPriors(this.name) || hasManagedCodexConfig(config)) return;
+    const priors: PriorValues = {};
+    for (const key of MANAGED_TOP_LEVEL_KEYS) {
+      priors[`config.${key}`] = getTopLevelTomlValue(config, key) ?? null;
+    }
+    priors['auth.OPENAI_API_KEY'] = auth.OPENAI_API_KEY ?? null;
+    priors['auth.auth_mode'] = auth.auth_mode ?? null;
+    stateStore.recordPriors(this.name, priors);
   }
 
   async runModelConfigFlow(): Promise<boolean> {
@@ -114,6 +185,44 @@ export class CodexTool implements ITool {
   renderModelConfigSummary(): void {
     uiRenderer.renderConfigItem(t('config_view_codex_model'), configManager.getModels().codexModel || this.defaultModel);
   }
+}
+
+// 实测（2026-10）：GPT、qwen、glm、kimi 可在七牛 Responses 接口上驱动 Codex，deepseek 返回 502。
+// 探测要求请求成功、每个流式事件都带 type，并以 response.completed / incomplete 结束，Codex 才能正常解析
+export async function probeResponsesStream(baseUrl: string, apiKey: string, model: string): Promise<boolean> {
+  try {
+    const response = await fetch(`${baseUrl.replace(/\/+$/, '')}/bypass/openai/v1/responses`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, input: 'hi', max_output_tokens: 16, stream: true }),
+      signal: AbortSignal.timeout(60000),
+    });
+    if (!response.ok) return false;
+    return isCodexCompatibleStream(await response.text());
+  } catch {
+    return false;
+  }
+}
+
+export function isCodexCompatibleStream(body: string): boolean {
+  const events = body.split('\n')
+    .filter((line) => line.startsWith('data:'))
+    .map((line) => line.slice(5).trim())
+    .filter((data) => data && data !== '[DONE]');
+  if (events.length === 0) return false;
+  let completed = false;
+  for (const data of events) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(data);
+    } catch {
+      return false;
+    }
+    const type = (parsed as { type?: unknown }).type;
+    if (typeof type !== 'string') return false;
+    if (type === 'response.completed' || type === 'response.incomplete') completed = true;
+  }
+  return completed;
 }
 
 export function buildCodexConfig(_existing: string, baseUrl?: string, model?: string, catalogPath?: string): string {
@@ -143,6 +252,181 @@ export function buildCodexConfig(_existing: string, baseUrl?: string, model?: st
   return normalizeToml(sections.join('\n'));
 }
 
+// 由七牛管理的顶层键（写入前记录原值，卸载时还原）
+const MANAGED_TOP_LEVEL_KEYS = ['model', 'model_provider', 'model_catalog_json', 'model_context_window'] as const;
+
+// 上下文大小：用户设置了就写 model_context_window（不超过模型上限），改回「自动」时还原原值
+export function applyContextWindow(content: string, model: string, priors: PriorValues): string {
+  const setting = configManager.getContextWindow('codex');
+  if (setting) {
+    const max = GPT_MODELS.find((m) => m.id === model)?.context_length;
+    return upsertTopLevelTomlKey(content, 'model_context_window', String(max ? Math.min(setting, max) : setting));
+  }
+  const prior = priors['config.model_context_window'];
+  if (prior === undefined) return content;
+  return typeof prior === 'string'
+    ? upsertTopLevelTomlKey(content, 'model_context_window', prior)
+    : removeTopLevelTomlKey(content, 'model_context_window');
+}
+
+// 模型槽位对应的 Codex 配置项：[表名, 键名, 槽位]；表名为空表示顶层
+export const CODEX_SLOT_KEYS: [string, string, 'review' | 'subagent' | 'memory'][] = [
+  ['', 'review_model', 'review'],
+  ['agents', 'default_subagent_model', 'subagent'],
+  ['memories', 'extract_model', 'memory'],
+  ['memories', 'consolidation_model', 'memory'],
+];
+
+function slotPriorKey(table: string, key: string): string {
+  return `config.${table ? `${table}.` : ''}${key}`;
+}
+
+function getSlotValue(content: string, table: string, key: string): string | undefined {
+  return table ? getTomlTableValue(content, table, key) : getTopLevelTomlValue(content, key);
+}
+
+function setSlotValue(content: string, table: string, key: string, raw: string | null): string {
+  if (raw === null) return table ? removeTomlTableKey(content, table, key) : removeTopLevelTomlKey(content, key);
+  return table ? upsertTomlTableKey(content, table, key, raw) : upsertTopLevelTomlKey(content, key, raw);
+}
+
+// 槽位原值（第一次写入前的值；之后 recordPriors 不会覆盖）
+export function captureCodexSlotPriors(content: string): PriorValues {
+  const priors: PriorValues = {};
+  for (const [table, key] of CODEX_SLOT_KEYS) priors[slotPriorKey(table, key)] = getSlotValue(content, table, key) ?? null;
+  return priors;
+}
+
+export function applyCodexSlots(content: string, models: Record<'review' | 'subagent' | 'memory', string>): string {
+  let next = content;
+  for (const [table, key, slot] of CODEX_SLOT_KEYS) next = setSlotValue(next, table, key, `"${escapeTomlString(models[slot])}"`);
+  return normalizeToml(next);
+}
+
+// 还原槽位：有原值写回，没有则删除
+export function restoreCodexSlots(content: string, priors: PriorValues): string {
+  let next = content;
+  for (const [table, key] of CODEX_SLOT_KEYS) {
+    const priorKey = slotPriorKey(table, key);
+    if (!(priorKey in priors)) continue;
+    const prior = priors[priorKey];
+    next = setSlotValue(next, table, key, typeof prior === 'string' ? prior : null);
+  }
+  return next;
+}
+
+// 配置档对应的 Codex 表名：provider qnaigc-<名>、profile qn-<名>
+const PROFILE_PROVIDER_PREFIX = `${PROVIDER_NAME}-`;
+const PROFILE_TABLE_PREFIX = 'qn-';
+
+export function codexProfileName(profile: string): string {
+  return `${PROFILE_TABLE_PREFIX}${profile.replace(/[^A-Za-z0-9_-]/g, '-')}`;
+}
+
+function isProfileTable(name: string): boolean {
+  return name.startsWith(`model_providers.${PROFILE_PROVIDER_PREFIX}`) ||
+    (name.startsWith(`profiles.${PROFILE_TABLE_PREFIX}`) && name !== `profiles.${PROFILE_NAME}`);
+}
+
+// 配置档：config.toml 里每个配置档一个 provider（自带 Key，互不影响）；
+// 模型与 provider 选择写进 ~/.codex/qn-<名>.config.toml（Codex 0.134+ 的配置档格式），用 codex -p qn-<名> 切换
+export function mergeCodexProfiles(
+  content: string,
+  profiles: { name: string; apiKey: string; baseUrl: string }[],
+): string {
+  const body = removeTomlTablesWhere(content, isProfileTable).trim();
+  const tables = profiles.map((p) => [
+    `[model_providers.${codexProviderName(p.name)}]`,
+    `name = "Qiniu (${escapeTomlString(p.name)})"`,
+    `base_url = "${escapeTomlString(`${p.baseUrl.replace(/\/+$/, '')}/bypass/openai/v1`)}"`,
+    `experimental_bearer_token = "${escapeTomlString(p.apiKey)}"`,
+    'wire_api = "responses"',
+    '',
+  ].join('\n'));
+  return normalizeToml(tables.length ? `${body}\n\n${tables.join('\n')}` : body);
+}
+
+export function codexProviderName(profile: string): string {
+  return `${PROFILE_PROVIDER_PREFIX}${codexProfileName(profile).slice(PROFILE_TABLE_PREFIX.length)}`;
+}
+
+export function buildCodexProfileFile(profile: string, model: string, catalogPath?: string): string {
+  return [
+    '# 由 qiniu-coding-helper 生成：codex -p ' + codexProfileName(profile),
+    `model_provider = "${codexProviderName(profile)}"`,
+    `model = "${escapeTomlString(model)}"`,
+    ...(catalogPath ? [`model_catalog_json = "${escapeTomlString(catalogPath)}"`] : []),
+    '',
+  ].join('\n');
+}
+
+function codexProfileFile(profile: string): string {
+  return path.join(CODEX_DIR, `${codexProfileName(profile)}.config.toml`);
+}
+
+// 我们生成的配置档文件（qn-*.config.toml）
+function managedProfileFiles(): string[] {
+  try {
+    return fs.readdirSync(CODEX_DIR)
+      .filter((f) => f.startsWith(PROFILE_TABLE_PREFIX) && f.endsWith('.config.toml'))
+      .map((f) => path.join(CODEX_DIR, f));
+  } catch {
+    return [];
+  }
+}
+
+// 写入当前所有配置档的文件，删掉已不存在的配置档留下的文件
+function writeCodexProfileFiles(profiles: { name: string }[], model: string, catalogPath: string): void {
+  const wanted = new Map(profiles.map((p) => [codexProfileFile(p.name), buildCodexProfileFile(p.name, model, catalogPath)]));
+  for (const file of managedProfileFiles()) {
+    if (!wanted.has(file)) writeTextOrRemove(file, '');
+  }
+  for (const [file, text] of wanted) safeWriteFile(file, text);
+}
+
+// 合并写入：原地更新顶层键（保持位置），替换七牛的 provider 与 profile 表，其他内容原样保留
+export function mergeCodexConfig(existing: string, baseUrl?: string, model?: string, catalogPath?: string): string {
+  let content = removeManagedTables(existing);
+  if (model) content = upsertTopLevelTomlKey(content, 'model', `"${escapeTomlString(model)}"`);
+  content = upsertTopLevelTomlKey(content, 'model_provider', `"${PROVIDER_NAME}"`);
+  if (catalogPath) content = upsertTopLevelTomlKey(content, 'model_catalog_json', `"${escapeTomlString(catalogPath)}"`);
+
+  const managed = buildCodexConfig('', baseUrl, model, catalogPath);
+  const managedTables = managed.slice(managed.indexOf(`[model_providers.${PROVIDER_NAME}]`));
+  const body = content.trim();
+  return normalizeToml(body ? `${body}\n\n${managedTables}` : managedTables);
+}
+
+// 卸载：移除七牛的表，并把被覆盖的顶层键原地写回原值；无记录（旧版本写入）时按旧规则清理
+export function restoreCodexConfig(existing: string, priors: PriorValues): string {
+  const managed = hasManagedCodexConfig(existing);
+  let content = existing;
+  for (const key of MANAGED_TOP_LEVEL_KEYS) {
+    const priorKey = `config.${key}`;
+    if (priorKey in priors) {
+      const prior = priors[priorKey];
+      content = typeof prior === 'string'
+        ? upsertTopLevelTomlKey(content, key, prior)
+        : removeTopLevelTomlKey(content, key);
+    }
+  }
+  if (!('config.model' in priors) && managed) content = removeTopLevelModel(content);
+  if (!('config.model_provider' in priors)) content = removeTopLevelQnaigcModelProvider(content);
+  if (!('config.model_catalog_json' in priors)) content = removeTopLevelCatalogPath(content);
+  content = restoreCodexSlots(content, priors);
+  return normalizeToml(removeManagedTables(content));
+}
+
+function removeManagedTables(content: string): string {
+  return removeTomlTablesWhere(
+    removeTomlTable(
+      removeTomlTable(content, `model_providers.${PROVIDER_NAME}`),
+      `profiles.${PROFILE_NAME}`,
+    ),
+    isProfileTable,
+  );
+}
+
 export function removeManagedCodexConfig(existing: string): string {
   let content = existing;
   if (hasManagedCodexConfig(content)) content = removeTopLevelModel(content);
@@ -155,8 +439,7 @@ export function removeManagedCodexConfig(existing: string): string {
 
 function removeTopLevelModel(content: string): string {
   const lines = content.split('\n');
-  const firstTableIndex = lines.findIndex((line) => /^\[[^\]]+\]\s*$/.test(line.trim()));
-  const searchEnd = firstTableIndex >= 0 ? firstTableIndex : lines.length;
+  const searchEnd = topLevelEnd(lines);
   return lines.filter((line, lineIndex) => lineIndex >= searchEnd || !/^model\s*=/.test(line.trim())).join('\n');
 }
 
@@ -172,31 +455,6 @@ export function buildCodexAuthJson(existing: string, apiKey: string): string {
   return `${JSON.stringify(auth, null, 2)}\n`;
 }
 
-export function backupCodexFile(filePath: string, now = new Date()): string | undefined {
-  if (!fs.existsSync(filePath)) return undefined;
-  const pad = (value: number): string => String(value).padStart(2, '0');
-  const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}` +
-    `${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-  const baseBackupPath = `${filePath}.bak-fenno-${timestamp}`;
-  let backupPath = baseBackupPath;
-  let suffix = 1;
-  while (fs.existsSync(backupPath)) {
-    backupPath = `${baseBackupPath}-${suffix}`;
-    suffix += 1;
-  }
-  fs.copyFileSync(filePath, backupPath);
-  return backupPath;
-}
-
-export function formatCodexBackupNote(
-  backupPath: string,
-  translate: (key: string, params?: Record<string, string>) => string = t,
-): string {
-  const key = 'codex_backup_created';
-  const translated = translate(key, { path: backupPath });
-  return translated === key ? `Codex 原配置已备份到：${backupPath}` : translated;
-}
-
 export function buildCodexModelCatalog(models: CodexCatalogModel[]): string {
   const reasoningLevels = ['low', 'medium', 'high', 'xhigh'].map((effort) => ({
     effort,
@@ -205,12 +463,12 @@ export function buildCodexModelCatalog(models: CodexCatalogModel[]): string {
       effort === 'high' ? 'Greater reasoning depth for complex problems' :
       'Extra high reasoning depth for complex problems',
   }));
-  return JSON.stringify({ models: models.filter((model) => model.id.startsWith('openai/gpt')).map((model, index) => ({
+  return JSON.stringify({ models: models.filter((model) => model.plain || model.id.startsWith('openai/gpt')).map((model, index) => ({
     slug: model.id,
-    display_name: model.id.replace('openai/', '').replace(/(^|[-.])([a-z])/g, (_, prefix, letter) => `${prefix}${letter.toUpperCase()}`),
+    display_name: model.plain ? model.id : model.id.replace('openai/', '').replace(/(^|[-.])([a-z])/g, (_, prefix, letter) => `${prefix}${letter.toUpperCase()}`),
     description: `${model.id.replace('openai/', '')} coding model.`,
-    default_reasoning_level: 'medium',
-    supported_reasoning_levels: reasoningLevels,
+    default_reasoning_level: model.plain ? null : 'medium',
+    supported_reasoning_levels: model.plain ? [] : reasoningLevels,
     shell_type: 'unified_exec',
     visibility: 'list',
     supported_in_api: true,
@@ -220,13 +478,30 @@ export function buildCodexModelCatalog(models: CodexCatalogModel[]): string {
     context_window: model.context_length,
     max_context_window: model.context_length,
     effective_context_window_percent: 95,
-    input_modalities: ['text', 'image'],
+    input_modalities: model.plain && !model.images ? ['text'] : ['text', 'image'],
     used_fallback_model_metadata: false,
     support_verbosity: false,
     truncation_policy: { mode: 'tokens', limit: 10000 },
     experimental_supported_tools: [],
     base_instructions: 'You are Codex, a coding agent based on GPT-5.',
   })) }) + '\n';
+}
+
+// 非 GPT 模型的目录条目：上下文、输出上限与是否支持图片取自七牛模型列表
+async function catalogEntries(ids: string[], baseUrl: string, apiKey: string): Promise<CodexCatalogModel[]> {
+  const wanted = [...new Set(ids)].filter((id) => !GPT_MODELS.some((m) => m.id === id));
+  if (wanted.length === 0) return [];
+  let market: MarketModelInfo[] = [];
+  try {
+    market = await marketModelService.fetchModels(baseUrl.replace(/\/+$/, ''), apiKey);
+  } catch {
+    // 取不到时用默认上限
+  }
+  return wanted.map((id) => {
+    const info = market.find((m) => m.id === id);
+    const caps = info ? getModelCapabilities(info) : undefined;
+    return { id, context_length: caps?.maxInputTokens ?? 128000, max_tokens: caps?.maxOutputTokens ?? 8192, plain: true, images: caps?.images ?? false };
+  });
 }
 
 function readCodexConfig(): string {
@@ -238,38 +513,6 @@ function readCodexConfig(): string {
     // 文件不存在或读取失败时按空配置处理
   }
   return '';
-}
-
-function readCodexAuth(): string {
-  try {
-    if (fs.existsSync(CODEX_AUTH_FILE)) {
-      return fs.readFileSync(CODEX_AUTH_FILE, 'utf-8');
-    }
-  } catch {
-    // 文件不存在或读取失败时按空配置处理
-  }
-  return '';
-}
-
-function writeCodexConfig(content: string): void {
-  if (!fs.existsSync(CODEX_DIR)) {
-    fs.mkdirSync(CODEX_DIR, { recursive: true, mode: 0o700 });
-  }
-  fs.writeFileSync(CODEX_CONFIG_FILE, content, { encoding: 'utf-8', mode: 0o600 });
-}
-
-function writeCodexCatalog(content: string): void {
-  if (!fs.existsSync(CODEX_CATALOG_DIR)) {
-    fs.mkdirSync(CODEX_CATALOG_DIR, { recursive: true, mode: 0o700 });
-  }
-  fs.writeFileSync(CODEX_CATALOG_FILE, content, { encoding: 'utf-8', mode: 0o600 });
-}
-
-function writeCodexAuth(content: string): void {
-  if (!fs.existsSync(CODEX_DIR)) {
-    fs.mkdirSync(CODEX_DIR, { recursive: true, mode: 0o700 });
-  }
-  fs.writeFileSync(CODEX_AUTH_FILE, content, { encoding: 'utf-8', mode: 0o600 });
 }
 
 function parseJsonObject(content: string): Record<string, unknown> {
@@ -284,22 +527,9 @@ function parseJsonObject(content: string): Record<string, unknown> {
   }
 }
 
-function upsertTopLevelModelProvider(content: string): string {
-  const lines = content.split('\n');
-  const firstTableIndex = lines.findIndex((line) => /^\[[^\]]+\]\s*$/.test(line.trim()));
-  const searchEnd = firstTableIndex >= 0 ? firstTableIndex : lines.length;
-  const index = lines.findIndex((line, lineIndex) => lineIndex < searchEnd && /^model_provider\s*=/.test(line.trim()));
-  if (index >= 0) {
-    lines[index] = `model_provider = "${PROVIDER_NAME}"`;
-    return lines.join('\n');
-  }
-  return `model_provider = "${PROVIDER_NAME}"\n${content}`;
-}
-
 function removeTopLevelQnaigcModelProvider(content: string): string {
   const lines = content.split('\n');
-  const firstTableIndex = lines.findIndex((line) => /^\[[^\]]+\]\s*$/.test(line.trim()));
-  const searchEnd = firstTableIndex >= 0 ? firstTableIndex : lines.length;
+  const searchEnd = topLevelEnd(lines);
   return lines
     .filter((line, lineIndex) => (
       lineIndex >= searchEnd ||
@@ -308,39 +538,12 @@ function removeTopLevelQnaigcModelProvider(content: string): string {
     .join('\n');
 }
 
-function removeTomlTable(content: string, tableName: string): string {
-  const lines = content.split('\n');
-  const result: string[] = [];
-  let skipping = false;
-  const header = `[${tableName}]`;
-  const dottedHeaderPrefix = `[${tableName}.`;
 
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed === header || trimmed.startsWith(dottedHeaderPrefix)) {
-      skipping = true;
-      continue;
-    }
-    if (skipping && /^\[[^\]]+\]\s*$/.test(trimmed)) {
-      skipping = false;
-    }
-    if (!skipping) {
-      result.push(line);
-    }
-  }
-
-  return result.join('\n');
+function restoreJsonValue(target: Record<string, unknown>, key: string, prior: unknown): void {
+  if (prior === null || prior === undefined) delete target[key];
+  else target[key] = prior;
 }
 
 function hasManagedCodexConfig(content: string): boolean {
   return content.includes(`[model_providers.${PROVIDER_NAME}]`);
-}
-
-function normalizeToml(content: string): string {
-  const trimmed = content.trim();
-  return trimmed ? `${trimmed}\n` : '';
-}
-
-function escapeTomlString(value: string): string {
-  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }

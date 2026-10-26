@@ -21,6 +21,16 @@ export const ENDPOINT_DEFINITIONS: Record<string, EndpointDefinition> = {
 
 export const DEFAULT_ENDPOINT = 'china';
 
+// 自定义线路：地址保存在配置里（如私有化部署、代理网关）
+export const CUSTOM_ENDPOINT = 'custom';
+
+// 配置里的自定义地址，由 configManager 加载时登记
+let customBaseUrls: string[] = [];
+
+export function registerCustomBaseUrls(urls: string[]): void {
+  customBaseUrls = urls.map((u) => u.replace(/\/+$/, ''));
+}
+
 // 旧线路 id 到新线路 id 的兼容映射（历史配置迁移）
 // 老用户 config.yaml 里可能存有已移除的 id，读取时规范化到对应新线路
 const LEGACY_ENDPOINT_ALIASES: Record<string, string> = {
@@ -33,11 +43,30 @@ export function normalizeEndpointId(endpointId: string): string {
   return LEGACY_ENDPOINT_ALIASES[endpointId] ?? endpointId;
 }
 
+// 测试用：CODING_HELPER_BASE_URL_CHINA / _INTERNATIONAL 可把线路指向本地模拟服务
+function overrideFor(endpointId: string): string | undefined {
+  return process.env[`CODING_HELPER_BASE_URL_${endpointId.toUpperCase()}`] || undefined;
+}
+
 // 根据端点 ID 获取 base URL
 export function getBaseUrl(endpointId: string): string {
-  const endpoint = ENDPOINT_DEFINITIONS[normalizeEndpointId(endpointId)];
-  if (!endpoint) {
-    return ENDPOINT_DEFINITIONS[DEFAULT_ENDPOINT].baseUrl;
-  }
-  return endpoint.baseUrl;
+  const id = ENDPOINT_DEFINITIONS[normalizeEndpointId(endpointId)] ? normalizeEndpointId(endpointId) : DEFAULT_ENDPOINT;
+  return overrideFor(id) ?? ENDPOINT_DEFINITIONS[id].baseUrl;
+}
+
+// 另一条线路的 id（国内 ↔ 海外）
+export function otherEndpoint(endpointId: string): string {
+  return normalizeEndpointId(endpointId) === 'international' ? 'china' : 'international';
+}
+
+// 判断 URL 是否指向七牛线路（含历史域名），用于识别旧版本写入的配置
+export function isQiniuBaseUrl(url: unknown): boolean {
+  if (typeof url !== 'string') return false;
+  const known = [
+    ...Object.values(ENDPOINT_DEFINITIONS).map((def) => def.baseUrl),
+    ...Object.keys(ENDPOINT_DEFINITIONS).map(overrideFor).filter((u): u is string => !!u),
+    ...customBaseUrls,
+    'https://openai.qiniu.com',
+  ];
+  return known.some((base) => url.replace(/\/+$/, '').startsWith(base));
 }
