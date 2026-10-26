@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { findCommand, commandVersion } from '../../utils/find-command.js';
 import type { ITool } from './base-tool.js';
 import { configManager, type ModelConfig } from '../config.js';
 import { marketModelService } from '../market-model-service.js';
@@ -20,17 +20,26 @@ export interface ModelLimits {
 
 const FALLBACK_LIMITS: ModelLimits = { contextWindow: 128000, maxOutputTokens: 8192 };
 
-// 尽力从模型市场获取上下文与输出上限，失败时使用保守的默认值
-export async function fetchModelLimits(baseUrl: string, apiKey: string, model: string): Promise<ModelLimits> {
+// 用户设置了上下文大小时，不超过模型上限
+export function capContextWindow(modelMax: number, toolName?: string): number {
+  const setting = configManager.getContextWindow(toolName);
+  return setting ? Math.min(setting, modelMax) : modelMax;
+}
+
+// 尽力从模型市场获取上下文与输出上限，失败时使用保守的默认值；上下文按用户设置收窄
+export async function fetchModelLimits(baseUrl: string, apiKey: string, model: string, toolName?: string): Promise<ModelLimits> {
+  let limits = FALLBACK_LIMITS;
   try {
     const models = await marketModelService.fetchModels(baseUrl.replace(/\/+$/, ''), apiKey);
     const info = models.find((m) => m.id === model);
-    if (!info) return FALLBACK_LIMITS;
-    const caps = getModelCapabilities(info);
-    return { contextWindow: caps.maxInputTokens, maxOutputTokens: caps.maxOutputTokens };
+    if (info) {
+      const caps = getModelCapabilities(info);
+      limits = { contextWindow: caps.maxInputTokens, maxOutputTokens: caps.maxOutputTokens };
+    }
   } catch {
-    return FALLBACK_LIMITS;
+    // 使用默认值
   }
+  return { ...limits, contextWindow: capContextWindow(limits.contextWindow, toolName) };
 }
 
 // 通用 OpenAI 兼容客户端的公共部分：命令检测、模型选择与展示
@@ -45,22 +54,12 @@ export abstract class OpenAICompatTool implements ITool {
   requiresModelSelection = true;
 
   isInstalled(): boolean {
-    try {
-      execSync(process.platform === 'win32' ? `where ${this.command}` : `which ${this.command}`, { stdio: 'pipe' });
-      return true;
-    } catch {
-      return false;
-    }
+    return !!findCommand(this.command);
   }
 
   getVersion(): string | null {
-    try {
-      const output = execSync(`${this.command} --version`, { stdio: 'pipe', encoding: 'utf-8', timeout: 5000 }).trim();
-      const match = output.match(/(\d+\.\d+\.\d+)/);
-      return match ? match[1] : output;
-    } catch {
-      return null;
-    }
+    const file = findCommand(this.command);
+    return file ? commandVersion(file) : null;
   }
 
   // 本工具使用的模型：单独选择过的优先，否则用通用默认模型

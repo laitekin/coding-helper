@@ -1,7 +1,8 @@
+import { findCommand, commandVersion } from '../../utils/find-command.js';
+import { capContextWindow } from './openai-compat-tool.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { execSync } from 'node:child_process';
 import type { ITool } from './base-tool.js';
 import { configManager, type ModelConfig } from '../config.js';
 import {
@@ -45,23 +46,12 @@ export class CodeBuddyTool implements ITool {
   npmPackageName = '@tencent-ai/codebuddy-code';
 
   getVersion(): string | null {
-    try {
-      const output = execSync('codebuddy --version', { stdio: 'pipe', encoding: 'utf-8' }).trim();
-      const match = output.match(/(\d+\.\d+\.\d+)/);
-      return match ? match[1] : output;
-    } catch {
-      return null;
-    }
+    const file = findCommand(this.command);
+    return file ? commandVersion(file) : null;
   }
 
   isInstalled(): boolean {
-    try {
-      const command = process.platform === 'win32' ? 'where codebuddy' : 'which codebuddy';
-      execSync(command, { stdio: 'pipe' });
-      return true;
-    } catch {
-      return false;
-    }
+    return !!findCommand(this.command);
   }
 
   getConfig(): Record<string, unknown> {
@@ -161,7 +151,7 @@ export class CodeBuddyTool implements ITool {
       vendor: QINIU_VENDOR,
       url: `${baseUrl}/v1/chat/completions`,
       apiKey,
-      maxInputTokens: caps.maxInputTokens,
+      maxInputTokens: capContextWindow(caps.maxInputTokens, this.name),
       maxOutputTokens: caps.maxOutputTokens,
       temperature: DEFAULT_TEMPERATURE,
       supportsToolCall: caps.toolCall,

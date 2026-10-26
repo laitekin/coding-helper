@@ -1,6 +1,6 @@
+import { findCommand, commandVersion } from '../../utils/find-command.js';
 import path from 'node:path';
 import os from 'node:os';
-import { execSync } from 'node:child_process';
 import type { ITool } from './base-tool.js';
 import { configManager, type ModelConfig } from '../config.js';
 import { t } from '../i18n.js';
@@ -20,11 +20,30 @@ const CLAUDE_ENV_KEYS = [
   'ANTHROPIC_DEFAULT_HAIKU_MODEL',
   'ANTHROPIC_DEFAULT_SONNET_MODEL',
   'ANTHROPIC_DEFAULT_OPUS_MODEL',
+  // /model 列表里的 Fable 项，以及各项的说明文字
+  'ANTHROPIC_DEFAULT_FABLE_MODEL',
+  'ANTHROPIC_DEFAULT_HAIKU_MODEL_DESCRIPTION',
+  'ANTHROPIC_DEFAULT_SONNET_MODEL_DESCRIPTION',
+  'ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION',
+  'ANTHROPIC_DEFAULT_FABLE_MODEL_DESCRIPTION',
   'CLAUDE_CODE_SUBAGENT_MODEL',
+  // 旧版的快速模型变量；以及会覆盖 /model 选择的 ANTHROPIC_MODEL，统一由我们接管
+  'ANTHROPIC_SMALL_FAST_MODEL',
+  'ANTHROPIC_MODEL',
   'API_TIMEOUT_MS',
   'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC',
   'CLAUDE_CODE_ATTRIBUTION_HEADER',
 ];
+
+// 用户在 Claude Code 里用 /model 选的模型（settings.json 的 model），没有时返回 undefined
+export function claudeSelectedModel(): string | undefined {
+  try {
+    const settings = readJsonObjectStrict(CLAUDE_SETTINGS_FILE);
+    return typeof settings.model === 'string' ? settings.model : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 // Claude Code 配置文件路径
 const CLAUDE_SETTINGS_DIR = path.join(os.homedir(), '.claude');
@@ -42,26 +61,20 @@ export class ClaudeCodeTool implements ITool {
   aliases = ['claude'];
 
   // 获取已安装的 Claude Code 版本
+  // 本地安装（claude migrate-installer）只在 shell 里配了别名，子进程的 PATH 里没有
+  searchPaths = [
+    path.join(os.homedir(), '.claude', 'local', 'claude'),
+    path.join(os.homedir(), '.claude', 'local', 'node_modules', '.bin', 'claude'),
+  ];
+
   getVersion(): string | null {
-    try {
-      const output = execSync('claude --version', { stdio: 'pipe', encoding: 'utf-8' }).trim();
-      // 提取语义化版本号（兼容 "1.0.23" 或 "claude v1.0.23" 等格式）
-      const match = output.match(/(\d+\.\d+\.\d+)/);
-      return match ? match[1] : output;
-    } catch {
-      return null;
-    }
+    const file = findCommand(this.command, this.searchPaths);
+    return file ? commandVersion(file) : null;
   }
 
   // 检查 claude 命令是否可用
   isInstalled(): boolean {
-    try {
-      const command = process.platform === 'win32' ? 'where claude' : 'which claude';
-      execSync(command, { stdio: 'pipe' });
-      return true;
-    } catch {
-      return false;
-    }
+    return !!findCommand(this.command, this.searchPaths);
   }
 
   // 读取当前 Claude Code settings.json（解析失败时返回空对象，仅用于展示）
@@ -92,6 +105,7 @@ export class ClaudeCodeTool implements ITool {
     }
     if (Object.keys(env).length > 0) settings.env = env;
     else delete settings.env;
+    if ('settings.model' in priors) restoreValue(settings, 'model', priors['settings.model']);
     restoreValue(settings, 'companyAnnouncements', priors.companyAnnouncements);
     restoreValue(settings, 'attribution', priors.attribution);
     writeJsonOrRemove(CLAUDE_SETTINGS_FILE, settings);
@@ -116,6 +130,17 @@ export class ClaudeCodeTool implements ITool {
     // 写入七牛配置；先清掉旧的模型变量，避免取消选择后残留
     for (const key of CLAUDE_ENV_KEYS) delete env[key];
     settings.env = { ...env, ...buildClaudeEnv(apiKey, baseUrl, models) };
+
+    // 在 Claude Code 里用 /model 选过的模型保存在 settings.model，会盖过上面的模型槽位。
+    // 切换模型时一并清掉，让 /model 回到「Default」并跟随主模型；原值记下，restore 时写回
+    if (models.claudeCode && !models.claudeCode.useDefaultModels && models.claudeCode.sonnetModel) {
+      if (!('settings.model' in (stateStore.getPriors(this.name) ?? {}))) {
+        // 指向七牛模型（含 /）的值是接入后才选的，不当作原值
+        const prior = typeof settings.model === 'string' && !settings.model.includes('/') ? settings.model : null;
+        stateStore.recordPriors(this.name, { 'settings.model': prior });
+      }
+      delete settings.model;
+    }
 
     // 写入公司公告（使用当前语言）
     settings.companyAnnouncements = [
@@ -193,9 +218,23 @@ function buildClaudeEnv(apiKey: string, baseUrl: string, models: ModelConfig): R
     CLAUDE_CODE_ATTRIBUTION_HEADER: '0',
   };
   const claudeCode = models.claudeCode || {};
-  if (claudeCode.haikuModel) env.ANTHROPIC_DEFAULT_HAIKU_MODEL = claudeCode.haikuModel;
+  if (claudeCode.haikuModel) {
+    env.ANTHROPIC_DEFAULT_HAIKU_MODEL = claudeCode.haikuModel;
+    env.ANTHROPIC_SMALL_FAST_MODEL = claudeCode.haikuModel;
+  }
   if (claudeCode.sonnetModel) env.ANTHROPIC_DEFAULT_SONNET_MODEL = claudeCode.sonnetModel;
-  if (claudeCode.opusModel) env.ANTHROPIC_DEFAULT_OPUS_MODEL = claudeCode.opusModel;
+  if (claudeCode.opusModel) {
+    env.ANTHROPIC_DEFAULT_OPUS_MODEL = claudeCode.opusModel;
+    // Fable 是 Anthropic 官方模型，七牛线路没有；指向 Opus 槽位的模型，避免选中后报错
+    env.ANTHROPIC_DEFAULT_FABLE_MODEL = claudeCode.opusModel;
+  }
+  // /model 列表里的说明，标明这些是七牛线路上的模型
+  if (claudeCode.haikuModel) env.ANTHROPIC_DEFAULT_HAIKU_MODEL_DESCRIPTION = t('claude_slot_desc_haiku');
+  if (claudeCode.sonnetModel) env.ANTHROPIC_DEFAULT_SONNET_MODEL_DESCRIPTION = t('claude_slot_desc_sonnet');
+  if (claudeCode.opusModel) {
+    env.ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION = t('claude_slot_desc_opus');
+    env.ANTHROPIC_DEFAULT_FABLE_MODEL_DESCRIPTION = t('claude_slot_desc_fable');
+  }
   if (claudeCode.subagentModel) env.CLAUDE_CODE_SUBAGENT_MODEL = claudeCode.subagentModel;
   return env;
 }

@@ -16,6 +16,9 @@ export interface ITool {
   // npm 包名（用于查询最新版本）
   npmPackageName?: string;
 
+  // PATH 之外的安装位置（完整路径），如 Claude Code 本地安装
+  searchPaths?: string[];
+
   // 检查工具是否已安装
   // 返回 null 表示无法检测（如桌面应用）
   isInstalled(): boolean | null;
@@ -37,6 +40,9 @@ export interface ITool {
 
   // 检查模型能否用于该工具；返回不兼容的原因（i18n key），undefined 表示可用
   checkModel?(model: string, ctx: { apiKey: string; baseUrl: string }): Promise<string | undefined>;
+
+  // 选模型时的兼容性预判（不发请求）：true 可用、false 不可用、undefined 未知（选定后再检测）
+  modelSupport?(model: string): boolean | undefined;
 
   // 没有配置文件、只能通过 run 启动器使用的客户端（如 Copilot CLI）
   launchOnly?: boolean;

@@ -2,25 +2,20 @@ import inquirer from 'inquirer';
 import search from '@inquirer/search';
 import { t } from '../../i18n.js';
 import { theme } from './theme.js';
+import { menuPrompt } from './prompts.js';
 
 // 搜索选择的跳过标记
 const SKIP_VALUE = '__skip__';
 
 // inquirer 封装 - 统一交互式 prompt
 export const promptHelper = {
-  // 单选列表
+  // 单选列表（统一用新菜单样式）
   async select<T extends string>(message: string, choices: { name: string; value: T }[]): Promise<T> {
-    const { answer } = await inquirer.prompt([
-      {
-        type: 'list',
-        name: 'answer',
-        message,
-        choices,
-        pageSize: 12,
-        loop: false,
-      },
-    ]);
-    return answer as T;
+    const { value } = await menuPrompt<T>({
+      message,
+      items: choices.map((choice) => ({ value: choice.value, label: choice.name })),
+    });
+    return value;
   },
 
   // 密码/隐藏输入
@@ -49,27 +44,15 @@ export const promptHelper = {
     return answer as string;
   },
 
-  // 确认 (上下选择)
+  // 确认：y / n 直接选择
   async confirm(message: string, defaultValue = true): Promise<boolean> {
-    const choices = defaultValue
-      ? [
-          { name: `${theme.icon('✔')} ${t('confirm_yes')}`, value: true },
-          { name: `${theme.dimIcon('✘')} ${t('confirm_no')}`, value: false },
-        ]
-      : [
-          { name: `${theme.dimIcon('✘')} ${t('confirm_no')}`, value: false },
-          { name: `${theme.icon('✔')} ${t('confirm_yes')}`, value: true },
-        ];
-
-    const { answer } = await inquirer.prompt([
-      {
-        type: 'list',
-        name: 'answer',
-        message,
-        choices,
-      },
-    ]);
-    return answer as boolean;
+    const yes = { value: true, key: 'y', label: `${theme.icon('✔')} ${t('confirm_yes')}` };
+    const no = { value: false, key: 'n', label: `${theme.dimIcon('✘')} ${t('confirm_no')}` };
+    const { value } = await menuPrompt<boolean>({
+      message,
+      items: defaultValue ? [yes, no] : [no, yes],
+    });
+    return value;
   },
 
   // 按回车继续（不显示 Yes/No，仅等待用户按回车）

@@ -1,13 +1,13 @@
+import { findCommand, commandVersion } from '../../utils/find-command.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import yaml from 'js-yaml';
-import { execSync } from 'node:child_process';
 import type { ITool } from './base-tool.js';
 import { configManager, type ModelConfig } from '../config.js';
 import { t } from '../i18n.js';
 import { isQiniuBaseUrl } from '../endpoints.js';
-import { ConfigParseError, safeWriteFile } from '../core/safe-write.js';
+import { ConfigParseError, safeWriteFile, writeTextOrRemove } from '../core/safe-write.js';
 import { stateStore, type PriorValues } from '../core/state-store.js';
 import {
   getYamlValue,
@@ -15,16 +15,22 @@ import {
   removeYamlLine,
   restoreYamlValue,
   setYamlLine,
+  setYamlPathLine,
+  removeYamlPathLine,
   stringifyYamlDocument,
 } from '../core/yaml-edit.js';
 import { isMap } from 'yaml';
 import { runHermesModelSelectionFlow } from '../wizard/flows/hermes-model-selection-flow.js';
 import { uiRenderer } from '../wizard/ui/ui-renderer.js';
 import { promptHelper } from '../wizard/ui/prompt-helper.js';
+import { slotOverrides } from '../core/model-slots.js';
 
 const HERMES_DIR = path.join(os.homedir(), '.hermes');
 const HERMES_CONFIG_FILE = path.join(HERMES_DIR, 'config.yaml');
 const MANAGED_MODEL_KEYS = ['provider', 'default', 'base_url', 'api_key'] as const;
+// 看图（视觉）辅助模型；Hermes 默认 auto = 跟随主模型，单独设置时才写入
+const VISION_PATH = ['auxiliary', 'vision'];
+const VISION_KEYS = ['provider', 'model', 'base_url', 'api_key'] as const;
 
 // Hermes Agent 工具实现
 export class HermesTool implements ITool {
@@ -36,23 +42,12 @@ export class HermesTool implements ITool {
   updateCommand = 'hermes update';
 
   getVersion(): string | null {
-    try {
-      const output = execSync('hermes --version', { stdio: 'pipe', encoding: 'utf-8' }).trim();
-      const match = output.match(/(\d+\.\d+\.\d+)/);
-      return match ? match[1] : output;
-    } catch {
-      return null;
-    }
+    const file = findCommand(this.command);
+    return file ? commandVersion(file) : null;
   }
 
   isInstalled(): boolean {
-    try {
-      const command = process.platform === 'win32' ? 'where hermes' : 'which hermes';
-      execSync(command, { stdio: 'pipe' });
-      return true;
-    } catch {
-      return false;
-    }
+    return !!findCommand(this.command);
   }
 
   getConfig(): Record<string, unknown> {
@@ -66,7 +61,8 @@ export class HermesTool implements ITool {
 
   clearModelConfig(): void {
     if (!stateStore.getPriors(this.name) && !this.isConfigured()) return;
-    writeHermesConfig(removeManagedHermesConfig(readHermesConfig(), stateStore.getPriors(this.name)));
+    const priors = stateStore.getPriors(this.name);
+    writeHermesConfig(applyHermesVision(removeManagedHermesConfig(readHermesConfig(), priors), undefined, priors ?? {}));
   }
 
   async loadConfig(apiKey: string, baseUrl: string, models: ModelConfig): Promise<void> {
@@ -84,7 +80,10 @@ export class HermesTool implements ITool {
       const priors = captureHermesPriors(existing);
       if (priors) stateStore.recordPriors(this.name, priors);
     }
-    writeHermesConfig(buildHermesConfig(existing, baseUrl, apiKey, models.hermesModel));
+    stateStore.recordPriors(this.name, captureHermesVisionPriors(existing));
+    const vision = slotOverrides(this.name, models).vision;
+    const next = buildHermesConfig(existing, baseUrl, apiKey, models.hermesModel);
+    writeHermesConfig(applyHermesVision(next, vision ? { model: vision, baseUrl, apiKey } : undefined, stateStore.getPriors(this.name) ?? {}));
   }
 
   async unloadConfig(): Promise<void> {
@@ -153,6 +152,58 @@ export function removeManagedHermesConfig(existing: string, priors?: PriorValues
   return verifiedOrDocument(next, existing, values);
 }
 
+function visionIsOurs(doc: ReturnType<typeof parseYamlDocument>): boolean {
+  return isQiniuBaseUrl(getYamlValue(doc, [...VISION_PATH, 'base_url']));
+}
+
+export function captureHermesVisionPriors(existing: string): PriorValues {
+  const doc = parseYamlDocument(existing);
+  if (visionIsOurs(doc)) return {};
+  const priors: PriorValues = {};
+  for (const key of VISION_KEYS) priors[`auxiliary.vision.${key}`] = getYamlValue(doc, [...VISION_PATH, key]) ?? null;
+  return priors;
+}
+
+// 单独设置看图模型时写入 auxiliary.vision；跟随主模型时把我们写过的值还原。
+// 优先按行编辑（只动这几行，注释与空格原样保留），结构特殊时退回文档级编辑
+export function applyHermesVision(
+  existing: string,
+  vision: { model: string; baseUrl: string; apiKey: string } | undefined,
+  priors: PriorValues,
+): string {
+  const doc = parseYamlDocument(existing);
+  let values: Record<string, unknown>;
+  if (vision) {
+    values = { provider: 'custom', model: vision.model, base_url: `${vision.baseUrl.replace(/\/+$/, '')}/v1`, api_key: vision.apiKey };
+  } else {
+    if (!visionIsOurs(doc)) return existing;
+    values = Object.fromEntries(VISION_KEYS.map((key) => [key, priors[`auxiliary.vision.${key}`] ?? null]));
+  }
+  const byLine = editVisionLines(existing, values);
+  if (byLine !== undefined) {
+    try {
+      const check = parseYamlDocument(byLine);
+      if (VISION_KEYS.every((key) => (getYamlValue(check, [...VISION_PATH, key]) ?? null) === (values[key] ?? null))) return byLine;
+    } catch {
+      // 落到下面的文档级编辑
+    }
+  }
+  for (const key of VISION_KEYS) restoreYamlValue(doc, [...VISION_PATH, key], values[key] ?? null);
+  return stringifyYamlDocument(doc);
+}
+
+function editVisionLines(content: string, values: Record<string, unknown>): string | undefined {
+  let next: string | undefined = content;
+  for (const key of VISION_KEYS) {
+    const value = values[key];
+    if (value === null || value === undefined) next = removeYamlPathLine(next, [...VISION_PATH, key]);
+    else if (typeof value === 'string') next = setYamlPathLine(next, [...VISION_PATH, key], value);
+    else return undefined;
+    if (next === undefined) return undefined;
+  }
+  return next;
+}
+
 // 首次写入前的原值（旧版本写过七牛配置时不记录）
 export function captureHermesPriors(existing: string): PriorValues | undefined {
   const doc = parseYamlDocument(existing);
@@ -174,6 +225,11 @@ function readHermesConfig(): string {
 }
 
 function writeHermesConfig(content: string): void {
+  // 还原后为空说明文件是我们创建的，直接删除
+  if (!content.trim()) {
+    writeTextOrRemove(HERMES_CONFIG_FILE, '');
+    return;
+  }
   safeWriteFile(HERMES_CONFIG_FILE, content);
   applyHermesConfigPermissions(HERMES_DIR, HERMES_CONFIG_FILE);
 }

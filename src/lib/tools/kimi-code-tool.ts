@@ -106,7 +106,7 @@ export class KimiCodeTool extends OpenAICompatTool {
         'config.default_model': getTopLevelTomlValue(existing, 'default_model') ?? null,
       });
     }
-    const limits = await fetchModelLimits(baseUrl, apiKey, model);
+    const limits = await fetchModelLimits(baseUrl, apiKey, model, this.name);
     safeWriteFile(file, applyKimiConfig(existing, baseUrl, apiKey, model, limits.contextWindow));
   }
 

@@ -1,3 +1,4 @@
+import { getSyncTargets } from '../lib/core/tool-service.js';
 import { t, i18n } from '../lib/i18n.js';
 import { configManager } from '../lib/config.js';
 import { validateApiKey } from '../lib/api-validator.js';
@@ -22,7 +23,7 @@ function formatAvailableTools(): string {
 }
 
 // auth 命令 - API Key 管理
-export async function authCommand(tokenOrAction?: string): Promise<void> {
+export async function authCommand(tokenOrAction?: string, options: { sync?: boolean } = {}): Promise<void> {
   i18n.init();
 
   if (tokenOrAction === 'revoke') {
@@ -70,8 +71,16 @@ export async function authCommand(tokenOrAction?: string): Promise<void> {
       modelService.clearCache();
       marketModelService.clearCache();
       uiRenderer.renderSuccess(t('apikey_saved'));
-      // 换 Key 后同步到已接入的客户端（F4）
-      if (changed) await syncAfterChange();
+      // 换 Key 后：--sync 时更新所有跟随当前连接的工具；交互终端里让用户勾选；否则只保存
+      if (changed && options.sync) {
+        const targets = getSyncTargets().filter((tool) => !configManager.getToolProfile(tool.name));
+        const results = await applyToolsWithProgress(targets);
+        if (results.length) renderResultSummary(results);
+      } else if (changed && process.stdin.isTTY) {
+        await syncAfterChange();
+      } else if (changed && getSyncTargets().length) {
+        uiRenderer.renderHint(t('sync_cli_hint'));
+      }
     } else {
       spinner.fail(t('apikey_invalid', { error: result.error || '' }));
     }

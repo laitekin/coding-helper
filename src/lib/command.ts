@@ -1,3 +1,4 @@
+import { profileAddCommand, profileListCommand, profileRemoveCommand, profileUseCommand } from '../commands/profile.js';
 import { Command } from 'commander';
 import {
   authCommand,
@@ -45,7 +46,8 @@ export function createProgram(): Command {
     .option('--dry-run', 'show what would change without writing any file')
     .option('--json', 'print results as JSON')
     .option('--no-save', 'do not save the key and model to ~/.coding-helper/config.yaml')
-    .action(async (tool: string | undefined, args: string[], options: { intl?: boolean; dryRun?: boolean; json?: boolean; save?: boolean }) => {
+    .option('--context <size>', 'context size limit, e.g. 128k (auto = model maximum)')
+    .action(async (tool: string | undefined, args: string[], options: { intl?: boolean; dryRun?: boolean; json?: boolean; save?: boolean; context?: string }) => {
       if (tool) {
         if (!isQuickTarget(tool)) {
           i18n.init();
@@ -61,6 +63,40 @@ export function createProgram(): Command {
       }
       const wizard = new Wizard();
       await wizard.run();
+    });
+
+  // profile - 配置档：多个 Key / 线路之间切换
+  const profile = program
+    .command('profile')
+    .description('Manage profiles (API key + endpoint sets)');
+  profile
+    .command('list', { isDefault: true })
+    .description('List profiles')
+    .option('--json', 'print as JSON')
+    .action((options: { json?: boolean }) => profileListCommand(options));
+  profile
+    .command('add <name> [key]')
+    .description('Add or update a profile (key from argument, --key-stdin or QINIU_API_KEY)')
+    .option('--intl', 'use the international endpoint')
+    .option('--base-url <url>', 'use a custom Qiniu-compatible base URL')
+    .option('--key-stdin', 'read the API key from stdin')
+    .option('--use', 'switch to this profile after adding')
+    .action(async (name: string, key: string | undefined, options: { intl?: boolean; baseUrl?: string; keyStdin?: boolean; use?: boolean }) => {
+      await profileAddCommand(name, key, options);
+    });
+  profile
+    .command('use <name> [tools]')
+    .description('Switch the active profile, or bind only the given tools (comma separated) to it')
+    .option('--sync', 'also rewrite every connected tool with the new profile (default: ask in a terminal, otherwise only switch)')
+    .action(async (name: string, tools: string | undefined, options: { sync?: boolean }) => {
+      await profileUseCommand(name, tools, options);
+    });
+  profile
+    .command('remove <name>')
+    .alias('rm')
+    .description('Remove a profile')
+    .action(async (name: string) => {
+      await profileRemoveCommand(name);
     });
 
   // init - 强制重新初始化
@@ -119,8 +155,9 @@ export function createProgram(): Command {
   program
     .command('auth [token]')
     .description('Manage API Key')
-    .action(async (token?: string) => {
-      await authCommand(token);
+    .option('--sync', 'also rewrite connected tools with the new key (default: ask in a terminal, otherwise only save)')
+    .action(async (token: string | undefined, options: { sync?: boolean }) => {
+      await authCommand(token, options);
     });
 
   // doctor - 健康检查

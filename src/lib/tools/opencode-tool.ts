@@ -94,7 +94,7 @@ export class OpenCodeTool extends OpenAICompatTool {
         $schema: config.$schema ?? null,
       });
     }
-    const limits = await fetchModelLimits(baseUrl, apiKey, model);
+    const limits = await fetchModelLimits(baseUrl, apiKey, model, this.name);
     writeJson(file, applyOpenCodeConfig(config, baseUrl, apiKey, model, limits));
   }
 

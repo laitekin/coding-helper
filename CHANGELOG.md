@@ -5,6 +5,60 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.3] - 2026-10-21
+
+### 变更
+* **交互只用方向键、回车和 Esc。** 字母 / 数字快捷键不再显示，底部统一「↑↓ 选择 · 回车 确认 · Esc 返回」；需要搜索的列表直接打字
+* 主菜单收为 6 项：接入编码工具 / 切换模型 / 我的工具 / 账号与线路（API Key、线路、配置档）/ 健康检查 / 更多…（上下文大小、还原、语言、更新、清除）；主菜单按 Esc 退出
+* 多选：回车勾选，第一行「全选已安装 / 全选」，最后一行「继续（已选 N）→」，→ 直接继续，Esc 返回；默认一个不勾
+* 确认页：每个工具一行，→ 展开看每一项与会改的文件，回车单独调整这个工具；「写入 N 个工具」/「查看具体改动」
+* 首次向导：语言 → 线路 → API Key → 工具 → 模型 → 确认，每一步 Esc 回到上一步并保留已填内容；粘贴完整的 API Key 后自动校验；回到 Key 这一步直接回车沿用已保存的 Key
+* 配置档页：回车打开某个配置档（设为当前 / 编辑 / 测试连通 / 删除），最后一行新建
+* 工具页：模型 / 重新写入配置 / 使用配置档 / 启动 / 还原 / 更新 / 查看配置
+
+### 新增
+* **模型搜索：** 顶部搜索框，打字即过滤并高亮匹配字符；忽略 `- / .` 和空格（`glm5` → glm-5.2）；认识中文厂商名（智谱 / 千问 / 月之暗面 / 深度求索）；`200k` / `1m` 按上下文过滤，`看图` / `vision` 按能力过滤；排序为开头匹配 > 推荐 > 最近使用；←→ 切换厂商；最近使用的 3 个置顶；找不到时列出最相近的 3 个模型和「使用自定义模型 ID」（缺厂商前缀时自动补全）；选中行显示每个工具能否使用
+* **模型槽位：** 主模型之外的槽位默认跟随主模型，单独设置的保持不变（工具页「模型」里每个工具一页）
+  * Claude Code：兜底（Haiku）、子代理
+  * Codex：`review_model`、`[agents] default_subagent_model`、`[memories] extract_model` / `consolidation_model`（默认是 OpenAI 的模型名，七牛线路不可用）
+  * Grok CLI：`[models] session_summary`（会话标题与摘要）
+  * Hermes Agent：`auxiliary.vision`（单独设置时写入）
+  * 均记录原值，`restore` 时写回。已用真实客户端实测：Claude Code 2.1（主模型 / `--model haiku` / 子代理调用）、codex-cli 0.163.0（`--strict-config`、`exec`、`codex review`）、grok 1.0.62（会话标题请求）、Factory Droid 0.245.0（`exec`、`--use-spec`）、Hermes 0.19.0（`--image` 看图），还原后文件与原来一致
+
+### 修复
+* Codex 使用非 GPT 模型（如 glm）时提示「Model metadata not found」：模型目录里之前只有 GPT 模型，其他模型 Codex 用兜底元数据，不知道真实上下文上限（自动压缩时机可能不对），还会当成支持图片。现在主模型和各槽位用到的模型都写进目录（上下文、输出上限、是否支持图片取自七牛模型列表；不发送推理强度，与原来实测可用的请求一致）
+* Hermes：还原时原本不存在的 `config.yaml` 不再留下空文件；看图模型按行写入，用户文件里的注释与空格原样保留
+* Factory Droid 接入后仍使用官方默认模型：之前只把七牛模型加进 `customModels`，现在同时设置 `sessionDefaultSettings.model`（和 Spec 模式的 `specModeModel`）为七牛模型，还原时写回原值
+* Claude Code 切换模型后仍在用旧模型：在 Claude Code 里用 `/model` 选过的模型保存在 `settings.json` 的 `model`，会盖过写入的模型槽位。现在切换模型时一并清掉它（以及 `ANTHROPIC_MODEL`），`/model` 回到「Default」并跟随主模型；同时写入旧版的 `ANTHROPIC_SMALL_FAST_MODEL`。确认页会列出「/model 当前选择 → Default」，`restore` 时写回原值
+* Claude Code `/model` 列表里的 Fable 项指向 Opus 槽位的模型（`ANTHROPIC_DEFAULT_FABLE_MODEL`），七牛线路没有 Fable，之前选中会报错；各项说明改为「七牛 · 主模型 / 兜底模型 / Opus 槽位 / Fable 槽位」
+
+## [0.6.2] - 2026-10-21
+
+### 新增
+* 配置档：一组 API Key + 线路（国内 / 海外 / 自定义地址）。`profile add / list / use / remove`，可切换当前配置档，或用 `profile use <名称> <工具>` 只让某个工具使用它；一条命令里用 `@名称` 指定，`run <工具> @名称` 只对这次启动生效
+* Codex 多配置：每个配置档写一个自带 Key 的 provider 和 `~/.codex/qn-<名称>.config.toml`，可直接 `codex -p qn-<名称>` 切换（Codex 0.134+ 配置档格式，已用 codex-cli 0.163.0 实测）
+* 上下文大小：`--context 128k` 或主菜单设置，各工具按「设置与模型上限的较小值」写入；Codex 写 `model_context_window` 并在还原时写回原值
+* 自定义线路地址（私有化部署、代理网关）
+* 像素风终端界面：像素 QINIU Logo、七牛小牛与 13 个编程助手的像素角色（半块字符 + 24 位真彩色），接入成功的工具角色亮起；不支持 256 色、终端过窄或设置 `NO_COLOR` 时退回文字界面
+* 新菜单组件：右侧显示当前值、数字 / 字母快捷键、底部快捷键条、`/` 搜索；窄终端自动收起右侧列与换行
+* 主菜单新增：切换模型、上下文大小、配置档、健康检查、还原配置
+* 工具页按已安装 / 未安装分组，选中项显示模型、连接与配置路径，`m` 换模型、`s` 启动、`r` 还原、`a` 全部接入；工具详情页显示大号像素角色，`p` 绑定配置档
+* 向导改为 5 步：语言 → 线路 → API Key → 工具 → 模型。Key 只显示首尾 4 位，逐条校验格式、Key、账户与可用模型，Key 属于另一条线路时自动切换；工具两列多选；所有工具统一选模型，Codex 等不兼容时自动改用自己的默认模型
+* 结果页：接入成功的工具角色排成一排并打勾，结果表列出模型与启动命令，最后给出下一步与撤销方式
+
+### 变更
+* **只改用户选中的工具。** 切换模型、上下文大小、还原都先勾选目标工具（默认不勾选，`a` 全选）；改 API Key、线路或配置档后，列出仍在用旧设置的工具由用户勾选（不勾选 = 只保存）；一键配置 / 向导的工具多选也默认不勾选
+* **写入前确认页。** 列出每个工具将改的内容（原值 → 新值）、会修改的文件和不会改动的工具；`d` 查看逐文件差异（预演，不写盘），`y` 写入，`esc` 取消
+* Claude Code 切换模型时主模型（Sonnet · Opus）与兜底模型（Haiku · Subagent）一起切换，确认页分别列出
+* 上下文大小按工具保存：只作用于选中的工具；`--context` 只作用于该命令里的工具
+* 选模型不再改写「默认模型」，同步时不会让没选中的工具跟着换模型
+* 命令行 `auth <key>`、`profile use <名>` 默认只保存；加 `--sync` 同步到已接入的工具，交互终端里会弹出勾选列表；删除配置档不再自动改写绑定它的工具
+* 界面收敛：像素 Logo 只在主菜单出现，其他页面为一行品牌页头 + 状态行；结果页与工具详情不再显示像素角色，工具以品牌色小圆点标识；`CODING_HELPER_ART=0` 可完全关闭像素图
+
+### 修复
+* 检测已安装的编程助手不再依赖 `which`：会额外查找常见安装目录（`~/.local/bin`、`/opt/homebrew/bin` 等）和 Claude Code 本地安装位置（`~/.claude/local/claude`，这种安装只在 shell 里配了别名，子进程找不到，之前会显示「未安装」）；启动时也用找到的完整路径
+* 还原 Codex 时，原本不存在的 `config.toml` 不再留下空文件
+
 ## [0.5.0] - 2026-10-20
 
 ### 新增

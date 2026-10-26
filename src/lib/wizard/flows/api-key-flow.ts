@@ -1,61 +1,116 @@
 import ora from 'ora';
 import { t } from '../../i18n.js';
 import { configManager } from '../../config.js';
-import { validateApiKey } from '../../api-validator.js';
+import { validateApiKey, checkAccountStatus, describeAccountStatus } from '../../api-validator.js';
+import { CUSTOM_ENDPOINT, getBaseUrl, otherEndpoint } from '../../endpoints.js';
 import { promptHelper } from '../ui/prompt-helper.js';
-import { uiRenderer } from '../ui/ui-renderer.js';
+import { uiRenderer, type StepInfo } from '../ui/ui-renderer.js';
+import { secretPrompt } from '../ui/prompts.js';
 import { modelService } from '../../model-service.js';
 import { marketModelService } from '../../market-model-service.js';
 import { syncAfterChange } from '../ui/tool-view.js';
+import { logger } from '../../../utils/logger.js';
+import { theme } from '../ui/theme.js';
 
-// API Key 输入和验证流程；step 用于首次向导的进度展示
-export async function runApiKeyFlow(step?: { current: number; total: number }): Promise<boolean> {
-  uiRenderer.renderHeader();
-  if (step) uiRenderer.renderSteps(step.current, step.total, t('menu_configure_apikey'));
-  // 显示 API Key 获取提示
-  uiRenderer.renderHint(t('apikey_hint'));
+function render(step?: StepInfo): void {
+  uiRenderer.renderPage(t('menu_configure_apikey'), step);
+}
 
-  // 循环直到成功或用户取消
+// 完整的 Key（粘贴后自动校验）
+const KEY_PATTERN = /^sk-[A-Za-z0-9_-]{32,}$/;
+
+// 逐条校验：格式 → Key 有效（当前线路不通时自动试另一条）→ 账户可用 → 可用模型数
+async function verifyKey(apiKey: string): Promise<boolean> {
+  if (!/^sk-[A-Za-z0-9_-]{8,}$/.test(apiKey)) {
+    logger.log(`  ${theme.danger('✖')} ${t('apikey_check_format')}  ${theme.subtle(t('apikey_check_format_bad'))}`);
+    return false;
+  }
+  logger.log(`  ${theme.success('✔')} ${t('apikey_check_format')}  ${theme.subtle(t('apikey_check_format_ok', { count: String(apiKey.length) }))}`);
+
+  const spinner = ora({ text: t('apikey_validating'), indent: 2 }).start();
+  let endpoint = configManager.getEndpoint();
+  let baseUrl = configManager.baseUrl;
+  let result = await validateApiKey(apiKey, baseUrl);
+  if (!result.valid && endpoint !== CUSTOM_ENDPOINT) {
+    // Key 可能属于另一条线路
+    const other = otherEndpoint(endpoint);
+    const retry = await validateApiKey(apiKey, getBaseUrl(other));
+    if (retry.valid) {
+      endpoint = other;
+      baseUrl = getBaseUrl(other);
+      configManager.setEndpoint(other);
+      result = retry;
+      spinner.info(t('apikey_endpoint_switched', { endpoint: uiRenderer.endpointLabel() }));
+      spinner.start(t('apikey_validating'));
+    }
+  }
+  if (!result.valid) {
+    spinner.fail(t('apikey_invalid', { error: result.error || '' }));
+    return false;
+  }
+  spinner.succeed(`${t('apikey_check_valid')}  ${theme.subtle(uiRenderer.endpointLabel())}`);
+
+  const account = ora({ text: t('apikey_check_account_running'), indent: 2 }).start();
+  const status = await checkAccountStatus(apiKey, baseUrl);
+  if (!status.usable) {
+    account.fail(describeAccountStatus(status));
+    return false;
+  }
+  account.succeed(t('apikey_check_account'));
+
+  try {
+    const models = await modelService.fetchModels(baseUrl, apiKey);
+    logger.log(`  ${theme.success('✔')} ${t('apikey_check_models', { count: String(models.length) })}`);
+  } catch {
+    // 模型列表只是信息展示，失败不影响结论
+  }
+  return true;
+}
+
+// API Key 输入和验证流程；step 用于首次向导的进度展示。保存（或沿用已保存的 Key）返回 true，Esc 返回 false
+export async function runApiKeyFlow(step?: StepInfo): Promise<boolean> {
+  let error = '';
   while (true) {
-    const apiKey = await promptHelper.password(t('apikey_prompt'));
-
-    if (!apiKey.trim()) {
-      uiRenderer.renderError(t('apikey_empty'));
-      const retry = await promptHelper.confirm(t('apikey_retry'));
-      if (!retry) return false;
-      uiRenderer.renderHeader();
-      uiRenderer.renderHint(t('apikey_hint'));
+    render(step);
+    const saved = configManager.getApiKey();
+    if (error) {
+      logger.log(`  ${theme.danger('✖')} ${error}`);
+      logger.newLine();
+    }
+    const apiKey = await secretPrompt({
+      message: t('apikey_prompt'),
+      hint: saved && step ? t('apikey_keep_hint', { key: uiRenderer.maskApiKey(saved) }) : t('apikey_hint_short'),
+      escape: true,
+      autoSubmit: (value) => KEY_PATTERN.test(value),
+    });
+    if (apiKey === undefined) return false;
+    if (!apiKey) {
+      // 向导里回退后再前进：沿用已保存的 Key
+      if (step && saved) return true;
+      error = t('apikey_empty');
       continue;
     }
+    error = '';
 
-    // 验证 API Key
-    const spinner = ora(t('apikey_validating')).start();
-
-    const result = await validateApiKey(apiKey.trim(), configManager.baseUrl);
-
-    if (result.valid) {
-      spinner.succeed(t('apikey_valid'));
-      const changed = configManager.getApiKey() !== apiKey.trim();
-      configManager.setApiKey(apiKey.trim());
+    logger.newLine();
+    if (await verifyKey(apiKey)) {
+      const changed = configManager.getApiKey() !== apiKey;
+      configManager.setApiKey(apiKey);
       // 新 API Key 需要清除模型缓存
       modelService.clearCache();
       marketModelService.clearCache();
+      logger.newLine();
       uiRenderer.renderSuccess(t('apikey_saved'));
-      // 换 Key 后同步到已接入的客户端（F4）
-      if (!step && changed) {
-        const results = await syncAfterChange();
-        if (results.length > 0) await promptHelper.pressEnter();
-      }
+      // 换 Key 后同步到已接入的客户端
+      if (!step && changed) await syncAfterChange();
+      if (!step) await promptHelper.pressEnter(t('result_back_to_menu'));
+      // 向导里稍停片刻，让用户看到校验结果再进入下一步
+      else await new Promise((resolve) => setTimeout(resolve, 1200));
       return true;
     }
 
-    spinner.fail(t('apikey_invalid', { error: result.error || '' }));
-
-    const retry = await promptHelper.confirm(t('apikey_retry'));
-    if (!retry) return false;
-    // 重试前清屏并重新渲染
-    uiRenderer.renderHeader();
-    if (step) uiRenderer.renderSteps(step.current, step.total, t('menu_configure_apikey'));
-    uiRenderer.renderHint(t('apikey_hint'));
+    logger.newLine();
+    error = t('apikey_retry_hint');
+    await promptHelper.pressEnter(t('apikey_retry_enter'));
   }
 }
