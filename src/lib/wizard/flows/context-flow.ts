@@ -55,6 +55,8 @@ export async function runContextFlow(): Promise<void> {
   let tokens: number | undefined = typeof value === 'number' && value > 0 ? value : undefined;
   if (value === 'custom') {
     const input = await promptHelper.input(t('context_custom_prompt'));
+    // 留空或 Esc 视为取消
+    if (!input) return;
     try {
       tokens = parseContextSize(input);
     } catch {
