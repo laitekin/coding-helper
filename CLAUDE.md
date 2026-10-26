@@ -26,7 +26,7 @@ node dist/cli.js doctor
 node dist/cli.js lang show
 ```
 
-注意: `pnpm build` 包含 `cp -r src/locales dist/locales`，因为 tsc 不会复制 JSON 翻译文件。无测试框架、无 lint 配置。Node.js >= 18。
+注意: `pnpm build` 会用 `scripts/copy-locales.mjs` 把 `src/locales` 复制到 `dist/locales`，因为 tsc 不会复制 JSON 翻译文件（用 Node 实现，Windows 上也能构建）。测试用 `pnpm test`（`node --test`，针对 dist/），CI 会运行。无 lint 配置。Node.js >= 18。
 
 ## Code Conventions
 
