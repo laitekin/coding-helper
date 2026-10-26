@@ -45,7 +45,7 @@ node dist/cli.js lang show
 - `modelService` — 从 `/v1/models` 获取模型列表，带内存缓存
 - `toolManager` — 工具注册中心
 
-**工具扩展**: 实现 `ITool` 接口 (`src/lib/tools/base-tool.ts`)，在 `ToolManager` 中注册即可。OpenAI 兼容的客户端继承 `OpenAICompatTool`（`tools/openai-compat-tool.ts`），共用 `toolModels` / `defaultModel` 模型配置与模型选择流程。
+**工具扩展**: 实现 `ITool` 接口 (`src/lib/tools/base-tool.ts`)，在 `ToolManager` 中注册即可。OpenAI 兼容的客户端（目前是 OpenCode）继承 `OpenAICompatTool`（`tools/openai-compat-tool.ts`），共用 `toolModels` / `defaultModel` 模型配置与模型选择流程。
 
 **核心层** (`src/lib/core/`):
 - `safe-write.ts` — 写客户端配置用 `safeWriteFile`（备份到 `~/.coding-helper/backups/<时间戳>/` + 原子写入）；读用户 JSON 用 `readJsonObjectStrict`，解析失败抛错，绝不按空对象覆盖；`writeJson` 沿用原文件的缩进风格
