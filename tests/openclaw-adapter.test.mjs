@@ -5,8 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'adapter-openclaw-')));
 process.env.HOME = process.env.USERPROFILE = home;
+for (const key of ['OPENCLAW_CONFIG_PATH', 'OPENCLAW_STATE_DIR', 'OPENCLAW_PROFILE', 'OPENCLAW_HOME']) delete process.env[key];
 delete process.env.KIMI_CODE_HOME; delete process.env.GROK_HOME;
-const { OpenClawTool } = await import('../dist/lib/tools/openclaw-tool.js');
+const { OpenClawTool, getOpenClawConfigFile } = await import('../dist/lib/tools/openclaw-tool.js');
 const { marketModelService } = await import('../dist/lib/market-model-service.js');
 const { toolManager } = await import('../dist/lib/tool-manager.js');
 const { hasSavedToolModelConfig } = await import('../dist/lib/wizard/menus/tool-menu.js');
@@ -35,4 +36,20 @@ test('openclaw restores bytes and refuses corrupt or changed config', async () =
   await tool.unloadConfig();
   files.forEach(file => fs.rmSync(file));
   await load(); await tool.unloadConfig(); files.forEach(file => assert.equal(fs.existsSync(file), false));
+});
+
+
+test('OpenClaw respects explicit paths and never silently edits the default for a profile', async () => {
+  const keys = ['OPENCLAW_CONFIG_PATH', 'OPENCLAW_STATE_DIR', 'OPENCLAW_PROFILE', 'OPENCLAW_HOME'];
+  try {
+    process.env.OPENCLAW_STATE_DIR = '~/alternate';
+    assert.equal(getOpenClawConfigFile(), path.join(home, 'alternate/openclaw.json'));
+    process.env.OPENCLAW_CONFIG_PATH = '~/custom/settings.json';
+    const file = getOpenClawConfigFile(); assert.equal(file, path.join(home, 'custom/settings.json'));
+    write(file, '{}'); await load(); await tool.unloadConfig(); assert.equal(read(file), '{}');
+    delete process.env.OPENCLAW_CONFIG_PATH; delete process.env.OPENCLAW_STATE_DIR;
+    process.env.OPENCLAW_PROFILE = 'work'; assert.throws(() => getOpenClawConfigFile(), /named OpenClaw profile/);
+    delete process.env.OPENCLAW_PROFILE; process.env.OPENCLAW_HOME = path.join(home, 'other-home');
+    assert.equal(getOpenClawConfigFile(), path.join(home, 'other-home/.openclaw/openclaw.json'));
+  } finally { for (const key of keys) delete process.env[key]; }
 });
