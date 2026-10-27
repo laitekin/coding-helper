@@ -43,6 +43,8 @@ export function applyQwenSettings(
   const next = structuredClone(settings);
   const providers = isRecord(next.modelProviders) ? next.modelProviders : {};
   const existing = Array.isArray(providers[AUTH_TYPE]) ? (providers[AUTH_TYPE] as QwenModelEntry[]) : [];
+  if (existing.some(entry => !isRecord(entry))) throw new Error('Invalid Qwen provider entry.');
+  if (existing.some(entry => !isQiniuEntry(entry) && entry.id === model)) throw new Error('Qwen model ID already belongs to another provider.');
   const entry: QwenModelEntry = {
     id: model,
     name: `Qiniu: ${model}`,
