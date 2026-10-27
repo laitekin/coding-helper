@@ -9,6 +9,7 @@ import { WorkBuddyTool } from './tools/workbuddy-tool.js';
 import { HermesTool } from './tools/hermes-tool.js';
 
 import { CopilotTool } from './tools/copilot-tool.js';
+import { MinimaxCodeTool } from './tools/minimax-code-tool.js';
 
 // 工具注册中心
 class ToolManager {
@@ -16,6 +17,7 @@ class ToolManager {
 
   constructor() {
     this.register(new CopilotTool());
+    this.register(new MinimaxCodeTool());
     // 注册默认工具
     this.register(new ClaudeCodeTool());
     this.register(new QwenCodeTool());
