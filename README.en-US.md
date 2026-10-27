@@ -20,6 +20,7 @@
 |------|------|-----------------------|
 | Claude Code | CLI | `~/.claude/settings.json`, `~/.claude.json` |
 | Codex | CLI | `~/.codex/config.toml`, `~/.codex/auth.json` |
+| Kimi Code CLI | CLI | [配置说明 / Configuration](docs/tools/kimi-code.md) |
 | CodeBuddy | CLI | `~/.codebuddy/models.json` |
 | WorkBuddy | Desktop app | `~/.workbuddy/models.json` |
 | Hermes Agent | CLI | `~/.hermes/config.yaml` |
