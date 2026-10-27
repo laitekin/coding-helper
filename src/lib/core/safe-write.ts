@@ -58,7 +58,7 @@ export function assertNotSymlink(file: string): void {
 }
 
 // 原子写入：同目录写临时文件后 rename，避免中途失败留下半个文件
-export function atomicWriteFile(file: string, content: string, mode = 0o600): void {
+export function atomicWriteFile(file: string, content: string, mode = 0o600, beforeCommit?: () => void): void {
   assertNotSymlink(file);
   const dir = path.dirname(file);
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -67,15 +67,19 @@ export function atomicWriteFile(file: string, content: string, mode = 0o600): vo
     fs.writeFileSync(tmp, content, { encoding: 'utf-8', mode, flag: 'wx' });
     if (process.platform !== 'win32') fs.chmodSync(tmp, mode);
     assertNotSymlink(file);
-    renameWithRetry(tmp, file);
+    renameWithRetry(tmp, file, () => {
+      assertNotSymlink(file);
+      beforeCommit?.();
+    });
   } finally {
     fs.rmSync(tmp, { force: true });
   }
 }
 
 // Windows 上目标文件被占用时 rename 会短暂失败，重试几次
-function renameWithRetry(from: string, to: string): void {
+function renameWithRetry(from: string, to: string, beforeCommit: () => void): void {
   for (let attempt = 0; ; attempt++) {
+    beforeCommit();
     try {
       fs.renameSync(from, to);
       return;
@@ -140,15 +144,25 @@ export function backupFile(file: string): string | undefined {
   return target;
 }
 
+export interface FileExpectation { content: string | undefined; }
+
+// 与读取时的快照比较；在真正替换前再次检查，拒绝覆盖中途的编辑
+function assertExpected(file: string, expected?: FileExpectation): void {
+  if (expected && readTextFile(file) !== expected.content) {
+    throw new Error('Configuration changed before writing: ' + file + '. Retry.');
+  }
+}
+
 // 备份后原子写入
-export function safeWriteFile(file: string, content: string, mode = 0o600): void {
+export function safeWriteFile(file: string, content: string, mode = 0o600, expected?: FileExpectation): void {
+  assertExpected(file, expected);
   assertNotSymlink(file);
   const current = readTextFile(file);
   if (current === content) return;
   // 文件原本不存在且没有内容要写：不凭空创建空文件
   if (current === undefined && !content.trim()) return;
   backupFile(file);
-  atomicWriteFile(file, content, mode);
+  atomicWriteFile(file, content, mode, () => assertExpected(file, expected));
 }
 
 // 按原文件的风格序列化 JSON：单行保持单行，缩进沿用原文件，末尾换行与原文件一致
@@ -161,22 +175,25 @@ export function formatJsonLike(original: string | undefined, data: unknown): str
 }
 
 // 写入 JSON，保持原文件风格
-export function writeJson(file: string, data: unknown): void {
-  safeWriteFile(file, formatJsonLike(readTextFile(file), data));
+export function writeJson(file: string, data: unknown, expected?: FileExpectation): void {
+  safeWriteFile(file, formatJsonLike(readTextFile(file), data), 0o600, expected);
 }
 
 // 删除文件；所在目录因此变空时一并删除（目录是为这个文件创建的）
-function removeFile(file: string): void {
+function removeFile(file: string, expected?: FileExpectation): void {
+  assertExpected(file, expected);
   assertNotSymlink(file);
   if (!fs.existsSync(file)) return;
   backupFile(file);
+  assertNotSymlink(file);
+  assertExpected(file, expected);
   fs.rmSync(file, { force: true });
   const dir = path.dirname(file);
   if (dir !== os.homedir() && fs.readdirSync(dir).length === 0) fs.rmdirSync(dir);
 }
 
 // 写回 JSON 对象；还原后为空对象时删除文件（文件本就是我们创建的，或原本为空）
-export function writeJsonOrRemove(file: string, data: Record<string, unknown>): void {
-  if (Object.keys(data).length > 0) writeJson(file, data);
-  else removeFile(file);
+export function writeJsonOrRemove(file: string, data: Record<string, unknown>, expected?: FileExpectation): void {
+  if (Object.keys(data).length > 0) writeJson(file, data, expected);
+  else removeFile(file, expected);
 }

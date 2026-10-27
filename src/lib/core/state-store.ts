@@ -8,6 +8,8 @@ export type PriorValues = Record<string, unknown>;
 export interface ToolState {
   // 首次写入前记录的原值，卸载时按此还原
   priors?: PriorValues;
+  // 最近一次实际写入的字段，用于检测装载后的外部编辑
+  applied?: PriorValues;
 }
 
 interface StateFile {
@@ -17,6 +19,7 @@ interface StateFile {
 
 // 记录客户端被覆盖前的原值（~/.coding-helper/state.json）
 class StateStore {
+  private lockDepth = 0;
   private file(): string {
     return path.join(helperDir(), 'state.json');
   }
@@ -31,7 +34,8 @@ class StateStore {
         value !== null && typeof value === 'object' && !Array.isArray(value);
       if (!record(parsed) || parsed.version !== 1 || !record(parsed.tools) ||
           Object.values(parsed.tools).some((entry) => !record(entry) ||
-            (entry.priors !== undefined && !record(entry.priors)))) {
+            (entry.priors !== undefined && !record(entry.priors)) ||
+            (entry.applied !== undefined && !record(entry.applied)))) {
         throw new Error('Invalid or unsupported restoration state');
       }
       return { version: 1, tools: parsed.tools as Record<string, ToolState> };
@@ -50,13 +54,51 @@ class StateStore {
     return file === undefined ? tool : JSON.stringify([tool, path.resolve(file)]);
   }
 
+  // 跨进程串行化“读取原值—写入客户端—更新状态”；回调必须同步完成
+  withLock<T>(operation: () => T): T {
+    if (this.lockDepth > 0) return operation();
+    fs.mkdirSync(helperDir(), { recursive: true, mode: 0o700 });
+    const lock = path.join(helperDir(), 'state.lock');
+    let descriptor: number;
+    try {
+      descriptor = fs.openSync(lock, 'wx', 0o600);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
+        throw new Error('Another configuration operation holds ' + lock + '. Retry after it finishes; remove a stale lock only after confirming no helper is running.');
+      }
+      throw err;
+    }
+    this.lockDepth++;
+    try { return operation(); }
+    finally {
+      this.lockDepth--;
+      fs.closeSync(descriptor);
+      fs.rmSync(lock, { force: true });
+    }
+  }
+
+  getState(tool: string, file?: string): ToolState | undefined {
+    const tools = this.read().tools;
+    const key = this.key(tool, file);
+    return Object.hasOwn(tools, key) ? tools[key] : undefined;
+  }
+
+  // 完整替换一条事务记录，用于装载成功后的快照及失败回滚
+  setState(tool: string, value: ToolState | undefined, file?: string): void {
+    this.withLock(() => {
+      const state = this.read();
+      const key = this.key(tool, file);
+      if (value === undefined) delete state.tools[key];
+      else Object.defineProperty(state.tools, key, { value, enumerable: true, configurable: true, writable: true });
+      this.write(state);
+    });
+  }
+
   // 卸载后移除记录（连同原值），下次装载重新记录
   markRemoved(tool: string, file?: string): void {
-    tool = this.key(tool, file);
-    const state = this.read();
-    if (!state.tools[tool]) return;
-    delete state.tools[tool];
-    this.write(state);
+    this.withLock(() => {
+      if (this.getState(tool, file) !== undefined) this.setState(tool, undefined, file);
+    });
   }
 
   getPriors(tool: string, file?: string): PriorValues | undefined {
@@ -67,16 +109,14 @@ class StateStore {
 
   // 只记录第一次看到的原值，重复装载时不会被七牛自己写入的值覆盖
   recordPriors(tool: string, priors: PriorValues, file?: string): void {
-    tool = this.key(tool, file);
-    const state = this.read();
-    const current = Object.hasOwn(state.tools, tool) ? state.tools[tool] : undefined;
-    const merged: PriorValues = { ...priors, ...(current?.priors ?? {}) };
-    Object.defineProperty(state.tools, tool, { value: { ...current, priors: merged }, enumerable: true, configurable: true, writable: true });
-    this.write(state);
+    this.withLock(() => {
+      const current = this.getState(tool, file);
+      this.setState(tool, { ...current, priors: { ...priors, ...current?.priors } }, file);
+    });
   }
 
   clear(): void {
-    fs.rmSync(this.file(), { force: true });
+    this.withLock(() => fs.rmSync(this.file(), { force: true }));
   }
 }
 
