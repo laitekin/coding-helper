@@ -48,3 +48,21 @@ test('post-rename failure rolls back the write that reported failure', () => {
   f.forEach(file => assert.equal(fs.readFileSync(file, 'utf8'), 'original'));
   assert.equal(stateStore.getState('demo', f[0]), undefined);
 });
+
+
+test('empty and whitespace-only transaction output is materialized and reloadable', () => {
+  for (const content of ['', '  \r\n']) {
+    const f = pair(); const edits = f.map(file => ({file, build: () => content}));
+    applyConfigEdits('empty', edits); f.forEach(file => assert.equal(fs.readFileSync(file, 'utf8'), content));
+    applyConfigEdits('empty', edits); restoreConfigEdits('empty', f);
+    f.forEach(file => assert.equal(fs.existsSync(file), false));
+  }
+});
+
+test('rollback removes a newly materialized empty file after a later write fails', () => {
+  const f = pair(); const rename = fs.renameSync;
+  fs.renameSync = (from, to) => { if (to === f[1]) throw Error('second failed'); return rename(from, to); };
+  try { assert.throws(() => applyConfigEdits('empty', f.map(file => ({file, build: () => ''}))), /second failed/); }
+  finally { fs.renameSync = rename; }
+  f.forEach(file => assert.equal(fs.existsSync(file), false)); assert.equal(stateStore.getState('empty', f[0]), undefined);
+});
