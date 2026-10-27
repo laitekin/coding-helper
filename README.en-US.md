@@ -394,3 +394,5 @@ pnpm test
 ## 📄 License
 
 This project is licensed under the [AGPL-3.0](LICENSE) License.
+
+Hermes uses shared YAML editing and guarded transactions. Comments are preserved; unloading restores original bytes. External edits block replacement and retain recovery state; restore the backup before retrying.
