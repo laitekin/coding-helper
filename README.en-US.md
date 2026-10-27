@@ -234,6 +234,8 @@ When configuration is applied, these environment variables are set in `~/.claude
 
 > **Note:** The tool also sets `API_TIMEOUT_MS` (50 min, for long inference requests), disables non-essential traffic (telemetry not needed for third-party endpoints), and disables commit/PR attribution (inaccurate via proxy endpoints).
 
+Claude Code loading now backs up and validates both configuration files before writing. Unload restores recorded originals, preserves subsequent user edits, and leaves files without a load record untouched. Explicit model selection clears the saved /model override and ANTHROPIC_MODEL; unloading restores their original values. Invalid JSON, malformed env, and file symlinks block writes.
+
 ### 🔧 Codex Configuration
 
 When Codex configuration is applied, Coding Helper first backs up an existing `~/.codex/config.toml` and `~/.codex/model-catalogs/qnaigc.json` to timestamped `.bak-fenno-*` files and prints every backup path. It then replaces `config.toml` with the Qiniu Codex configuration to avoid conflicts with existing settings; unloading does not automatically restore the backup, so restore it manually using the printed path. The API Key is stored in Codex's own `~/.codex/auth.json` auth cache. It does not rely on a `QINIU_API_KEY` shell environment variable.

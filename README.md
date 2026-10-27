@@ -234,6 +234,8 @@ Use coding-helper run <tool> -- <args> to launch with connection environment var
 
 > **说明:** 工具还会设置 `API_TIMEOUT_MS`（50 分钟，适配长时间推理请求）、禁用非必要流量（第三方端点不需要 Anthropic 遥测）、禁用 commit/PR 归属标注（通过代理端点运行时标注不准确）。
 
+Claude Code 装载会先校验两个配置文件，并备份原值；卸载还原有记录的配置，保留之后的手动修改，没有装载记录时不动文件。显式切换模型会清除 /model 保存的选择和 ANTHROPIC_MODEL，卸载时还原原值。损坏 JSON、无效的 env 或文件符号链接会阻止写入。
+
 ### 🔧 Codex 配置
 
 配置应用后，Coding Helper 会先将已有的 `~/.codex/config.toml` 和 `~/.codex/model-catalogs/qnaigc.json` 备份为带时间戳的 `.bak-fenno-*` 文件，并在终端显示每个备份路径。随后会用七牛 Codex 配置完整覆盖 `config.toml`，避免与客户原配置冲突；卸载时不会自动恢复备份，请按提示路径手动恢复。API Key 会写入 Codex 自己的 `~/.codex/auth.json` 认证缓存。它不依赖 `QINIU_API_KEY` shell 环境变量。
