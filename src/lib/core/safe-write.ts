@@ -32,8 +32,13 @@ export class ConfigParseError extends Error {
 
 // 严格读取 JSON 对象：文件不存在返回 {}，内容损坏抛出 ConfigParseError
 export function readJsonObjectStrict(file: string): Record<string, unknown> {
+  return readJsonSnapshot(file).value;
+}
+
+// 解析对象与冲突检测必须使用同一次读取的文本，避免两次读取之间的编辑被覆盖
+export function readJsonSnapshot(file: string): { content: string | undefined; value: Record<string, unknown> } {
   const content = readTextFile(file);
-  if (content === undefined) return {};
+  if (content === undefined) return { content, value: {} };
   let parsed: unknown;
   try {
     parsed = JSON.parse(content);
@@ -43,7 +48,7 @@ export function readJsonObjectStrict(file: string): Record<string, unknown> {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new ConfigParseError(file, new Error('top-level value is not an object'));
   }
-  return parsed as Record<string, unknown>;
+  return { content, value: parsed as Record<string, unknown> };
 }
 
 // 明确拒绝符号链接，避免原子替换破坏 dotfiles 工具管理的链接
