@@ -21,6 +21,7 @@
 | Claude Code | CLI | `~/.claude/settings.json`, `~/.claude.json` |
 | Codex | CLI | `~/.codex/config.toml`, `~/.codex/auth.json` |
 | CodeBuddy | CLI | `~/.codebuddy/models.json` |
+| Grok CLI | CLI | [配置说明 / Configuration](docs/tools/grok.md) |
 | WorkBuddy | Desktop app | `~/.workbuddy/models.json` |
 | Hermes Agent | CLI | `~/.hermes/config.yaml` |
 
