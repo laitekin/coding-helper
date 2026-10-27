@@ -1,9 +1,8 @@
 import os from 'node:os';
 import path from 'node:path';
 import type { ModelConfig } from '../config.js';
-import { t } from '../i18n.js';
 import { isQiniuBaseUrl } from '../endpoints.js';
-import { readJsonObjectStrict, readTextFile, formatJsonLike } from '../core/safe-write.js';
+import { readJsonObjectStrict, formatJsonLike } from '../core/safe-write.js';
 import { applyConfigEdits, restoreConfigEdits, parseConfigObject } from '../core/config-transaction.js';
 import { OpenAICompatTool, fetchModelLimits, getPath, isRecord, openAIBaseUrl, setPath } from './openai-compat-tool.js';
 import { setDotenvValue } from '../core/dotenv-edit.js';
