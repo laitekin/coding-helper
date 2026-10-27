@@ -167,5 +167,8 @@
 
   "auth_reload_usage": "Usage: coding-helper auth reload <tool>",
   "auth_reload_tools": "Available tools: {{tools}}",
-  "auth_unknown_tool": "Unknown tool: {{tool}}"
+  "auth_unknown_tool": "Unknown tool: {{tool}}",
+  "run_unsupported": "{{tool}} does not support launcher mode",
+  "run_supported_tools": "Supported tools: {{tools}}",
+  "setup_reason_launch_only": "No config file; launch it with coding-helper run"
 }
