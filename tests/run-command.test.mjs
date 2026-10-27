@@ -12,7 +12,9 @@ test('run forwards client help and version flags without interpreting them as he
   syncBuiltinESMExports();
   try {
     for (const flag of ['--help', '--version', '-h', '-V']) {
-      await createProgram().exitOverride().parseAsync(['node', 'helper', 'run', 'test-run', flag]);
+      const program = createProgram().exitOverride();
+      program.commands.forEach(command => command.exitOverride());
+      await program.parseAsync(['node', 'helper', 'run', 'test-run', flag]);
       assert.deepEqual(observed, [flag]);
     }
   } finally { childProcess.spawn = original; syncBuiltinESMExports(); process.exitCode = 0; }

@@ -159,3 +159,15 @@ test('unload cleanup plus rollback failure preserves all original records for re
   assert.ok(stateStore.getState(tool.name, settings)); assert.ok(stateStore.getState(tool.name, onboarding));
   tool.unloadConfig(); assert.equal(read(settings), '{}'); assert.equal(read(onboarding), '{}');
 });
+
+
+test('partial load rollback reconciles each successful rollback independently', async () => {
+  reset('{}', '{}'); await load();
+  write(onboarding, '{}'); stateStore.markRemoved(tool.name, onboarding);
+  const set = stateStore.setState; const rename = fs.renameSync; let calls = 0; let finalFailed = false;
+  stateStore.setState = function (...args) { if (++calls === 4) { finalFailed = true; throw Error('final commit failed'); } return set.apply(this, args); };
+  fs.renameSync = (from, to) => { if (finalFailed && to === onboarding) throw Error('rollback failed'); return rename(from, to); };
+  try { await assert.rejects(tool.loadConfig('next-key', 'https://api.qnaigc.com', models), /recovery failed/); }
+  finally { stateStore.setState = set; fs.renameSync = rename; }
+  tool.unloadConfig(); assert.equal(read(settings), '{}'); assert.equal(read(onboarding), '{}');
+});
