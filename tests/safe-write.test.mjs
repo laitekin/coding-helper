@@ -139,3 +139,33 @@ test('failed manifest update cannot be bypassed by retrying the same write', () 
   safeWriteFile(file, 'changed');
   assert.equal(fs.readFileSync(file, 'utf8'), 'changed');
 });
+
+test('state operations respect an existing lock and release locks after errors', () => {
+  stateStore.clear();
+  const lock = path.join(home, '.coding-helper', 'state.lock');
+  fs.writeFileSync(lock, 'another-process');
+  try {
+    assert.throws(() => stateStore.recordPriors('demo', { model: 'lost' }), /holds/);
+    assert.equal(fs.readFileSync(lock, 'utf8'), 'another-process');
+  } finally { fs.rmSync(lock); }
+  assert.throws(() => stateStore.withLock(() => { throw new Error('callback failed'); }), /callback failed/);
+  assert.equal(fs.existsSync(lock), false);
+  stateStore.withLock(() => stateStore.setState('demo', { priors: { model: 'old' }, applied: { model: 'new' } }));
+  assert.deepEqual(stateStore.getState('demo'), { priors: { model: 'old' }, applied: { model: 'new' } });
+});
+
+test('safe write detects external edits after backup but before the atomic rename', () => {
+  const file = path.join(home, 'last-moment-edit.json');
+  fs.writeFileSync(file, 'original');
+  const original = fs.copyFileSync;
+  fs.copyFileSync = (source, ...args) => {
+    const result = original(source, ...args);
+    if (source === file) fs.writeFileSync(file, 'external-edit');
+    return result;
+  };
+  try {
+    assert.throws(() => safeWriteFile(file, 'managed', 0o600, { content: 'original' }), /changed before writing/);
+  } finally { fs.copyFileSync = original; }
+  assert.equal(fs.readFileSync(file, 'utf8'), 'external-edit');
+  assert.equal(fs.readdirSync(home).some(name => name.includes('last-moment-edit.json.tmp-')), false);
+});
