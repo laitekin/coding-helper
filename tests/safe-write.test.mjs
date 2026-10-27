@@ -169,3 +169,20 @@ test('safe write detects external edits after backup but before the atomic renam
   assert.equal(fs.readFileSync(file, 'utf8'), 'external-edit');
   assert.equal(fs.readdirSync(home).some(name => name.includes('last-moment-edit.json.tmp-')), false);
 });
+
+test('strict snapshot parses exactly the guarded text from a single read', async () => {
+  const { readJsonSnapshot } = await import('../dist/lib/core/safe-write.js');
+  const file = path.join(home, 'snapshot.json');
+  fs.writeFileSync(file, '{"version":1}');
+  const read = fs.readFileSync;
+  let reads = 0;
+  fs.readFileSync = (target, ...args) => {
+    const result = read(target, ...args);
+    if (String(target) === file) { reads++; fs.writeFileSync(file, '{"version":2}'); }
+    return result;
+  };
+  try {
+    assert.deepEqual(readJsonSnapshot(file), { content: '{"version":1}', value: { version: 1 } });
+    assert.equal(reads, 1);
+  } finally { fs.readFileSync = read; }
+});
