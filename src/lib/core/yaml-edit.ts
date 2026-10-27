@@ -1,9 +1,13 @@
-import { isMap, isScalar, parseDocument, type Document } from 'yaml';
+import { isAlias, isMap, isScalar, parseDocument, visit, type Document } from 'yaml';
 
 // 保留文档节点上的注释和引号；损坏或非映射配置不能当作空对象覆盖
 export function parseYamlDocument(content: string): Document {
   const doc: Document = parseDocument(content);
   if (doc.errors.length) throw doc.errors[0];
+  // Editing an anchor also changes its aliases, including unrelated fields.
+  visit(doc, { Node(_key, node) {
+    if (isAlias(node) || ('anchor' in node && node.anchor)) throw new Error('YAML anchors and aliases are not supported for safe editing.');
+  } });
   if (!doc.contents) doc.contents = doc.createNode({});
   if (!isMap(doc.contents)) throw new Error('YAML configuration must be a mapping.');
   return doc;
