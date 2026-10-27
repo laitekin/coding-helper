@@ -6,10 +6,25 @@ export function isTomlTableHeader(line: string): boolean {
   return /^\[\[?[^\]]+\]\]?\s*(#.*)?$/.test(line.trim());
 }
 
+// Parse equivalent quoted/dotted spellings into one canonical table path.
+function canonicalTableName(name: string): string {
+  let value: unknown = parse('[' + name + ']');
+  const keys: string[] = [];
+  while (value && typeof value === 'object' && !Array.isArray(value)) {
+    const entries = Object.entries(value);
+    if (!entries.length) break;
+    if (entries.length !== 1) throw new Error('Invalid TOML table path.');
+    const [key, child] = entries[0];
+    keys.push(/^[A-Za-z0-9_-]+$/.test(key) ? key : JSON.stringify(key));
+    value = child;
+  }
+  return keys.join('.');
+}
+
 // 表头中的表名，如 [models."qiniu/x"] → models."qiniu/x"
 export function tomlTableName(line: string): string | undefined {
   const match = line.trim().match(/^\[\[?\s*(.+?)\s*\]\]?\s*(#.*)?$/);
-  return match ? match[1] : undefined;
+  return match ? canonicalTableName(match[1]) : undefined;
 }
 
 // 顶层区域：第一个表头之前的行
@@ -80,6 +95,7 @@ function rawremoveTomlTablesWhere(content: string, match: (name: string) => bool
 
 // 删除指定表及其子表（[name] 与 [name.xxx]）
 export function removeTomlTable(content: string, tableName: string): string {
+  tableName = canonicalTableName(tableName);
   return removeTomlTablesWhere(content, (name) => name === tableName || name.startsWith(`${tableName}.`));
 }
 
@@ -94,6 +110,7 @@ export function normalizeToml(content: string): string {
 
 // 表的行范围 [表头行, 下一个表头行)；不存在时返回 undefined
 function tableRange(lines: string[], tableName: string): [number, number] | undefined {
+  tableName = canonicalTableName(tableName);
   const start = lines.findIndex((line) => isTomlTableHeader(line) && tomlTableName(line) === tableName);
   if (start < 0) return undefined;
   let end = start + 1;
