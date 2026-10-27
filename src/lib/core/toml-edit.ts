@@ -42,7 +42,7 @@ function rawupsertTopLevelTomlKey(content: string, key: string, rawValue: string
   const line = `${key} = ${rawValue}`;
   const index = lines.findIndex((l, i) => i < end && pattern.test(l.trim()));
   if (index >= 0) {
-    lines[index] = line;
+    lines[index] = replaceValue(lines[index], rawValue);
     return lines.join('\n');
   }
   let insertAt = end;
@@ -126,7 +126,7 @@ function rawupsertTomlTableKey(content: string, tableName: string, key: string, 
   const pattern = topLevelKeyPattern(key);
   for (let i = range[0] + 1; i < range[1]; i++) {
     if (pattern.test(lines[i].trim())) {
-      lines[i] = line;
+      lines[i] = replaceValue(lines[i], rawValue);
       return lines.join('\n');
     }
   }
@@ -150,10 +150,43 @@ function rawremoveTomlTableKey(content: string, tableName: string, key: string):
   return kept.join('\n');
 }
 
-// 不支持的多行字符串明确拒绝，不能把字符串内容误当表头
+// 只接收可逐行编辑的语句；多行数组/字符串及特殊表头必须先整理，避免误删后续表
 export function validateToml(content: string): Record<string, unknown> {
-  if (content.includes(String.fromCharCode(34).repeat(3)) || content.includes(String.fromCharCode(39).repeat(3))) throw new Error('Multiline TOML strings are not supported for safe editing.');
-  return parse(content) as Record<string, unknown>;
+  const parsed = parse(content) as Record<string, unknown>;
+  for (const line of content.split('\n')) {
+    const text = line.trim();
+    if (!text || text.startsWith('#')) continue;
+    if (text.startsWith('[')) {
+      if (!isTomlTableHeader(text)) throw new Error('Unsupported TOML table header for safe editing.');
+      continue;
+    }
+    const equals = text.indexOf('=');
+    if (equals < 1) throw new Error('Unsupported multiline TOML statement for safe editing.');
+    const raw = text.slice(equals + 1);
+    if (raw.includes(String.fromCharCode(34).repeat(3)) || raw.includes(String.fromCharCode(39).repeat(3))) throw new Error('Multiline TOML strings are not supported for safe editing.');
+    parse('value =' + raw);
+  }
+  return parsed;
+}
+
+// 保留等号前的缩进和行尾注释，字符串中的 # 不算注释
+function replaceValue(line: string, rawValue: string): string {
+  const equals = line.indexOf('=');
+  const after = line.slice(equals + 1);
+  let quote = ''; let escaped = false; let comment = after.length;
+  for (let i = 0; i < after.length; i++) {
+    const ch = after[i];
+    if (quote === '"' && !escaped && ch === String.fromCharCode(92)) { escaped = true; continue; }
+    if (!escaped && (ch === '"' || ch === String.fromCharCode(39))) {
+      if (!quote) quote = ch;
+      else if (quote === ch) quote = '';
+    }
+    if (!quote && ch === '#') { comment = i; break; }
+    escaped = false;
+  }
+  const suffix = comment < after.length ? after.slice(0, comment).match(/\s*$/)![0] + after.slice(comment) : line.endsWith('\r') ? '\r' : '';
+  const lead = after.match(/^[ \t]*/)?.[0] ?? ' ';
+  return line.slice(0, equals + 1) + lead + rawValue + suffix;
 }
 function checked(content: string, edit: () => string): string {
   validateToml(content);
