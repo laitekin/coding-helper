@@ -10,6 +10,8 @@ export interface ToolState {
   priors?: PriorValues;
   // 最近一次实际写入的字段，用于检测装载后的外部编辑
   applied?: PriorValues;
+  // 客户端写入与状态提交之间的日志；applied 保留上次已提交快照
+  pending?: { before: string | null; after: string; applied: PriorValues };
 }
 
 interface StateFile {
@@ -35,7 +37,10 @@ class StateStore {
       if (!record(parsed) || parsed.version !== 1 || !record(parsed.tools) ||
           Object.values(parsed.tools).some((entry) => !record(entry) ||
             (entry.priors !== undefined && !record(entry.priors)) ||
-            (entry.applied !== undefined && !record(entry.applied)))) {
+            (entry.applied !== undefined && !record(entry.applied)) ||
+            (entry.pending !== undefined && (!record(entry.pending) ||
+              (entry.pending.before !== null && typeof entry.pending.before !== 'string') ||
+              typeof entry.pending.after !== 'string' || !record(entry.pending.applied))))) {
         throw new Error('Invalid or unsupported restoration state');
       }
       return { version: 1, tools: parsed.tools as Record<string, ToolState> };
