@@ -118,3 +118,26 @@ test('unload can retry when state cleanup fails after restoring the file', () =>
   assert.equal(read(file), '{ "original": 1 }'); assert.ok(stateStore.getState('demo', file));
   unloadModelsJson('demo', file); assert.equal(stateStore.getState('demo', file), undefined);
 });
+
+for (const interruption of ['before-write', 'after-write']) {
+  test('recover model catalog interrupted reload: ' + interruption, () => {
+    const file = fixture('{}'); loadModelsJson('journal', file, [qiniu('old')]);
+    const set = stateStore.setState; let count = 0;
+    stateStore.setState = function (...args) {
+      count++;
+      if (interruption === 'after-write' && count === 2) throw Error('interrupted');
+      const result = set.apply(this, args);
+      if (interruption === 'before-write' && count === 1) throw Error('interrupted');
+      return result;
+    };
+    try { assert.throws(() => loadModelsJson('journal', file, [qiniu('new')]), /interrupted/); } finally { stateStore.setState = set; }
+    unloadModelsJson('journal', file); assert.equal(read(file), '{}');
+    assert.equal(stateStore.getState('journal', file), undefined);
+  });
+}
+test('model catalog post-rename failure keeps a recoverable journal', () => {
+  const file = fixture('{}'); const rename = fs.renameSync; let once = true;
+  fs.renameSync = (from, to) => { const result = rename(from, to); if (to === file && once) { once = false; throw Error('after rename'); } return result; };
+  try { assert.throws(() => loadModelsJson('journal', file, [qiniu()]), /after rename/); } finally { fs.renameSync = rename; }
+  unloadModelsJson('journal', file); assert.equal(read(file), '{}');
+});

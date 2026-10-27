@@ -16,6 +16,7 @@ export function openAIBaseUrl(baseUrl: string): string {
 export interface ModelLimits {
   contextWindow: number;
   maxOutputTokens: number;
+  reasoning?: boolean;
   modalities?: { input: string[]; output: string[] };
 }
 
@@ -36,6 +37,7 @@ export async function fetchModelLimits(baseUrl: string, apiKey: string, model: s
     return {
       contextWindow: caps.maxInputTokens,
       maxOutputTokens: caps.maxOutputTokens,
+      reasoning: caps.reasoning,
       modalities: {
         input: modalities(info.architecture?.input_modalities),
         output: modalities(info.architecture?.output_modalities),

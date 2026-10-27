@@ -184,7 +184,7 @@ export function writeJson(file: string, data: unknown, expected?: FileExpectatio
   safeWriteFile(file, formatJsonLike(readTextFile(file), data), 0o600, expected);
 }
 
-// 删除文件；所在目录因此变空时一并删除（目录是为这个文件创建的）
+// 只删除文件：没有目录所有权记录，不能删除用户目录或目录链接的目标
 function removeFile(file: string, expected?: FileExpectation): void {
   assertExpected(file, expected);
   assertNotSymlink(file);
@@ -193,8 +193,6 @@ function removeFile(file: string, expected?: FileExpectation): void {
   assertNotSymlink(file);
   assertExpected(file, expected);
   fs.rmSync(file, { force: true });
-  const dir = path.dirname(file);
-  if (dir !== os.homedir() && fs.readdirSync(dir).length === 0) fs.rmdirSync(dir);
 }
 
 // 写回 JSON 对象；还原后为空对象时删除文件（文件本就是我们创建的，或原本为空）

@@ -315,7 +315,6 @@ async function launchTool(tool: ITool): Promise<void> {
   }
 
   logger.info(t('tool_launching', { tool: tool.displayName }));
-  const { execSync } = await import('node:child_process');
   try {
     spawn.sync(findCommand(tool.command, tool.searchPaths) ?? tool.command, [], { stdio: 'inherit' });
   } catch {

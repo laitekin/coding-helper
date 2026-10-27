@@ -76,9 +76,9 @@ export function createProgram(): Command {
       langSetCommand(locale);
     });
 
-  program.command('run <tool> [args...]')
+  program.enablePositionalOptions().command('run <tool> [args...]')
     .description('Launch a tool with Qiniu environment variables')
-    .allowUnknownOption().allowExcessArguments()
+    .passThroughOptions().allowUnknownOption().allowExcessArguments()
     .action(async (tool: string, args: string[]) => { await runCommand(tool, args); });
 
   // enter - 进入菜单
