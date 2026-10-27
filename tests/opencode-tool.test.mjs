@@ -407,3 +407,72 @@ test('OpenCode: unload does not overwrite an edit between parsing and snapshot c
   finally { fs.readFileSync = read; }
   assert.deepEqual(json(file), { model: 'edited', permission: { edit: 'deny' } });
 });
+
+test('OpenCode: model-level filters reject an unavailable selected model before writing', async () => {
+  for (const [index, filter] of [{ whitelist: ['other'] }, { blacklist: ['deepseek-v3'] }].entries()) {
+    for (const jsonc of [false, true]) {
+      const original = { model: 'user/model', provider: { qiniu: filter } };
+      const file = freshConfig('model-filter-' + index + jsonc, original);
+      if (jsonc) write(file + 'c', '{}');
+      const target = getOpenCodeConfigFile();
+      const before = fs.readFileSync(target, 'utf8');
+      await assert.rejects(new OpenCodeTool().loadConfig('fake', QINIU, MODELS), /model filters|whitelist|blacklist/);
+      assert.equal(fs.readFileSync(target, 'utf8'), before);
+      assert.equal(stateStore.getState('opencode', target), undefined);
+    }
+  }
+});
+
+test('OpenCode: new higher-priority JSONC does not hide the previously managed JSON on unload', async () => {
+  const original = { model: 'user/original' };
+  const file = freshConfig('precedence-switch', original);
+  const tool = new OpenCodeTool();
+  await tool.loadConfig('fake', QINIU, MODELS);
+  const jsonc = '{"permission":{"edit":"ask"}}';
+  write(file + 'c', jsonc);
+  tool.unloadConfig();
+  assert.deepEqual(json(file), original);
+  assert.equal(fs.readFileSync(file + 'c', 'utf8'), jsonc);
+  assert.equal(stateStore.getState('opencode', file), undefined);
+});
+
+test('OpenCode: target changes must not create two independent managed configurations', async () => {
+  const file = freshConfig('double-managed', { model: 'original' });
+  const tool = new OpenCodeTool();
+  await tool.loadConfig('fake', QINIU, MODELS);
+  write(file + 'c', '{}');
+  await assert.rejects(tool.loadConfig('fake', QINIU, MODELS), /[Uu]nload|managed configuration/);
+  assert.deepEqual(json(file + 'c'), {});
+  assert.equal(stateStore.getState('opencode', file + 'c'), undefined);
+});
+
+test('OpenCode: higher-priority model filters can explicitly allow the selection', async () => {
+  const file = freshConfig('allowed-model-filter', { provider: { qiniu: { whitelist: ['other'], blacklist: ['deepseek-v3'] } } });
+  const original = { provider: { qiniu: { whitelist: ['deepseek-v3'], blacklist: [] } } };
+  write(file + 'c', JSON.stringify(original));
+  const tool = new OpenCodeTool();
+  await tool.loadConfig('fake', QINIU, MODELS);
+  assert.equal(json(file + 'c').model, 'qiniu/deepseek-v3');
+  tool.unloadConfig();
+  assert.deepEqual(json(file + 'c'), original);
+});
+
+test('OpenCode: removed managed JSONC clears only its own record on unload', async () => {
+  const file = freshConfig('removed-managed-jsonc', { model: 'lower/original' });
+  write(file + 'c', '{}');
+  const tool = new OpenCodeTool();
+  await tool.loadConfig('fake', QINIU, MODELS);
+  fs.rmSync(file + 'c');
+  tool.unloadConfig();
+  assert.deepEqual(json(file), { model: 'lower/original' });
+  assert.equal(fs.existsSync(file + 'c'), false);
+  assert.equal(stateStore.getState('opencode', file + 'c'), undefined);
+});
+
+test('OpenCode: malformed model filters fail without normalizing user configuration', async () => {
+  for (const [index, original] of [{ provider: { qiniu: { whitelist: 'deepseek-v3' } } }, { provider: { qiniu: { blacklist: [42] } } }].entries()) {
+    const file = freshConfig('malformed-model-filter-' + index, original);
+    await assert.rejects(new OpenCodeTool().loadConfig('fake', QINIU, MODELS), /Invalid/);
+    assert.deepEqual(json(file), original);
+  }
+});

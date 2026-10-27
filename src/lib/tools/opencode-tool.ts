@@ -18,10 +18,13 @@ import {
 const PROVIDER_ID = 'qiniu';
 
 // OpenCode 后加载 JSONC；优先操作生效的文件（含注释时拒绝覆盖）
-export function getOpenCodeConfigFile(home = os.homedir()): string {
+function getOpenCodeConfigFiles(home = os.homedir()): [string, string] {
   const dir = canonicalDirectory(path.resolve(process.env.XDG_CONFIG_HOME || path.join(home, '.config'), 'opencode'));
-  const json = path.join(dir, 'opencode.json');
-  const jsonc = path.join(dir, 'opencode.jsonc');
+  return [path.join(dir, 'opencode.json'), path.join(dir, 'opencode.jsonc')];
+}
+
+export function getOpenCodeConfigFile(home = os.homedir()): string {
+  const [json, jsonc] = getOpenCodeConfigFiles(home);
   try { fs.lstatSync(jsonc); return jsonc; }
   catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
@@ -48,6 +51,11 @@ function validateConfig(config: Record<string, unknown>): void {
   const provider = getPath(config, 'provider.qiniu');
   if (provider !== undefined && !isRecord(provider)) throw new Error('Invalid OpenCode qiniu provider object.');
   if (isRecord(provider)) {
+    for (const key of ['whitelist', 'blacklist']) {
+      if (Object.hasOwn(provider, key) && (!Array.isArray(provider[key]) || !(provider[key] as unknown[]).every((value) => typeof value === 'string'))) {
+        throw new Error('Invalid OpenCode qiniu ' + key + ': expected a string array.');
+      }
+    }
     for (const key of ['options', 'models']) {
       if (Object.hasOwn(provider, key) && !isRecord(provider[key])) throw new Error('Invalid OpenCode qiniu ' + key + ' object.');
     }
@@ -175,7 +183,17 @@ export class OpenCodeTool extends OpenAICompatTool {
         (Array.isArray(effective.disabled_providers) && effective.disabled_providers.includes(PROVIDER_ID))) {
       throw new Error('OpenCode provider filters exclude qiniu. Update enabled_providers/disabled_providers before loading.');
     }
+    const lowerProvider = getPath(lowerConfig, 'provider.qiniu');
+    const upperProvider = getPath(config, 'provider.qiniu');
+    const effectiveProvider = { ...(isRecord(lowerProvider) ? lowerProvider : {}), ...(isRecord(upperProvider) ? upperProvider : {}) };
+    if ((Array.isArray(effectiveProvider.whitelist) && !effectiveProvider.whitelist.includes(model)) ||
+        (Array.isArray(effectiveProvider.blacklist) && effectiveProvider.blacklist.includes(model))) {
+      throw new Error('OpenCode model filters exclude ' + model + '. Update qiniu whitelist/blacklist before loading.');
+    }
     stateStore.withLock(() => {
+      // JSON/JSONC 优先级切换不能留下两个独立的托管配置，先还原原文件
+      const otherManaged = getOpenCodeConfigFiles().find((candidate) => candidate !== file && stateStore.getState(this.name, candidate));
+      if (otherManaged) throw new Error('Unload the existing managed configuration before switching files: ' + otherManaged);
       const previous = stateStore.getState(this.name, file);
       if (previous && (!isRecord(previous.priors?.snapshot) || !isRecord(previous.applied))) {
         throw new Error('OpenCode restoration state lacks a managed snapshot. Restore from backup before reconfiguring.');
@@ -198,8 +216,11 @@ export class OpenCodeTool extends OpenAICompatTool {
   }
 
   unloadConfig(): void {
-    const file = getOpenCodeConfigFile();
     stateStore.withLock(() => {
+      // 按已记录的装载目标卸载，后来新增 JSONC 不应让旧 JSON 的凭据遗留
+      const managed = getOpenCodeConfigFiles().filter((candidate) => stateStore.getState(this.name, candidate));
+      if (managed.length > 1) throw new Error('Multiple managed OpenCode configurations found. Restore them from backup before unloading.');
+      const file = managed[0] ?? getOpenCodeConfigFile();
       const saved = stateStore.getState(this.name, file);
       assertNotSymlink(file);
       const { value: config, content: before } = readJsonSnapshot(file);
