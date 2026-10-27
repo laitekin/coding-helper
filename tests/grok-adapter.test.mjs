@@ -36,3 +36,10 @@ test('grok restores bytes and refuses corrupt or changed config', async () => {
   files.forEach(file => fs.rmSync(file));
   await load(); await tool.unloadConfig(); files.forEach(file => assert.equal(fs.existsSync(file), false));
 });
+
+
+test('Grok loads equivalent quoted TOML tables and restores original bytes', async () => {
+  const original = '["models"]\ndefault = "old"\n[model."qiniu"]\nmodel = "old"\n';
+  write(files[0], original); await load(); await load('second-key');
+  await tool.unloadConfig(); assert.equal(read(files[0]), original);
+});
