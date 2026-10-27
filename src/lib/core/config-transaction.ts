@@ -4,7 +4,7 @@ import { stateStore, type ToolState } from './state-store.js';
 import { assertNotSymlink, readTextFile, safeWriteFile, writeJsonOrRemove } from './safe-write.js';
 
 export interface ConfigEdit { file: string; build: (content: string | undefined) => string; }
-interface Entry { file: string; original: string | null; applied: string; }
+interface Entry { file: string; original: string | null; applied: string; before?: string | null; }
 const record = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
 
 // 父目录解析别名，文件自身的链接仍拒绝；同一配置只有一份还原记录
@@ -23,7 +23,7 @@ function entries(saved: ToolState | undefined, files: string[]): Entry[] | undef
   if (!saved) return undefined;
   const values = saved.priors?.files;
   if (!Array.isArray(values) || values.length !== files.length || values.some((entry, i) =>
-    !record(entry) || entry.file !== files[i] || !(entry.original === null || typeof entry.original === 'string') || typeof entry.applied !== 'string')) {
+    !record(entry) || entry.file !== files[i] || !(entry.original === null || typeof entry.original === 'string') || typeof entry.applied !== 'string' || (Object.hasOwn(entry, 'before') && entry.before !== null && typeof entry.before !== 'string'))) {
     throw new Error('Invalid configuration transaction state. Restore from backup before retrying.');
   }
   return values as Entry[];
@@ -44,15 +44,17 @@ export function applyConfigEdits(tool: string, edits: ConfigEdit[]): void {
     const old = entries(previous, files);
     if (!previous && stateStore.getState(tool)) throw new Error('Legacy state requires recovery before configuration.');
     const before = files.map(readTextFile);
-    if (old?.some((entry, i) => before[i] !== entry.applied)) throw new Error('Configuration changed since loading. Restore from backup before retrying.');
+    if (old?.some((entry, i) => before[i] !== entry.applied && !(Object.hasOwn(entry, 'before') && (before[i] ?? null) === entry.before))) throw new Error('Configuration changed since loading. Restore from backup before retrying.');
     const after = edits.map((edit, i) => edit.build(before[i]));
-    const next: Entry[] = files.map((file, i) => ({ file, original: old ? old[i].original : before[i] ?? null, applied: after[i] }));
+    const next: Entry[] = files.map((file, i) => ({ file, original: old ? old[i].original : before[i] ?? null, applied: after[i], before: before[i] ?? null }));
     // 日志先落盘，异常退出仍保留原值；普通写入失败回滚本轮
     stateStore.setState(tool, { priors: { files: next } }, files[0]);
     let completed = 0;
     try {
       for (let i = 0; i < files.length; i++) { write(files[i], after[i], before[i]); completed++; }
     } catch (error) {
+      // rename may have succeeded before a wrapper/cleanup reported failure.
+      if (completed < files.length && readTextFile(files[completed]) === after[completed]) completed++;
       const failures: unknown[] = [];
       for (let i = completed - 1; i >= 0; i--) {
         try { write(files[i], before[i], after[i]); } catch (err) { failures.push(err); }
@@ -61,6 +63,8 @@ export function applyConfigEdits(tool: string, edits: ConfigEdit[]): void {
       if (failures.length) throw new AggregateError([error, ...failures], 'Configuration rollback failed; recover from recorded originals/backups.');
       throw error;
     }
+    // Only discard the before images after every client write succeeds.
+    stateStore.setState(tool, { priors: { files: next.map(({ before: _before, ...entry }) => entry) } }, files[0]);
   });
 }
 
@@ -74,7 +78,7 @@ export function restoreConfigEdits(tool: string, targets: string[]): void {
     files.forEach(assertNotSymlink);
     const before = files.map(readTextFile);
     // 允许上次卸载中断后重试；文件被用户删除时保持删除
-    if (old.some((entry, i) => before[i] !== undefined && before[i] !== entry.applied && before[i] !== (entry.original ?? undefined))) {
+    if (old.some((entry, i) => before[i] !== undefined && before[i] !== entry.applied && before[i] !== (entry.original ?? undefined) && !(Object.hasOwn(entry, 'before') && (before[i] ?? null) === entry.before))) {
       throw new Error('Configuration changed since loading. Restore from backup before retrying.');
     }
     for (let i = 0; i < files.length; i++) {
