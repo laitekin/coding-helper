@@ -1,9 +1,8 @@
 import os from 'node:os';
 import path from 'node:path';
 import type { ModelConfig } from '../config.js';
-import { t } from '../i18n.js';
 import { isQiniuBaseUrl } from '../endpoints.js';
-import { readJsonObjectStrict, readTextFile, formatJsonLike } from '../core/safe-write.js';
+import { readJsonObjectStrict, formatJsonLike } from '../core/safe-write.js';
 import { applyConfigEdits, restoreConfigEdits, parseConfigObject } from '../core/config-transaction.js';
 import { OpenAICompatTool, fetchModelLimits, getPath, isRecord, openAIBaseUrl, setPath } from './openai-compat-tool.js';
 import { setDotenvValue } from '../core/dotenv-edit.js';
@@ -43,6 +42,8 @@ export function applyQwenSettings(
   const next = structuredClone(settings);
   const providers = isRecord(next.modelProviders) ? next.modelProviders : {};
   const existing = Array.isArray(providers[AUTH_TYPE]) ? (providers[AUTH_TYPE] as QwenModelEntry[]) : [];
+  if (existing.some(entry => !isRecord(entry))) throw new Error('Invalid Qwen provider entry.');
+  if (existing.some(entry => !isQiniuEntry(entry) && entry.id === model)) throw new Error('Qwen model ID already belongs to another provider.');
   const entry: QwenModelEntry = {
     id: model,
     name: `Qiniu: ${model}`,
