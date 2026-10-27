@@ -121,7 +121,7 @@ test('OpenCode: distinct XDG paths retain separate restoration state', async () 
   await tool.loadConfig('fake', QINIU, MODELS);
   tool.unloadConfig();
   assert.equal(json(b).model, 'b/model');
-  assert.equal(stateStore.getPriors('opencode', a).model, 'a/model');
+  assert.equal(stateStore.getPriors('opencode', a).snapshot.model, 'a/model');
   process.env.XDG_CONFIG_HOME = path.join(home, 'xdg-a');
   tool.unloadConfig();
   assert.equal(json(a).model, 'a/model');
@@ -155,7 +155,7 @@ test('OpenCode: failed repeated load preserves priors from successful applicatio
   fs.renameSync = (...args) => { if (args[1] === file) throw new Error('write failure'); return original(...args); };
   try { await assert.rejects(tool.loadConfig('fake', QINIU, { defaultModel: 'different' }), /write failure/); }
   finally { fs.renameSync = original; }
-  assert.equal(stateStore.getPriors('opencode', file).model, 'original');
+  assert.equal(stateStore.getPriors('opencode', file).snapshot.model, 'original');
   tool.unloadConfig();
   assert.equal(json(file).model, 'original');
 });
@@ -213,4 +213,197 @@ test('OpenCode: generated vision models retain input modalities', async () => {
     await new OpenCodeTool().loadConfig('fake', QINIU, { defaultModel: 'vision' });
     assert.deepEqual(json(file).provider.qiniu.models.vision.modalities, { input: ['text', 'image'], output: ['text'] });
   } finally { marketModelService.fetchModels = original; }
+});
+
+test('OpenCode: unloading preserves managed fields subsequently changed by the user', async () => {
+  const file = freshConfig('user-edits', { model: 'original/model' });
+  const tool = new OpenCodeTool();
+  await tool.loadConfig('fake', QINIU, MODELS);
+  const edited = json(file);
+  edited.model = 'user/new-model';
+  edited.provider.qiniu = { name: 'replacement', options: { baseURL: 'https://other.example/v1' } };
+  write(file, JSON.stringify(edited));
+  tool.unloadConfig();
+  const result = json(file);
+  assert.equal(result.model, 'user/new-model');
+  assert.deepEqual(result.provider.qiniu, edited.provider.qiniu);
+});
+
+test('OpenCode: unload without restoration state does not delete a user-owned Qiniu provider', () => {
+  const original = { model: 'qiniu/user-model', provider: { qiniu: { options: { baseURL: QINIU }, models: { custom: {} } } } };
+  const file = freshConfig('unmanaged-qiniu', original);
+  new OpenCodeTool().unloadConfig();
+  assert.deepEqual(json(file), original);
+});
+
+test('OpenCode: nested custom Qiniu settings survive a load/unload cycle', async () => {
+  const original = { provider: { qiniu: { options: { baseURL: QINIU }, models: { custom: {} } } } };
+  const file = freshConfig('nested-user-edits', original);
+  const tool = new OpenCodeTool();
+  await tool.loadConfig('fake', QINIU, MODELS);
+  const edited = json(file);
+  edited.provider.qiniu.options.timeout = 12345;
+  write(file, JSON.stringify(edited));
+  tool.unloadConfig();
+  assert.equal(json(file).provider.qiniu.options.timeout, 12345);
+});
+
+test('OpenCode: corrupt state blocks unloading without touching the client file', async () => {
+  const file = freshConfig('state-corruption', { model: 'original' });
+  const tool = new OpenCodeTool();
+  await tool.loadConfig('fake', QINIU, MODELS);
+  const before = fs.readFileSync(file, 'utf8');
+  const stateFile = path.join(home, '.coding-helper', 'state.json');
+  const state = fs.readFileSync(stateFile, 'utf8');
+  write(stateFile, '{broken');
+  try { assert.throws(() => tool.unloadConfig(), /Cannot parse/); }
+  finally { write(stateFile, state); }
+  assert.equal(fs.readFileSync(file, 'utf8'), before);
+});
+
+test('OpenCode: empty existing files and provider containers round trip', async () => {
+  for (const [index, original] of [{}, { provider: {} }, { provider: { qiniu: {} } }, { model: 'x', provider: { qiniu: { models: { 'deepseek-v3': { custom: true } } } } }].entries()) {
+    const file = freshConfig('roundtrip-' + index, original);
+    const tool = new OpenCodeTool();
+    await tool.loadConfig('fake', QINIU, MODELS);
+    await tool.loadConfig('fake2', QINIU, { defaultModel: 'second-model' });
+    tool.unloadConfig();
+    tool.unloadConfig();
+    assert.deepEqual(json(file), original);
+  }
+});
+
+test('OpenCode: failed state cleanup can be retried without removing restored provider', async () => {
+  const original = { model: 'original', provider: { qiniu: { options: { baseURL: QINIU }, custom: true } } };
+  const file = freshConfig('cleanup-retry', original);
+  const tool = new OpenCodeTool();
+  await tool.loadConfig('fake', QINIU, MODELS);
+  const rename = fs.renameSync;
+  fs.renameSync = (source, target) => {
+    if (String(target).endsWith('state.json')) throw new Error('state unavailable');
+    return rename(source, target);
+  };
+  try { assert.throws(() => tool.unloadConfig(), /state unavailable/); }
+  finally { fs.renameSync = rename; }
+  assert.deepEqual(json(file), original);
+  tool.unloadConfig();
+  assert.deepEqual(json(file), original);
+  assert.equal(stateStore.getState('opencode', file), undefined);
+});
+
+test('OpenCode: reloading after a managed field edit refuses stale restoration priors', async () => {
+  const file = freshConfig('reload-after-edit', { model: 'original' });
+  const tool = new OpenCodeTool();
+  await tool.loadConfig('fake', QINIU, MODELS);
+  const modified = json(file);
+  modified.model = 'user/new-model';
+  write(file, JSON.stringify(modified));
+  await assert.rejects(tool.loadConfig('fake', QINIU, MODELS), /changed|unload/i);
+  assert.equal(json(file).model, 'user/new-model');
+});
+
+test('OpenCode: invalid provider shapes are not normalized destructively', async () => {
+  for (const original of [{ provider: [] }, { provider: 'broken' }, { enabled_providers: 'qiniu' }]) {
+    const file = freshConfig('invalid-' + typeof original.provider, original);
+    await assert.rejects(new OpenCodeTool().loadConfig('fake', QINIU, MODELS), /Invalid/);
+    assert.deepEqual(json(file), original);
+  }
+});
+
+test('OpenCode: symlinked directory aliases share restoration state', async () => {
+  const file = freshConfig('real-xdg', { model: 'original' });
+  const tool = new OpenCodeTool();
+  await tool.loadConfig('fake', QINIU, MODELS);
+  const alias = path.join(home, 'xdg-alias');
+  fs.symlinkSync(path.join(home, 'real-xdg'), alias, 'dir');
+  process.env.XDG_CONFIG_HOME = alias;
+  tool.unloadConfig();
+  assert.equal(json(file).model, 'original');
+});
+
+test('OpenCode: overlapping loads cannot record each other as original configuration', async () => {
+  const file = freshConfig('overlapping-loads', { model: 'original' });
+  const fetch = marketModelService.fetchModels;
+  let release;
+  marketModelService.fetchModels = () => new Promise(resolve => { release = resolve; });
+  const tool = new OpenCodeTool();
+  const first = tool.loadConfig('fake', QINIU, MODELS);
+  marketModelService.fetchModels = async () => [];
+  try {
+    await tool.loadConfig('fake', QINIU, { defaultModel: 'second' });
+    release([]);
+    await assert.rejects(first, /changed/);
+    tool.unloadConfig();
+    assert.equal(json(file).model, 'original');
+  } finally { marketModelService.fetchModels = fetch; }
+});
+
+test('OpenCode: external edit at final write rolls back its pending restoration record', async () => {
+  const file = freshConfig('last-write-race', { model: 'original' });
+  const copy = fs.copyFileSync;
+  fs.copyFileSync = (source, ...args) => {
+    const result = copy(source, ...args);
+    if (source === file) write(file, '{"model":"editor","mcp":{"new":{}}}');
+    return result;
+  };
+  try { await assert.rejects(new OpenCodeTool().loadConfig('fake', QINIU, MODELS), /changed before writing/); }
+  finally { fs.copyFileSync = copy; }
+  assert.deepEqual(json(file), { model: 'editor', mcp: { new: {} } });
+  assert.equal(stateStore.getState('opencode', file), undefined);
+});
+
+test('OpenCode: dangling higher-precedence JSONC is rejected instead of writing JSON', async () => {
+  const file = freshConfig('dangling-jsonc', { model: 'original' });
+  fs.symlinkSync(path.join(home, 'absent-jsonc-target'), file + 'c');
+  await assert.rejects(new OpenCodeTool().loadConfig('fake', QINIU, MODELS), /symbolic link/);
+  assert.equal(json(file).model, 'original');
+});
+
+test('OpenCode: three-way restoration preserves an independent edit across varied originals', async () => {
+  for (let i = 0; i < 25; i++) {
+    const original = {
+      ...(i % 2 ? { model: 'original-' + i } : {}),
+      ...(i % 3 ? { $schema: 'https://opencode.ai/config.json' } : {}),
+      provider: { other: { name: 'keep' }, ...(i % 4 ? { qiniu: { options: { timeout: i }, models: { existing: { name: 'keep' } } } } : {}) },
+      mcp: { custom: { enabled: false } },
+    };
+    const file = freshConfig('matrix-' + i, original);
+    const tool = new OpenCodeTool();
+    await tool.loadConfig('fake', QINIU, MODELS);
+    const changed = json(file);
+    changed.permission = { edit: 'ask' };
+    write(file, JSON.stringify(changed));
+    tool.unloadConfig();
+    assert.deepEqual(json(file), { ...original, permission: { edit: 'ask' } });
+  }
+});
+
+test('OpenCode: the parsed object and guarded text come from the same read', async () => {
+  const file = freshConfig('read-snapshot-race', { model: 'original' });
+  const read = fs.readFileSync;
+  let reads = 0;
+  fs.readFileSync = (target, ...args) => {
+    const result = read(target, ...args);
+    if (String(target) === file && ++reads === 3) write(file, '{"model":"edited","permission":{"edit":"deny"}}');
+    return result;
+  };
+  try { await assert.rejects(new OpenCodeTool().loadConfig('fake', QINIU, MODELS), /changed/); }
+  finally { fs.readFileSync = read; }
+  assert.deepEqual(json(file), { model: 'edited', permission: { edit: 'deny' } });
+});
+
+test('OpenCode: unload does not overwrite an edit between parsing and snapshot capture', async () => {
+  const file = freshConfig('unload-read-race', { model: 'original' });
+  const tool = new OpenCodeTool();
+  await tool.loadConfig('fake', QINIU, MODELS);
+  const read = fs.readFileSync;
+  let reads = 0;
+  fs.readFileSync = (target, ...args) => {
+    const result = read(target, ...args);
+    if (String(target) === file && ++reads === 1) write(file, '{"model":"edited","permission":{"edit":"deny"}}');
+    return result;
+  };
+  try { assert.throws(() => tool.unloadConfig(), /changed/); }
+  finally { fs.readFileSync = read; }
+  assert.deepEqual(json(file), { model: 'edited', permission: { edit: 'deny' } });
 });
