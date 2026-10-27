@@ -20,6 +20,7 @@
 |------|------|------------|
 | GitHub Copilot CLI | CLI | [启动器 / Launcher](docs/tools/copilot.md) |
 | Claude Code | CLI | `~/.claude/settings.json`、`~/.claude.json` |
+| Qwen Code | CLI | [配置说明 / Configuration](docs/tools/qwen-code.md) |
 | Codex | CLI | `~/.codex/config.toml`、`~/.codex/auth.json` |
 | CodeBuddy | CLI | `~/.codebuddy/models.json` |
 | WorkBuddy | 桌面应用 | `~/.workbuddy/models.json` |
