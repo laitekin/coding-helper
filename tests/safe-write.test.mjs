@@ -107,3 +107,35 @@ test('state priors are scoped to tool and resolved configuration path', () => {
   assert.equal(stateStore.getPriors('opencode', b), undefined);
   assert.deepEqual(stateStore.getPriors('opencode', a), { model: 'a' });
 });
+
+test('corrupt or unsupported state is rejected without erasing restoration data', () => {
+  const file = path.join(home, '.coding-helper', 'state.json');
+  for (const content of ['', '{broken', '{}', '{"version":2,"tools":{}}', '{"version":1,"tools":[]}', '{"version":1,"tools":{"a":null}}']) {
+    fs.writeFileSync(file, content);
+    assert.throws(() => stateStore.recordPriors('new-tool', { model: 'new' }), /state|parse/i);
+    assert.equal(fs.readFileSync(file, 'utf8'), content);
+  }
+  stateStore.clear();
+});
+
+test('failed manifest update cannot be bypassed by retrying the same write', () => {
+  const file = path.join(home, 'manifest-retry.json');
+  fs.writeFileSync(file, 'original');
+  const write = fs.writeFileSync;
+  const rename = fs.renameSync;
+  fs.writeFileSync = (target, ...args) => {
+    if (String(target).includes('manifest.json')) throw new Error('manifest unavailable');
+    return write(target, ...args);
+  };
+  fs.renameSync = (source, target) => {
+    if (String(target).endsWith('manifest.json')) throw new Error('manifest unavailable');
+    return rename(source, target);
+  };
+  try {
+    assert.throws(() => safeWriteFile(file, 'changed'), /manifest unavailable/);
+    assert.throws(() => safeWriteFile(file, 'changed'), /manifest unavailable/);
+    assert.equal(fs.readFileSync(file, 'utf8'), 'original');
+  } finally { fs.writeFileSync = write; fs.renameSync = rename; }
+  safeWriteFile(file, 'changed');
+  assert.equal(fs.readFileSync(file, 'utf8'), 'changed');
+});

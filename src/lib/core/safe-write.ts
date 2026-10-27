@@ -104,35 +104,39 @@ function timestamp(now: Date): string {
 }
 
 function ensureSessionDir(): string {
-  if (sessionDir) return sessionDir;
-  const base = path.join(backupsRoot(), timestamp(new Date()));
-  let dir = base;
-  for (let i = 1; fs.existsSync(dir); i++) dir = `${base}-${i}`;
-  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  sessionDir = dir;
-  return dir;
+  const root = backupsRoot();
+  if (sessionDir && path.dirname(sessionDir) === root && fs.existsSync(sessionDir)) return sessionDir;
+  fs.mkdirSync(root, { recursive: true, mode: 0o700 });
+  // mkdtemp 的独占创建避免同时运行的进程共用目录并覆盖清单
+  sessionDir = fs.mkdtempSync(path.join(root, timestamp(new Date()) + '-'));
+  return sessionDir;
 }
 
 // 写入前备份原文件；同一次运行内同一文件只备份一次。文件不存在时返回 undefined
 export function backupFile(file: string): string | undefined {
   const resolved = path.resolve(file);
   const existing = backedUp.get(resolved);
-  if (existing) return existing;
+  if (existing && fs.existsSync(existing)) return existing;
   if (!fs.existsSync(resolved)) return undefined;
 
   const dir = ensureSessionDir();
   // 使用完整源路径摘要，避免 a/b.json 与 a__b.json 等路径扁平化后碰撞
   const name = createHash('sha256').update(resolved).digest('hex');
-  const target = path.join(dir, name);
-  fs.copyFileSync(resolved, target, fs.constants.COPYFILE_EXCL);
-  if (process.platform !== 'win32') fs.chmodSync(target, 0o600);
-  backedUp.set(resolved, target);
-
-  const manifestFile = path.join(dir, 'manifest.json');
-  const entries: BackupEntry[] = [...backedUp.entries()]
-    .filter(([, backup]) => path.dirname(backup) === dir)
-    .map(([source, backup]) => ({ source, backup }));
-  fs.writeFileSync(manifestFile, JSON.stringify({ files: entries }, null, 2) + '\n', { mode: 0o600 });
+  const target = path.join(dir, name + '-' + randomUUID());
+  try {
+    fs.copyFileSync(resolved, target, fs.constants.COPYFILE_EXCL);
+    if (process.platform !== 'win32') fs.chmodSync(target, 0o600);
+    const entries: BackupEntry[] = [...backedUp.entries()]
+      .filter(([source, backup]) => source !== resolved && path.dirname(backup) === dir)
+      .map(([source, backup]) => ({ source, backup }));
+    entries.push({ source: resolved, backup: target });
+    atomicWriteFile(path.join(dir, 'manifest.json'), JSON.stringify({ files: entries }, null, 2) + '\n');
+    // 备份及其索引都落盘后才能缓存成功，失败重试不能跳过保护
+    backedUp.set(resolved, target);
+  } catch (err) {
+    fs.rmSync(target, { force: true });
+    throw err;
+  }
   return target;
 }
 

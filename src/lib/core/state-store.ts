@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { atomicWriteFile, helperDir, readTextFile } from './safe-write.js';
+import { atomicWriteFile, ConfigParseError, helperDir, readTextFile } from './safe-write.js';
 
 // 被七牛覆盖前的原值；null 表示原本不存在
 export type PriorValues = Record<string, unknown>;
@@ -22,18 +22,23 @@ class StateStore {
   }
 
   private read(): StateFile {
+    const file = this.file();
+    const content = readTextFile(file);
+    if (content === undefined) return { version: 1, tools: {} };
     try {
-      const content = readTextFile(this.file());
-      if (content) {
-        const parsed = JSON.parse(content) as Partial<StateFile>;
-        if (parsed && typeof parsed.tools === 'object' && parsed.tools) {
-          return { version: 1, tools: parsed.tools };
-        }
+      const parsed: unknown = JSON.parse(content);
+      const record = (value: unknown): value is Record<string, unknown> =>
+        value !== null && typeof value === 'object' && !Array.isArray(value);
+      if (!record(parsed) || parsed.version !== 1 || !record(parsed.tools) ||
+          Object.values(parsed.tools).some((entry) => !record(entry) ||
+            (entry.priors !== undefined && !record(entry.priors)))) {
+        throw new Error('Invalid or unsupported restoration state');
       }
-    } catch {
-      // 状态文件损坏时按空状态处理，不影响主流程
+      return { version: 1, tools: parsed.tools as Record<string, ToolState> };
+    } catch (err) {
+      // 不能把损坏的还原记录当空状态，否则后续装载会覆盖唯一的原值
+      throw new ConfigParseError(file, err);
     }
-    return { version: 1, tools: {} };
   }
 
   private write(state: StateFile): void {
@@ -56,16 +61,17 @@ class StateStore {
 
   getPriors(tool: string, file?: string): PriorValues | undefined {
     tool = this.key(tool, file);
-    return this.read().tools[tool]?.priors;
+    const tools = this.read().tools;
+    return Object.hasOwn(tools, tool) ? tools[tool]?.priors : undefined;
   }
 
   // 只记录第一次看到的原值，重复装载时不会被七牛自己写入的值覆盖
   recordPriors(tool: string, priors: PriorValues, file?: string): void {
     tool = this.key(tool, file);
     const state = this.read();
-    const current = state.tools[tool];
+    const current = Object.hasOwn(state.tools, tool) ? state.tools[tool] : undefined;
     const merged: PriorValues = { ...priors, ...(current?.priors ?? {}) };
-    state.tools[tool] = { ...current, priors: merged };
+    Object.defineProperty(state.tools, tool, { value: { ...current, priors: merged }, enumerable: true, configurable: true, writable: true });
     this.write(state);
   }
 
