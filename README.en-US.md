@@ -18,6 +18,7 @@
 
 | Tool | Type | Managed Configuration |
 |------|------|-----------------------|
+| GitHub Copilot CLI | CLI | [启动器 / Launcher](docs/tools/copilot.md) |
 | Claude Code | CLI | `~/.claude/settings.json`, `~/.claude.json` |
 | Codex | CLI | `~/.codex/config.toml`, `~/.codex/auth.json` |
 | CodeBuddy | CLI | `~/.codebuddy/models.json` |

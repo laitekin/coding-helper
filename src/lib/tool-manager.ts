@@ -5,11 +5,14 @@ import { CodeBuddyTool } from './tools/codebuddy-tool.js';
 import { WorkBuddyTool } from './tools/workbuddy-tool.js';
 import { HermesTool } from './tools/hermes-tool.js';
 
+import { CopilotTool } from './tools/copilot-tool.js';
+
 // 工具注册中心
 class ToolManager {
   private tools: Map<string, ITool> = new Map();
 
   constructor() {
+    this.register(new CopilotTool());
     // 注册默认工具
     this.register(new ClaudeCodeTool());
     this.register(new CodexTool());
