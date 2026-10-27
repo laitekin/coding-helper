@@ -36,7 +36,7 @@ export class MinimaxCodeTool extends OpenAICompatTool {
     const before = readTextFile(file);
     const staged = parseYamlDocument(before ?? '');
     // provider add generates qiniu-2 when qiniu already exists. Replace only in staging.
-    staged.deleteIn(['custom_provider', 'qiniu']);
+    if (staged.hasIn(['custom_provider', 'qiniu'])) staged.deleteIn(['custom_provider', 'qiniu']);
     if (/^(?:custom_provider:)?qiniu\//.test(String(staged.get('defaultModel') ?? ''))) staged.delete('defaultModel');
     const limits = await fetchModelLimits(baseUrl, apiKey, model);
     // 官方命令只写临时数据目录，成功并校验后才替换用户文件
