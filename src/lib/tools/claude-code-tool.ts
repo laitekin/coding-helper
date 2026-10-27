@@ -265,14 +265,15 @@ function commitConfigs(tool: string, plans: ConfigPlan[]): void {
     }
   } catch (error) {
     const failures: unknown[] = [];
+    const restored = new Set<ConfigPlan>();
     for (const plan of [...written].reverse()) {
-      try { write(plan.file, plan.before, plan.after); } catch (err) { failures.push(err); }
+      try { write(plan.file, plan.before, plan.after); restored.add(plan); } catch (err) { failures.push(err); }
     }
     // 回滚文件失败时保留恢复记录，避免失去唯一原值
     for (const plan of [...saved].reverse()) {
       // An unload may already have deleted a record before a later cleanup fails.
       // Restore those records even if rolling client files back also failed.
-      if (!plan.next || failures.length === 0) {
+      if (!plan.next || !written.includes(plan) || restored.has(plan)) {
         try { stateStore.setState(tool, plan.previous, plan.file); } catch (err) { failures.push(err); }
       }
     }
