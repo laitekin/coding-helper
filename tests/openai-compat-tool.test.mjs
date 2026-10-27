@@ -127,8 +127,21 @@ test('model metadata keeps supported input and output modalities', async () => {
   }];
   try {
     assert.deepEqual(await fetchModelLimits('https://api.qnaigc.com', 'fake-key', 'vision'), {
-      contextWindow: 32000, maxOutputTokens: 4096,
+      contextWindow: 32000, maxOutputTokens: 4096, reasoning: false,
       modalities: { input: ['text', 'image'], output: ['text'] },
     });
+  } finally { marketModelService.fetchModels = original; }
+});
+
+test('metadata carries reasoning and leaves fallback unspecified', async () => {
+  const { fetchModelLimits } = await import('../dist/lib/tools/openai-compat-tool.js');
+  const { marketModelService } = await import('../dist/lib/market-model-service.js');
+  const original = marketModelService.fetchModels;
+  try {
+    marketModelService.fetchModels = async () => [{ id: 'reasoner', features: [], model_constraints: { context_length: 32000, max_tokens: 4096 }, architecture: { input_modalities: ['text'], output_modalities: ['text'], function_calling: { supported: false }, reasoning: { supported: true } } }];
+    assert.equal((await fetchModelLimits('https://api.qnaigc.com', 'fake', 'reasoner')).reasoning, true);
+    assert.equal((await fetchModelLimits('https://api.qnaigc.com', 'fake', 'missing')).reasoning, undefined);
+    marketModelService.fetchModels = async () => { throw new Error('offline'); };
+    assert.equal((await fetchModelLimits('https://api.qnaigc.com', 'fake', 'reasoner')).reasoning, undefined);
   } finally { marketModelService.fetchModels = original; }
 });
