@@ -180,5 +180,6 @@
 
   "auth_reload_usage": "用法: coding-helper auth reload <tool>",
   "auth_reload_tools": "可用工具: {{tools}}",
-  "auth_unknown_tool": "未知工具: {{tool}}"
+  "auth_unknown_tool": "未知工具: {{tool}}",
+  "openclaw_json5_unsupported": "{{file}} 含注释或尾逗号（JSON5），无法安全改写。请先删掉注释和尾逗号，或手动添加七牛 provider"
 }

@@ -22,6 +22,7 @@
 | Codex | CLI | `~/.codex/config.toml`、`~/.codex/auth.json` |
 | CodeBuddy | CLI | `~/.codebuddy/models.json` |
 | WorkBuddy | 桌面应用 | `~/.workbuddy/models.json` |
+| OpenClaw | CLI | [配置说明 / Configuration](docs/tools/openclaw.md) |
 | Hermes Agent | CLI | `~/.hermes/config.yaml` |
 
 ## ✨ 功能特性
