@@ -37,7 +37,7 @@
 - **🤝 WorkBuddy Integration** — Multi-select Qiniu market models and write them into `~/.workbuddy/models.json`
 - **☤ Hermes Agent Integration** — Select a default Qiniu market model and write it into `~/.hermes/config.yaml`
 - **🧱 OpenCode Integration** — Add a Qiniu provider and make it the default model; unloading restores the previous values
-- **🛡️ Safe writes** — Back up the original file to `~/.coding-helper/backups/` and write atomically; a config that fails to parse is reported, never overwritten
+- **🛡️ OpenCode safe writes** — For OpenCode, back up the original file to `~/.coding-helper/backups/` and write atomically; a config that fails to parse is reported, never overwritten
 - **🔍 Health Check** — Built-in `doctor` command to verify config, API Key, network, tools, Git, and Node.js
 - **🌍 Internationalization** — Supports Chinese (zh_CN) and English (en_US)
 
@@ -316,7 +316,7 @@ Treat `~/.hermes/config.yaml` like a password because the API Key is stored in p
 
 ### 🔧 OpenCode Configuration
 
-OpenCode's global config lives at `~/.config/opencode/opencode.json` (under `XDG_CONFIG_HOME` when set; `opencode.jsonc` is used when it is the only file). Loading adds an OpenAI-compatible provider named `qiniu` and sets the default model to `qiniu/<model>`, leaving other providers and settings untouched:
+OpenCode's global config lives at `~/.config/opencode/opencode.json` (under `XDG_CONFIG_HOME` when set; `opencode.jsonc` takes precedence when present). Loading adds an OpenAI-compatible provider named `qiniu` and sets the default model to `qiniu/<model>`, leaving other providers and settings untouched:
 
 ```json
 {
@@ -331,7 +331,7 @@ OpenCode's global config lives at `~/.config/opencode/opencode.json` (under `XDG
 }
 ```
 
-Unloading removes the `qiniu` provider and restores `model` to its previous value; if Coding Helper created the file, it is deleted. The original values are recorded in `~/.coding-helper/state.json` and the original file is backed up under `~/.coding-helper/backups/`; "Clear Coding Helper Configuration" keeps both.
+Unloading restores the previous `qiniu` provider and `model`, removing fields that did not exist before; the file is deleted only when restoration leaves an empty object, preserving settings added since loading. When both JSONC and JSON exist, JSONC takes precedence. Commented, malformed, or symlinked configurations are rejected without overwriting them. Provider filters must allow Qiniu before loading. Retry if configuration changes while model metadata is being fetched. Original values are tracked separately for each configuration path in `~/.coding-helper/state.json` and the original file is backed up under `~/.coding-helper/backups/`; "Clear Coding Helper Configuration" keeps both.
 
 ---
 

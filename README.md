@@ -37,7 +37,7 @@
 - **🤝 WorkBuddy 集成** — 多选七牛模型市场中的模型，写入 `~/.workbuddy/models.json`
 - **☤ Hermes Agent 集成** — 选择七牛模型市场中的默认模型，写入 `~/.hermes/config.yaml`
 - **🧱 OpenCode 集成** — 写入七牛 provider 并设为默认模型，卸载时按原值还原
-- **🛡️ 安全写入** — 写入前备份原文件到 `~/.coding-helper/backups/`，原子写入；配置文件解析失败时报错，不会覆盖
+- **🛡️ OpenCode 安全写入** — OpenCode 写入前备份原文件到 `~/.coding-helper/backups/`，原子写入；配置文件解析失败时报错，不会覆盖
 - **🔍 健康检查** — 内置 `doctor` 命令，检测配置文件、API Key、网络、工具安装状态
 - **🌍 国际化** — 支持中文 (zh_CN) 和英文 (en_US)
 
@@ -314,7 +314,7 @@ model:
 
 ### 🔧 OpenCode 配置
 
-OpenCode 的全局配置在 `~/.config/opencode/opencode.json`（设置了 `XDG_CONFIG_HOME` 时在其下；只有 `opencode.jsonc` 时使用它）。装载时添加名为 `qiniu` 的 OpenAI 兼容 provider，并把默认模型设为 `qiniu/<模型>`，其他 provider 和设置原样保留：
+OpenCode 的全局配置在 `~/.config/opencode/opencode.json`（设置了 `XDG_CONFIG_HOME` 时在其下；`opencode.jsonc` 存在时优先使用它）。装载时添加名为 `qiniu` 的 OpenAI 兼容 provider，并把默认模型设为 `qiniu/<模型>`，其他 provider 和设置原样保留：
 
 ```json
 {
@@ -329,7 +329,7 @@ OpenCode 的全局配置在 `~/.config/opencode/opencode.json`（设置了 `XDG_
 }
 ```
 
-卸载配置会移除 `qiniu` provider，并把 `model` 还原为装载前的值；如果这个文件是 Coding Helper 新建的，会直接删除。首次写入前的原值记录在 `~/.coding-helper/state.json`，原文件备份在 `~/.coding-helper/backups/`，「清除 Coding Helper 配置」不会删除这两处。
+卸载配置会还原装载前的 `qiniu` provider 和 `model`；装载前不存在的字段会被移除。还原后为空对象时才删除文件，用户后续增加的设置会保留。JSONC 与 JSON 同时存在时优先使用 JSONC；含注释、损坏或符号链接配置会明确报错，不会覆盖。provider 过滤禁止七牛时需先调整过滤配置。请求模型信息期间配置变化时需重试。首次写入前的原值按配置文件路径分别记录在 `~/.coding-helper/state.json`，原文件备份在 `~/.coding-helper/backups/`，「清除 Coding Helper 配置」不会删除这两处。
 
 ---
 

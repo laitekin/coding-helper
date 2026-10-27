@@ -80,3 +80,137 @@ test('OpenCode: a corrupt config is reported and never overwritten', async () =>
 test('OpenCode: fails clearly when no model has been chosen', async () => {
   await assert.rejects(() => new OpenCodeTool().loadConfig('sk', QINIU, {}), /model|模型/i);
 });
+
+function freshConfig(name, original = {}) {
+  process.env.XDG_CONFIG_HOME = path.join(home, name);
+  stateStore.clear();
+  const file = getOpenCodeConfigFile();
+  write(file, JSON.stringify(original));
+  return file;
+}
+
+test('OpenCode: restores an unrelated model and an existing qiniu provider', async () => {
+  const original = { model: 'anthropic/claude-sonnet', provider: { qiniu: { name: 'original', options: { baseURL: QINIU } } } };
+  const file = freshConfig('existing-provider', original);
+  const tool = new OpenCodeTool();
+  await tool.loadConfig('fake', QINIU, MODELS);
+  tool.unloadConfig();
+  assert.deepEqual(json(file), original);
+});
+
+test('OpenCode: refuses concurrent edits or corrupt JSON after metadata fetch', async () => {
+  const originalFetch = marketModelService.fetchModels;
+  try {
+    for (const changed of ['{"permission":{"edit":"deny"},"mcp":{"local":{}}}', '{broken', '']) {
+      const file = freshConfig('race-' + changed.length, { model: 'before' });
+      marketModelService.fetchModels = async () => { write(file, changed); return []; };
+      await assert.rejects(new OpenCodeTool().loadConfig('fake', QINIU, MODELS), /changed|Cannot parse/);
+      assert.equal(fs.readFileSync(file, 'utf8'), changed);
+      assert.equal(stateStore.getPriors('opencode', file), undefined);
+    }
+  } finally { marketModelService.fetchModels = originalFetch; }
+});
+
+test('OpenCode: distinct XDG paths retain separate restoration state', async () => {
+  const a = freshConfig('xdg-a', { model: 'a/model' });
+  const tool = new OpenCodeTool();
+  await tool.loadConfig('fake', QINIU, MODELS);
+  process.env.XDG_CONFIG_HOME = path.join(home, 'xdg-b');
+  const b = getOpenCodeConfigFile();
+  write(b, JSON.stringify({ model: 'b/model' }));
+  await tool.loadConfig('fake', QINIU, MODELS);
+  tool.unloadConfig();
+  assert.equal(json(b).model, 'b/model');
+  assert.equal(stateStore.getPriors('opencode', a).model, 'a/model');
+  process.env.XDG_CONFIG_HOME = path.join(home, 'xdg-a');
+  tool.unloadConfig();
+  assert.equal(json(a).model, 'a/model');
+});
+
+test('OpenCode: failed backup or rename discards only new priors and retry records fresh model', async () => {
+  for (const operation of ['copyFileSync', 'renameSync']) {
+    const file = freshConfig('failure-' + operation, { model: 'before' });
+    const originalOperation = fs[operation];
+    fs[operation] = (...args) => {
+      if (args[0] === file || args[1] === file) throw new Error('injected failure');
+      return originalOperation(...args);
+    };
+    const tool = new OpenCodeTool();
+    try { await assert.rejects(tool.loadConfig('fake', QINIU, MODELS), /injected/); }
+    finally { fs[operation] = originalOperation; }
+    assert.equal(json(file).model, 'before');
+    assert.equal(stateStore.getPriors('opencode', file), undefined);
+    write(file, JSON.stringify({ model: 'after-failure' }));
+    await tool.loadConfig('fake', QINIU, MODELS);
+    tool.unloadConfig();
+    assert.equal(json(file).model, 'after-failure');
+  }
+});
+
+test('OpenCode: failed repeated load preserves priors from successful application', async () => {
+  const file = freshConfig('repeat-failure', { model: 'original' });
+  const tool = new OpenCodeTool();
+  await tool.loadConfig('fake', QINIU, MODELS);
+  const original = fs.renameSync;
+  fs.renameSync = (...args) => { if (args[1] === file) throw new Error('write failure'); return original(...args); };
+  try { await assert.rejects(tool.loadConfig('fake', QINIU, { defaultModel: 'different' }), /write failure/); }
+  finally { fs.renameSync = original; }
+  assert.equal(stateStore.getPriors('opencode', file).model, 'original');
+  tool.unloadConfig();
+  assert.equal(json(file).model, 'original');
+});
+
+test('OpenCode: symlink targets and links remain unchanged', async () => {
+  const file = freshConfig('symlink');
+  const target = path.join(home, 'dotfiles-opencode.json');
+  write(target, '{"model":"original"}');
+  fs.rmSync(file);
+  fs.symlinkSync(target, file);
+  const tool = new OpenCodeTool();
+  await assert.rejects(tool.loadConfig('fake', QINIU, MODELS), /symbolic link/);
+  assert.throws(() => tool.unloadConfig(), /symbolic link/);
+  assert.equal(fs.lstatSync(file).isSymbolicLink(), true);
+  assert.equal(fs.readFileSync(target, 'utf8'), '{"model":"original"}');
+  assert.equal(stateStore.getPriors('opencode', file), undefined);
+});
+
+test('OpenCode: JSONC takes precedence and restores the same file', async () => {
+  const file = freshConfig('jsonc', { model: 'json/model' });
+  const jsonc = file + 'c';
+  const original = '{"model":"jsonc/model"}';
+  write(jsonc, original);
+  assert.equal(getOpenCodeConfigFile(), jsonc);
+  const tool = new OpenCodeTool();
+  await tool.loadConfig('fake', QINIU, MODELS);
+  assert.equal(json(jsonc).model, 'qiniu/deepseek-v3');
+  assert.equal(json(file).model, 'json/model');
+  tool.unloadConfig();
+  assert.equal(fs.readFileSync(jsonc, 'utf8'), original);
+  write(jsonc, '{ // comment\n "model": "unchanged" }');
+  await assert.rejects(tool.loadConfig('fake', QINIU, MODELS), /Cannot parse/);
+  assert.equal(json(file).model, 'json/model');
+});
+
+test('OpenCode: provider filter conflicts fail before changes or prior recording', async () => {
+  for (const filters of [{ enabled_providers: ['anthropic'] }, { disabled_providers: ['qiniu'] }]) {
+    for (const withJsonc of [false, true]) {
+      const file = freshConfig('filters-' + Object.keys(filters)[0] + withJsonc, { model: 'original', ...filters });
+      if (withJsonc) write(file + 'c', '{}');
+      const target = getOpenCodeConfigFile();
+      const before = fs.readFileSync(target, 'utf8');
+      await assert.rejects(new OpenCodeTool().loadConfig('fake', QINIU, MODELS), /filters exclude/);
+      assert.equal(fs.readFileSync(target, 'utf8'), before);
+      assert.equal(stateStore.getPriors('opencode', target), undefined);
+    }
+  }
+});
+
+test('OpenCode: generated vision models retain input modalities', async () => {
+  const file = freshConfig('vision');
+  const original = marketModelService.fetchModels;
+  marketModelService.fetchModels = async () => [{ id: 'vision', features: [], model_constraints: { context_length: 32000, max_tokens: 4096 }, architecture: { input_modalities: ['text', 'image'], output_modalities: ['text'], function_calling: { supported: true }, reasoning: { supported: false } } }];
+  try {
+    await new OpenCodeTool().loadConfig('fake', QINIU, { defaultModel: 'vision' });
+    assert.deepEqual(json(file).provider.qiniu.models.vision.modalities, { input: ['text', 'image'], output: ['text'] });
+  } finally { marketModelService.fetchModels = original; }
+});

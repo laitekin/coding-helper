@@ -170,6 +170,8 @@ export function hasSavedToolModelConfig(
       return !!models.codeBuddyModels?.length;
     case 'workbuddy':
       return !!models.workbuddyModels?.length;
+    case 'opencode':
+      return !!(models.toolModels?.[tool.name] ?? models.defaultModel);
     case 'hermes':
       return !!models.hermesModel;
     default:
