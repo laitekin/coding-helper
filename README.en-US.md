@@ -228,6 +228,8 @@ When configuration is applied, these environment variables are set in `~/.claude
 
 > **Note:** The tool also sets `API_TIMEOUT_MS` (50 min, for long inference requests), disables non-essential traffic (telemetry not needed for third-party endpoints), and disables commit/PR attribution (inaccurate via proxy endpoints).
 
+Claude Code loading now backs up and validates both configuration files before writing. Unload restores recorded originals, preserves subsequent user edits, and leaves files without a load record untouched. Explicit model selection clears the saved /model override and ANTHROPIC_MODEL; unloading restores their original values. Invalid JSON, malformed env, and file symlinks block writes.
+
 ### 🔧 Codex Configuration
 
 Codex uses a shared transaction for config.toml, auth.json and the model catalog. MCP, sandbox options and other providers are preserved. Originals are backed up and restored byte-for-byte on unload; external edits block replacement. Selected non-GPT models receive catalog metadata alongside the built-in GPT entries. The existing qn-gpt profile remains; this layer adds no multi-profile or model-slot features.
