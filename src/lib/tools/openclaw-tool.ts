@@ -10,7 +10,14 @@ const PROVIDER_ID = 'qiniu';
 const PRIMARY_PATH = 'agents.defaults.model.primary';
 
 export function getOpenClawConfigFile(): string {
-  return path.join(os.homedir(), '.openclaw', 'openclaw.json');
+  const home = process.env.OPENCLAW_HOME?.trim() || os.homedir();
+  const resolve = (value: string): string => path.resolve(value === '~' ? home : value.startsWith('~/') ? path.join(home, value.slice(2)) : value);
+  const explicit = process.env.OPENCLAW_CONFIG_PATH?.trim();
+  if (explicit) return resolve(explicit);
+  const state = process.env.OPENCLAW_STATE_DIR?.trim();
+  if (state) return path.join(resolve(state), 'openclaw.json');
+  if (process.env.OPENCLAW_PROFILE?.trim()) throw new Error('Set OPENCLAW_CONFIG_PATH or OPENCLAW_STATE_DIR for a named OpenClaw profile.');
+  return path.join(resolve(home), '.openclaw', 'openclaw.json');
 }
 
 // 写入 models.providers.qiniu 并设为主模型；已有模型白名单时把七牛模型加入白名单
