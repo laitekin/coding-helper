@@ -144,3 +144,18 @@ test('Claude post-rename failure rolls back both files and state', async () => {
   assert.equal(read(settings), '{}'); assert.equal(read(onboarding), '{}');
   assert.equal(stateStore.getState(tool.name, settings), undefined);
 });
+
+
+test('unload cleanup plus rollback failure preserves all original records for retry', async () => {
+  reset('{}', '{}'); await load(); const loaded = read(settings);
+  const remove = stateStore.markRemoved; const rename = fs.renameSync; let cleanupFailed = false;
+  stateStore.markRemoved = function (name, file) {
+    if (file === onboarding) { cleanupFailed = true; throw Error('cleanup failure'); }
+    return remove.call(this, name, file);
+  };
+  fs.renameSync = (from, to) => { if (cleanupFailed && to === settings) throw Error('rollback failure'); return rename(from, to); };
+  try { assert.throws(() => tool.unloadConfig(), /recovery failed/); }
+  finally { stateStore.markRemoved = remove; fs.renameSync = rename; }
+  assert.ok(stateStore.getState(tool.name, settings)); assert.ok(stateStore.getState(tool.name, onboarding));
+  tool.unloadConfig(); assert.equal(read(settings), '{}'); assert.equal(read(onboarding), '{}');
+});
