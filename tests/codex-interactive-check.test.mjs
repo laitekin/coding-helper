@@ -164,3 +164,7 @@ test('createScenarioErrorResult preserves transcript and failure reason in repor
   assert.match(report, /Main Menu/);
   assert.match(report, /Timed out waiting/);
 });
+
+test('interactive fixture saves the OpenCode model to exercise menu navigation', () => {
+  assert.match(createHomeFixtureConfig(), /toolModels:\n  opencode: deepseek-v3/);
+});
