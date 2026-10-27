@@ -8,3 +8,14 @@ test('special characters in strings cannot inject TOML',()=>{const value='x"\nne
 test('invalid, duplicate and unsupported multiline values fail closed',()=>{for(const s of ['x = ', 'x=1\nx=2', 'x='+String.fromCharCode(34).repeat(3)+'\n[a]\n'+String.fromCharCode(34).repeat(3)])assert.throws(()=>toml.upsertTopLevelTomlKey(s,'model','"new"'));});
 test('inline comments and CRLF are retained when replacing managed keys',()=>{const before='  model  = "old#value"  # keep\r\n[other]\r\nx=1\r\n';const after=toml.upsertTopLevelTomlKey(before,'model','"new"');assert.equal(after,'  model  = "new"  # keep\r\n[other]\r\nx=1\r\n');});
 test('special headers and multiline arrays cannot cause a later table to be removed',()=>{const text='[managed]\nx=1\n["other]table"]\nkeep=true\n';assert.throws(()=>toml.removeTomlTable(text,'managed'),/Unsupported/);assert.throws(()=>toml.removeTomlTable('array = [\n  [1,2],\n]\n[managed]\nx=1\n','managed'));});
+
+
+test('quoted and spaced table names resolve to the same semantic path', () => {
+  const source = '["models"]\ndefault = "old"\n[model . "qiniu"]\nmodel = "old"\n["model.qiniu"]\nkeep = true\n';
+  const changed = toml.upsertTomlTableKey(source, 'models', 'default', '"new"');
+  assert.equal(parse(changed).models.default, 'new');
+  const removed = toml.removeTomlTable(changed, 'model.qiniu');
+  assert.equal(parse(removed).model, undefined);
+  assert.equal(parse(removed)['model.qiniu'].keep, true);
+  assert.equal(toml.tomlTableName('[models."qiniu/x"]'), 'models."qiniu/x"');
+});

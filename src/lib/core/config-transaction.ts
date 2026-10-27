@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { stateStore, type ToolState } from './state-store.js';
-import { assertNotSymlink, readTextFile, safeWriteFile, writeJsonOrRemove } from './safe-write.js';
+import { atomicWriteFile, assertNotSymlink, readTextFile, safeWriteFile, writeJsonOrRemove } from './safe-write.js';
 
 export interface ConfigEdit { file: string; build: (content: string | undefined) => string; }
 interface Entry { file: string; original: string | null; applied: string; before?: string | null; }
@@ -30,7 +30,13 @@ function entries(saved: ToolState | undefined, files: string[]): Entry[] | undef
 }
 function write(file: string, value: string | undefined, expected: string | undefined): void {
   if (value === undefined) writeJsonOrRemove(file, {}, { content: expected });
-  else safeWriteFile(file, value, 0o600, { content: expected });
+  else if (!value.trim() && readTextFile(file) === undefined) {
+    // Unlike generic safeWriteFile, a transaction must materialize its recorded bytes.
+    assertNotSymlink(file);
+    atomicWriteFile(file, value, 0o600, () => {
+      if (readTextFile(file) !== expected) throw new Error('Configuration changed before writing: ' + file);
+    });
+  } else safeWriteFile(file, value, 0o600, { content: expected });
 }
 
 // 整组文件校验完成后才写入。文本修改无法可靠推断所有权时停止，绝不覆盖外部编辑。
