@@ -49,5 +49,10 @@ export function isQiniuBaseUrl(url: unknown): boolean {
     ...Object.values(ENDPOINT_DEFINITIONS).map((def) => def.baseUrl),
     'https://openai.qiniu.com',
   ];
-  return known.some((base) => url.replace(/\/+$/, '').startsWith(base));
+  try {
+    const parsed = new URL(url);
+    return !parsed.username && !parsed.password && known.some((base) => parsed.origin === new URL(base).origin);
+  } catch {
+    return false;
+  }
 }

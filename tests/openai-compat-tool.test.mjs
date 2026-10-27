@@ -90,3 +90,45 @@ test('clearing the config keeps backups and recorded prior values', () => {
   assert.equal(fs.existsSync(path.join(home, '.coding-helper', 'backups')), true);
   assert.deepEqual(stateStore.getPriors('demo'), { model: 'old' });
 });
+
+test('Qiniu URL classification enforces the full origin and excludes credentials', () => {
+  for (const value of [
+    'https://api.qnaigc.com.evil.example/v1',
+    'https://api.qnaigc.com@evil.example',
+    'https://evil.example/?next=https://api.qnaigc.com',
+    'http://api.qnaigc.com', 'https://api.qnaigc.com:8443',
+    'https://user@api.qnaigc.com', 'not a URL',
+  ]) assert.equal(isQiniuBaseUrl(value), false, value);
+  assert.equal(isQiniuBaseUrl('https://API.QNAIGC.COM:443/v1/'), true);
+});
+
+test('clearModelConfig waits for asynchronous unload and propagates failure', async () => {
+  const tool = new DemoTool();
+  let release;
+  let finished = false;
+  tool.unloadConfig = () => new Promise(resolve => { release = resolve; });
+  const cleanup = tool.clearModelConfig().then(() => { finished = true; });
+  await Promise.resolve();
+  assert.equal(finished, false);
+  release();
+  await cleanup;
+  assert.equal(finished, true);
+  tool.unloadConfig = async () => { throw new Error('cleanup failed'); };
+  await assert.rejects(tool.clearModelConfig(), /cleanup failed/);
+});
+
+test('model metadata keeps supported input and output modalities', async () => {
+  const { fetchModelLimits } = await import('../dist/lib/tools/openai-compat-tool.js');
+  const { marketModelService } = await import('../dist/lib/market-model-service.js');
+  const original = marketModelService.fetchModels;
+  marketModelService.fetchModels = async () => [{
+    id: 'vision', features: [], model_constraints: { context_length: 32000, max_tokens: 4096 },
+    architecture: { input_modalities: ['text', 'image', 'image', 'unknown'], output_modalities: ['text'], function_calling: { supported: false }, reasoning: { supported: false } },
+  }];
+  try {
+    assert.deepEqual(await fetchModelLimits('https://api.qnaigc.com', 'fake-key', 'vision'), {
+      contextWindow: 32000, maxOutputTokens: 4096,
+      modalities: { input: ['text', 'image'], output: ['text'] },
+    });
+  } finally { marketModelService.fetchModels = original; }
+});
