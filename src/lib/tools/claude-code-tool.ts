@@ -5,7 +5,7 @@ import { execSync } from 'node:child_process';
 import type { ITool } from './base-tool.js';
 import { configManager, type ModelConfig } from '../config.js';
 import { t } from '../i18n.js';
-import { assertNotSymlink, readJsonSnapshot, readJsonObjectStrict, safeWriteFile, writeJsonOrRemove, formatJsonLike } from '../core/safe-write.js';
+import { assertNotSymlink, readTextFile, readJsonSnapshot, readJsonObjectStrict, safeWriteFile, writeJsonOrRemove, formatJsonLike } from '../core/safe-write.js';
 import { stateStore, type ToolState, type PriorValues } from '../core/state-store.js';
 import { runModelSelectionFlow } from '../wizard/flows/model-selection-flow.js';
 import { uiRenderer } from '../wizard/ui/ui-renderer.js';
@@ -80,10 +80,11 @@ export class ClaudeCodeTool implements ITool {
     stateStore.withLock(() => {
       const plans: ConfigPlan[] = [];
       for (const file of [CLAUDE_SETTINGS_FILE, CLAUDE_JSON_FILE]) {
-        const saved = checkedState(stateStore.getState(this.name, file), file === CLAUDE_SETTINGS_FILE);
-        if (!saved) continue;
+        if (!stateStore.getState(this.name, file)) continue;
         assertNotSymlink(file);
         const current = readJsonSnapshot(file);
+        const saved = checkedState(recoverPending(this.name, file, current.content), file === CLAUDE_SETTINGS_FILE);
+        if (!saved) continue;
         const original = originalConfig(saved);
         const manageModel = saved.priors!.manageModel === true;
         const next = restoreConfig(current.value, saved.priors!.snapshot as PriorValues, saved.applied!, file === CLAUDE_SETTINGS_FILE, manageModel);
@@ -107,7 +108,7 @@ export class ClaudeCodeTool implements ITool {
         assertNotSymlink(file);
         const current = readJsonSnapshot(file);
         const settingsFile = file === CLAUDE_SETTINGS_FILE;
-        const previous = checkedState(stateStore.getState(this.name, file), file === CLAUDE_SETTINGS_FILE);
+        const previous = checkedState(recoverPending(this.name, file, current.content), file === CLAUDE_SETTINGS_FILE);
         const managedBefore = previous?.priors?.manageModel === true;
         const beforeSnapshot = snapshot(current.value, settingsFile, managedBefore);
         if (previous) {
@@ -186,6 +187,17 @@ function originalConfig(saved: ToolState): { content: string | undefined; value:
   return { content: content ?? undefined, value };
 }
 
+function recoverPending(tool: string, file: string, content: string | undefined): ToolState | undefined {
+  const saved = stateStore.getState(tool, file);
+  if (!saved?.pending) return saved;
+  let recovered: ToolState | undefined;
+  if (content === saved.pending.after) recovered = { priors: saved.priors, applied: saved.pending.applied };
+  else if ((content ?? null) === saved.pending.before) recovered = saved.applied ? { priors: saved.priors, applied: saved.applied } : undefined;
+  else throw new Error('Claude configuration changed during an interrupted write; restoration journal retained.');
+  stateStore.setState(tool, recovered, file);
+  return recovered;
+}
+
 function checkedState(saved: ToolState | undefined, settings: boolean): ToolState | undefined {
   if (saved && (!isRecord(saved.priors?.snapshot) || !isRecord(saved.applied) ||
       !(saved.priors.content === null || typeof saved.priors.content === 'string') ||
@@ -237,12 +249,20 @@ function commitConfigs(tool: string, plans: ConfigPlan[]): void {
   };
   try {
     // 先保存装载快照，卸载记录只在两份文件都成功后清除
-    for (const plan of plans) if (plan.next) { stateStore.setState(tool, plan.next, plan.file); saved.push(plan); }
+    for (const plan of plans) if (plan.next) {
+      saved.push(plan);
+      stateStore.setState(tool, { priors: plan.next.priors, applied: plan.previous?.applied,
+        pending: { before: plan.before ?? null, after: plan.after!, applied: plan.next.applied! } }, plan.file);
+    }
     for (const plan of plans) {
-      write(plan.file, plan.after, plan.before);
+      try { write(plan.file, plan.after, plan.before); }
+      catch (error) { if (readTextFile(plan.file) === plan.after) written.push(plan); throw error; }
       written.push(plan);
     }
-    for (const plan of plans) if (!plan.next) { stateStore.markRemoved(tool, plan.file); saved.push(plan); }
+    for (const plan of plans) {
+      if (plan.next) stateStore.setState(tool, plan.next, plan.file);
+      else { saved.push(plan); stateStore.markRemoved(tool, plan.file); }
+    }
   } catch (error) {
     const failures: unknown[] = [];
     for (const plan of [...written].reverse()) {
