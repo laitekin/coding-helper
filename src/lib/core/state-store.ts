@@ -40,20 +40,28 @@ class StateStore {
     atomicWriteFile(this.file(), JSON.stringify(state, null, 2) + '\n');
   }
 
+  // 文件路径参与身份，防止不同 XDG 配置目录共享还原记录
+  private key(tool: string, file?: string): string {
+    return file === undefined ? tool : JSON.stringify([tool, path.resolve(file)]);
+  }
+
   // 卸载后移除记录（连同原值），下次装载重新记录
-  markRemoved(tool: string): void {
+  markRemoved(tool: string, file?: string): void {
+    tool = this.key(tool, file);
     const state = this.read();
     if (!state.tools[tool]) return;
     delete state.tools[tool];
     this.write(state);
   }
 
-  getPriors(tool: string): PriorValues | undefined {
+  getPriors(tool: string, file?: string): PriorValues | undefined {
+    tool = this.key(tool, file);
     return this.read().tools[tool]?.priors;
   }
 
   // 只记录第一次看到的原值，重复装载时不会被七牛自己写入的值覆盖
-  recordPriors(tool: string, priors: PriorValues): void {
+  recordPriors(tool: string, priors: PriorValues, file?: string): void {
+    tool = this.key(tool, file);
     const state = this.read();
     const current = state.tools[tool];
     const merged: PriorValues = { ...priors, ...(current?.priors ?? {}) };

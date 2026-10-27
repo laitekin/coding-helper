@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createHash, randomUUID } from 'node:crypto';
 
 // coding-helper 自身目录（惰性计算，便于测试时替换 HOME）
 export function helperDir(): string {
@@ -32,7 +33,7 @@ export class ConfigParseError extends Error {
 // 严格读取 JSON 对象：文件不存在返回 {}，内容损坏抛出 ConfigParseError
 export function readJsonObjectStrict(file: string): Record<string, unknown> {
   const content = readTextFile(file);
-  if (content === undefined || !content.trim()) return {};
+  if (content === undefined) return {};
   let parsed: unknown;
   try {
     parsed = JSON.parse(content);
@@ -45,19 +46,31 @@ export function readJsonObjectStrict(file: string): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
+// 明确拒绝符号链接，避免原子替换破坏 dotfiles 工具管理的链接
+export function assertNotSymlink(file: string): void {
+  try {
+    if (fs.lstatSync(file).isSymbolicLink()) {
+      throw new Error('Refusing to modify symbolic link: ' + file);
+    }
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+  }
+}
+
 // 原子写入：同目录写临时文件后 rename，避免中途失败留下半个文件
 export function atomicWriteFile(file: string, content: string, mode = 0o600): void {
+  assertNotSymlink(file);
   const dir = path.dirname(file);
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const tmp = path.join(dir, `.${path.basename(file)}.tmp-${process.pid}-${Date.now()}`);
-  fs.writeFileSync(tmp, content, { encoding: 'utf-8', mode });
+  const tmp = path.join(dir, '.' + path.basename(file) + '.tmp-' + randomUUID());
   try {
+    fs.writeFileSync(tmp, content, { encoding: 'utf-8', mode, flag: 'wx' });
+    if (process.platform !== 'win32') fs.chmodSync(tmp, mode);
+    assertNotSymlink(file);
     renameWithRetry(tmp, file);
-  } catch (err) {
+  } finally {
     fs.rmSync(tmp, { force: true });
-    throw err;
   }
-  if (process.platform !== 'win32') fs.chmodSync(file, mode);
 }
 
 // Windows 上目标文件被占用时 rename 会短暂失败，重试几次
@@ -108,10 +121,10 @@ export function backupFile(file: string): string | undefined {
   if (!fs.existsSync(resolved)) return undefined;
 
   const dir = ensureSessionDir();
-  const relative = path.relative(os.homedir(), resolved);
-  const name = (relative.startsWith('..') ? resolved : relative).replace(/[\\/:]+/g, '__');
+  // 使用完整源路径摘要，避免 a/b.json 与 a__b.json 等路径扁平化后碰撞
+  const name = createHash('sha256').update(resolved).digest('hex');
   const target = path.join(dir, name);
-  fs.copyFileSync(resolved, target);
+  fs.copyFileSync(resolved, target, fs.constants.COPYFILE_EXCL);
   if (process.platform !== 'win32') fs.chmodSync(target, 0o600);
   backedUp.set(resolved, target);
 
@@ -125,6 +138,7 @@ export function backupFile(file: string): string | undefined {
 
 // 备份后原子写入
 export function safeWriteFile(file: string, content: string, mode = 0o600): void {
+  assertNotSymlink(file);
   const current = readTextFile(file);
   if (current === content) return;
   // 文件原本不存在且没有内容要写：不凭空创建空文件
@@ -149,6 +163,7 @@ export function writeJson(file: string, data: unknown): void {
 
 // 删除文件；所在目录因此变空时一并删除（目录是为这个文件创建的）
 function removeFile(file: string): void {
+  assertNotSymlink(file);
   if (!fs.existsSync(file)) return;
   backupFile(file);
   fs.rmSync(file, { force: true });

@@ -16,6 +16,7 @@ export function openAIBaseUrl(baseUrl: string): string {
 export interface ModelLimits {
   contextWindow: number;
   maxOutputTokens: number;
+  modalities?: { input: string[]; output: string[] };
 }
 
 const FALLBACK_LIMITS: ModelLimits = { contextWindow: 128000, maxOutputTokens: 8192 };
@@ -27,7 +28,19 @@ export async function fetchModelLimits(baseUrl: string, apiKey: string, model: s
     const info = models.find((m) => m.id === model);
     if (!info) return FALLBACK_LIMITS;
     const caps = getModelCapabilities(info);
-    return { contextWindow: caps.maxInputTokens, maxOutputTokens: caps.maxOutputTokens };
+    const supported = new Set(['text', 'image', 'audio', 'video', 'pdf']);
+    const modalities = (values: unknown): string[] => {
+      const filtered = Array.isArray(values) ? values.filter((v): v is string => typeof v === 'string' && supported.has(v)) : [];
+      return filtered.length ? [...new Set(filtered)] : ['text'];
+    };
+    return {
+      contextWindow: caps.maxInputTokens,
+      maxOutputTokens: caps.maxOutputTokens,
+      modalities: {
+        input: modalities(info.architecture?.input_modalities),
+        output: modalities(info.architecture?.output_modalities),
+      },
+    };
   } catch {
     return FALLBACK_LIMITS;
   }
@@ -83,8 +96,8 @@ export abstract class OpenAICompatTool implements ITool {
     uiRenderer.renderModelConfigItem(t('config_view_model'), models.toolModels?.[this.name] ?? models.defaultModel);
   }
 
-  clearModelConfig(): void {
-    void this.unloadConfig();
+  async clearModelConfig(): Promise<void> {
+    await this.unloadConfig();
   }
 
   abstract getConfig(): Record<string, unknown>;
