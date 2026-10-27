@@ -1,5 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
-import { assertNotSymlink, readJsonSnapshot, safeWriteFile, writeJson, writeJsonOrRemove } from '../core/safe-write.js';
+import { assertNotSymlink, readJsonSnapshot, readTextFile, formatJsonLike, safeWriteFile, writeJson, writeJsonOrRemove } from '../core/safe-write.js';
 import { stateStore, type PriorValues, type ToolState } from '../core/state-store.js';
 
 export const QINIU_VENDOR = 'Qiniu';
@@ -81,12 +81,24 @@ function checkedState(saved: ToolState | undefined): ToolState | undefined {
   return saved;
 }
 
+// Reconcile the last staged write before using committed snapshots.
+function recoverPending(tool: string, file: string, content: string | undefined): ToolState | undefined {
+  const saved = stateStore.getState(tool, file);
+  if (!saved?.pending) return saved;
+  let recovered: ToolState | undefined;
+  if (content === saved.pending.after) recovered = { priors: saved.priors, applied: saved.pending.applied };
+  else if ((content ?? null) === saved.pending.before) recovered = saved.applied ? { priors: saved.priors, applied: saved.applied } : undefined;
+  else throw new Error('models.json changed during an interrupted write; restoration journal retained.');
+  stateStore.setState(tool, recovered, file);
+  return recovered;
+}
+
 // 同步事务：调用方在获取市场元数据后调用，读取和写入共用锁及同一内容快照
 export function loadModelsJson(tool: string, file: string, models: VendorModel[]): void {
   stateStore.withLock(() => {
     assertNotSymlink(file);
     const { value: config, content } = readJsonSnapshot(file);
-    const previous = checkedState(stateStore.getState(tool, file));
+    const previous = checkedState(recoverPending(tool, file, content));
     if (!previous && stateStore.getState(tool)) throw new Error('Legacy restoration state requires recovery from backup.');
     const snapshot = captureModelsJsonPriors(config);
     if (previous && !isDeepStrictEqual(snapshot, previous.applied)) {
@@ -94,19 +106,25 @@ export function loadModelsJson(tool: string, file: string, models: VendorModel[]
     }
     const next = applyModelsJson(config, models);
     const priors = previous?.priors ?? { snapshot, content: content ?? null };
-    stateStore.setState(tool, { priors, applied: captureModelsJsonPriors(next) }, file);
-    try { writeJson(file, next, { content }); }
-    catch (err) { stateStore.setState(tool, previous, file); throw err; }
+    const applied = captureModelsJsonPriors(next);
+    const after = formatJsonLike(content, next);
+    stateStore.setState(tool, { priors, applied: previous?.applied, pending: { before: content ?? null, after, applied } }, file);
+    try { safeWriteFile(file, after, 0o600, { content }); }
+    catch (err) {
+      if (readTextFile(file) !== after) stateStore.setState(tool, previous, file);
+      throw err;
+    }
+    stateStore.setState(tool, { priors, applied }, file);
   });
 }
 
 export function unloadModelsJson(tool: string, file: string): void {
   stateStore.withLock(() => {
-    const saved = checkedState(stateStore.getState(tool, file));
-    // 没有本工具写入记录，就不删除用户自己的七牛配置
-    if (!saved) return;
+    if (!stateStore.getState(tool, file)) return;
     assertNotSymlink(file);
     const { value: config, content } = readJsonSnapshot(file);
+    const saved = checkedState(recoverPending(tool, file, content));
+    if (!saved) return;
     if (content !== undefined && !isDeepStrictEqual(captureModelsJsonPriors(config), saved.priors!.snapshot)) {
       const next = revertModelsJson(config, saved.priors!.snapshot as PriorValues, saved.applied!);
       const original = saved.priors!.content as string | null;
