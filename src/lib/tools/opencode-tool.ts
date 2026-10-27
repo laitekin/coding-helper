@@ -4,8 +4,8 @@ import fs from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
 import type { ModelConfig } from '../config.js';
 import { isQiniuBaseUrl } from '../endpoints.js';
-import { assertNotSymlink, readTextFile, readJsonSnapshot, readJsonObjectStrict, writeJson, writeJsonOrRemove } from '../core/safe-write.js';
-import { stateStore, type PriorValues } from '../core/state-store.js';
+import { assertNotSymlink, readTextFile, readJsonSnapshot, readJsonObjectStrict, formatJsonLike, safeWriteFile, writeJson, writeJsonOrRemove } from '../core/safe-write.js';
+import { stateStore, type PriorValues, type ToolState } from '../core/state-store.js';
 import {
   OpenAICompatTool,
   type ModelLimits,
@@ -74,6 +74,11 @@ export function applyOpenCodeConfig(
   if (!next.$schema) next.$schema = 'https://opencode.ai/config.json';
   const providers = isRecord(next.provider) ? { ...next.provider } : {};
   const previous = isRecord(providers[PROVIDER_ID]) ? providers[PROVIDER_ID] : {};
+  const existingModels = isRecord(previous.models) ? previous.models : {};
+  const selected = existingModels[model];
+  if (selected !== undefined && !isRecord(selected)) throw new Error('Invalid OpenCode selected model object.');
+  const existingModel = isRecord(selected) ? selected : {};
+  if (existingModel.limit !== undefined && !isRecord(existingModel.limit)) throw new Error('Invalid OpenCode model limit object.');
   providers[PROVIDER_ID] = {
     ...previous,
     npm: '@ai-sdk/openai-compatible',
@@ -82,9 +87,11 @@ export function applyOpenCodeConfig(
     models: {
       ...(isRecord(previous.models) ? previous.models : {}),
       [model]: {
+        ...existingModel,
         name: model,
+        ...(limits?.reasoning !== undefined ? { reasoning: limits.reasoning } : {}),
         ...(limits?.modalities ? { modalities: limits.modalities } : {}),
-        ...(limits ? { limit: { context: limits.contextWindow, output: limits.maxOutputTokens } } : {}),
+        ...(limits ? { limit: { ...(isRecord(existingModel.limit) ? existingModel.limit : {}), context: limits.contextWindow, output: limits.maxOutputTokens } } : {}),
       },
     },
   };
@@ -140,6 +147,21 @@ export function revertOpenCodeConfig(config: Record<string, unknown>, priors: Pr
   return next;
 }
 
+// 恢复未完成的状态提交。无法确定文件对应哪一侧时保留日志并拒绝修改。
+function recoverPending(file: string, saved: ToolState | undefined, content: string | undefined): ToolState | undefined {
+  if (!saved?.pending) return saved;
+  const pending = saved.pending;
+  let recovered: ToolState | undefined;
+  if (content === pending.after) recovered = { priors: saved.priors, applied: pending.applied };
+  else if ((content ?? null) === pending.before) {
+    recovered = saved.applied ? { priors: saved.priors, applied: saved.applied } : undefined;
+  } else {
+    throw new Error('OpenCode configuration changed during an interrupted write. Restoration journal retained; restore the recorded before/after file from backup before retrying.');
+  }
+  stateStore.setState('opencode', recovered, file);
+  return recovered;
+}
+
 export class OpenCodeTool extends OpenAICompatTool {
   name = 'opencode';
   displayName = 'OpenCode';
@@ -165,27 +187,31 @@ export class OpenCodeTool extends OpenAICompatTool {
     const file = getOpenCodeConfigFile();
     assertNotSymlink(file);
     const { content: before } = readJsonSnapshot(file);
-    // JSON 中的 provider 过滤也会影响后加载的 JSONC
-    const lowerFile = file.endsWith('.jsonc') ? path.join(path.dirname(file), 'opencode.json') : undefined;
-    const lowerBefore = lowerFile ? readTextFile(lowerFile) : undefined;
+    // 全局顺序：config.json → opencode.json → opencode.jsonc；后者逐字段覆盖。
+    const files = [path.join(path.dirname(file), 'config.json'), ...getOpenCodeConfigFiles()];
+    const lowerFiles = files.slice(0, files.indexOf(file));
+    const lower = lowerFiles.map((file) => ({ file, ...readJsonSnapshot(file) }));
     const limits = await fetchModelLimits(baseUrl, apiKey, model);
     assertNotSymlink(file);
     const { value: config, content: current } = readJsonSnapshot(file);
-    if (current !== before || getOpenCodeConfigFile() !== file || readTextFile(file) !== before ||
-        (lowerFile && readTextFile(lowerFile) !== lowerBefore)) {
+    const unchanged = (): boolean => getOpenCodeConfigFile() === file && readTextFile(file) === before &&
+      lower.every((entry) => readTextFile(entry.file) === entry.content);
+    if (current !== before || !unchanged()) {
       throw new Error('OpenCode configuration changed while fetching model metadata. Retry with the current configuration.');
     }
-    const lowerConfig = lowerFile ? readJsonObjectStrict(lowerFile) : {};
-    validateConfig(config);
-    validateConfig(lowerConfig);
-    const effective = { ...lowerConfig, ...config };
+    const layers = [...lower.map((entry) => entry.value), config];
+    let effective: Record<string, unknown> = {};
+    let effectiveProvider: Record<string, unknown> = {};
+    for (const layer of layers) {
+      validateConfig(layer);
+      effective = { ...effective, ...layer };
+      const provider = getPath(layer, 'provider.qiniu');
+      if (isRecord(provider)) effectiveProvider = { ...effectiveProvider, ...provider };
+    }
     if ((Array.isArray(effective.enabled_providers) && !effective.enabled_providers.includes(PROVIDER_ID)) ||
         (Array.isArray(effective.disabled_providers) && effective.disabled_providers.includes(PROVIDER_ID))) {
       throw new Error('OpenCode provider filters exclude qiniu. Update enabled_providers/disabled_providers before loading.');
     }
-    const lowerProvider = getPath(lowerConfig, 'provider.qiniu');
-    const upperProvider = getPath(config, 'provider.qiniu');
-    const effectiveProvider = { ...(isRecord(lowerProvider) ? lowerProvider : {}), ...(isRecord(upperProvider) ? upperProvider : {}) };
     if ((Array.isArray(effectiveProvider.whitelist) && !effectiveProvider.whitelist.includes(model)) ||
         (Array.isArray(effectiveProvider.blacklist) && effectiveProvider.blacklist.includes(model))) {
       throw new Error('OpenCode model filters exclude ' + model + '. Update qiniu whitelist/blacklist before loading.');
@@ -194,24 +220,29 @@ export class OpenCodeTool extends OpenAICompatTool {
       // JSON/JSONC 优先级切换不能留下两个独立的托管配置，先还原原文件
       const otherManaged = getOpenCodeConfigFiles().find((candidate) => candidate !== file && stateStore.getState(this.name, candidate));
       if (otherManaged) throw new Error('Unload the existing managed configuration before switching files: ' + otherManaged);
-      const previous = stateStore.getState(this.name, file);
+      const previous = recoverPending(file, stateStore.getState(this.name, file), before);
       if (previous && (!isRecord(previous.priors?.snapshot) || !isRecord(previous.applied))) {
         throw new Error('OpenCode restoration state lacks a managed snapshot. Restore from backup before reconfiguring.');
       }
       if (previous?.applied && !isDeepStrictEqual(snapshot(config), previous.applied)) {
         throw new Error('OpenCode managed fields changed since loading. Unload first to preserve your changes, then reload.');
       }
-      if (readTextFile(file) !== before) throw new Error('OpenCode configuration changed before writing. Retry.');
+      if (!unchanged()) throw new Error('OpenCode configuration changed before writing. Retry.');
       const next = applyOpenCodeConfig(config, baseUrl, apiKey, model, limits);
       const priors = previous?.priors ?? { snapshot: snapshot(config), fileExisted: before !== undefined, providerExisted: Object.hasOwn(config, 'provider') };
-      stateStore.setState(this.name, { priors, applied: snapshot(next) }, file);
+      const applied = snapshot(next);
+      const after = formatJsonLike(before, next);
+      stateStore.setState(this.name, { priors, applied: previous?.applied,
+        pending: { before: before ?? null, after, applied } }, file);
       try {
-        writeJson(file, next, { content: before });
+        safeWriteFile(file, after, 0o600, { content: before });
       } catch (err) {
         // 写入未提交：完整回滚本轮状态；失败会明确报错，不伪装成装载成功
         stateStore.setState(this.name, previous, file);
         throw err;
       }
+      // 最后提交失败时保留 pending，下一次操作可识别已经写入的客户端内容。
+      stateStore.setState(this.name, { priors, applied }, file);
     });
   }
 
@@ -221,9 +252,10 @@ export class OpenCodeTool extends OpenAICompatTool {
       const managed = getOpenCodeConfigFiles().filter((candidate) => stateStore.getState(this.name, candidate));
       if (managed.length > 1) throw new Error('Multiple managed OpenCode configurations found. Restore them from backup before unloading.');
       const file = managed[0] ?? getOpenCodeConfigFile();
-      const saved = stateStore.getState(this.name, file);
+      const recorded = stateStore.getState(this.name, file);
       assertNotSymlink(file);
       const { value: config, content: before } = readJsonSnapshot(file);
+      const saved = recoverPending(file, recorded, before);
       // 域名相同不意味着用户配置归本工具所有；没有记录就不删除
       if (!saved) return;
       if (!isRecord(saved.priors?.snapshot) || !isRecord(saved.applied)) {

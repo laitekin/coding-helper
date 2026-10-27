@@ -476,3 +476,186 @@ test('OpenCode: malformed model filters fail without normalizing user configurat
     assert.deepEqual(json(file), original);
   }
 });
+
+test('OpenCode: selected model overrides and nested limit fields survive loading', async () => {
+  const selected = { name: 'custom', options: { reasoningEffort: 'high' }, headers: { 'X-Local': 'keep' }, variants: { custom: { temperature: 0.1 } }, limit: { context: 1024, input: 768, output: 256 }, reasoning: true };
+  const original = { provider: { qiniu: { models: { 'deepseek-v3': selected } } } };
+  const file = freshConfig('selected-overrides', original);
+  const tool = new OpenCodeTool();
+  await tool.loadConfig('fake', QINIU, MODELS);
+  const model = json(file).provider.qiniu.models['deepseek-v3'];
+  assert.deepEqual(model.options, selected.options);
+  assert.deepEqual(model.headers, selected.headers);
+  assert.deepEqual(model.variants, selected.variants);
+  assert.deepEqual(model.limit, { context: 128000, input: 768, output: 8192 });
+  assert.equal(model.reasoning, true);
+  tool.unloadConfig();
+  assert.deepEqual(json(file), original);
+});
+
+test('OpenCode: reasoning metadata is written for true and false capabilities', async () => {
+  const fetch = marketModelService.fetchModels;
+  try {
+    for (const reasoning of [true, false]) {
+      const file = freshConfig('reasoning-' + reasoning);
+      marketModelService.fetchModels = async () => [{ id: 'reasoner', features: [], model_constraints: { context_length: 32000, max_tokens: 4096 }, architecture: { input_modalities: ['text'], output_modalities: ['text'], function_calling: { supported: false }, reasoning: { supported: reasoning } } }];
+      const tool = new OpenCodeTool();
+      await tool.loadConfig('fake', QINIU, { defaultModel: 'reasoner' });
+      assert.equal(json(file).provider.qiniu.models.reasoner.reasoning, reasoning);
+      tool.unloadConfig();
+      assert.deepEqual(json(file), {});
+    }
+  } finally { marketModelService.fetchModels = fetch; }
+});
+
+test('OpenCode: config.json filters apply before both target formats', async () => {
+  const filters = [{ disabled_providers: ['qiniu'] }, { enabled_providers: ['anthropic'] }, { provider: { qiniu: { whitelist: ['other'] } } }, { provider: { qiniu: { blacklist: ['deepseek-v3'] } } }];
+  for (const [i, filter] of filters.entries()) {
+    for (const jsonc of [false, true]) {
+      const file = freshConfig('legacy-filter-' + i + jsonc);
+      const lower = path.join(path.dirname(file), 'config.json');
+      write(lower, JSON.stringify(filter));
+      if (jsonc) write(file + 'c', '{}');
+      const target = getOpenCodeConfigFile();
+      await assert.rejects(new OpenCodeTool().loadConfig('fake', QINIU, MODELS), /filters exclude/);
+      assert.deepEqual(json(target), {});
+      assert.deepEqual(json(lower), filter);
+      assert.equal(stateStore.getState('opencode', target), undefined);
+    }
+  }
+});
+
+test('OpenCode: higher global layers override legacy provider and model filters', async () => {
+  const original = { disabled_providers: [], enabled_providers: ['qiniu'], provider: { qiniu: { whitelist: ['deepseek-v3'], blacklist: [] } } };
+  const file = freshConfig('legacy-filter-override', original);
+  const lower = path.join(path.dirname(file), 'config.json');
+  const blocked = { disabled_providers: ['qiniu'], enabled_providers: ['other'], provider: { qiniu: { whitelist: ['other'], blacklist: ['deepseek-v3'] } } };
+  write(lower, JSON.stringify(blocked));
+  write(file + 'c', '{}');
+  const tool = new OpenCodeTool();
+  await tool.loadConfig('fake', QINIU, MODELS);
+  assert.equal(json(file + 'c').model, 'qiniu/deepseek-v3');
+  tool.unloadConfig();
+  assert.deepEqual(json(file), original);
+  assert.deepEqual(json(lower), blocked);
+});
+
+test('OpenCode: rejects changed or malformed legacy config without writing', async () => {
+  const fetch = marketModelService.fetchModels;
+  const file = freshConfig('legacy-race');
+  const lower = path.join(path.dirname(file), 'config.json');
+  try {
+    marketModelService.fetchModels = async () => { write(lower, '{"disabled_providers":["qiniu"]}'); return []; };
+    await assert.rejects(new OpenCodeTool().loadConfig('fake', QINIU, MODELS), /changed/);
+    assert.deepEqual(json(file), {});
+    write(lower, '{broken');
+    await assert.rejects(new OpenCodeTool().loadConfig('fake', QINIU, MODELS), /Cannot parse/);
+    assert.deepEqual(json(file), {});
+  } finally { marketModelService.fetchModels = fetch; }
+});
+
+test('OpenCode: an existing empty symlinked configuration directory survives unload and reload', async () => {
+  const file = freshConfig('empty-directory-alias');
+  fs.rmSync(file);
+  const originalDir = path.dirname(file);
+  const aliasRoot = path.join(home, 'empty-directory-alias-root');
+  fs.mkdirSync(aliasRoot);
+  fs.symlinkSync(originalDir, path.join(aliasRoot, 'opencode'), process.platform === 'win32' ? 'junction' : 'dir');
+  process.env.XDG_CONFIG_HOME = aliasRoot;
+  const tool = new OpenCodeTool();
+  for (let i = 0; i < 2; i++) {
+    await tool.loadConfig('fake', QINIU, MODELS);
+    tool.unloadConfig();
+    assert.equal(fs.existsSync(file), false);
+    assert.equal(fs.statSync(originalDir).isDirectory(), true);
+    assert.equal(fs.statSync(path.join(aliasRoot, 'opencode')).isDirectory(), true);
+  }
+});
+
+async function crashLoad(file, point) {
+  const { spawnSync } = await import('node:child_process');
+  const source = [
+    "import fs from 'node:fs';",
+    'const { OpenCodeTool } = await import(' + JSON.stringify(new URL('../dist/lib/tools/opencode-tool.js', import.meta.url).href) + ');',
+    'const { marketModelService } = await import(' + JSON.stringify(new URL('../dist/lib/market-model-service.js', import.meta.url).href) + ');',
+    "marketModelService.fetchModels = async () => [];",
+    'const file = ' + JSON.stringify(file) + ';',
+    'const point = ' + JSON.stringify(point) + ';',
+    'const rename = fs.renameSync;',
+    "fs.renameSync = (from, to) => { if (String(to) === file && point === 'before') process.exit(86); const result = rename(from, to); if (String(to) === file && point === 'after') process.exit(86); return result; };",
+    "await new OpenCodeTool().loadConfig('fake-next-key', 'https://api.qnaigc.com', { defaultModel: 'next-model' });",
+  ].join('\n');
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', source], { env: { ...process.env }, encoding: 'utf8' });
+  assert.equal(result.status, 86, result.stderr);
+  const lock = path.join(home, '.coding-helper', 'state.lock');
+  assert.equal(fs.existsSync(lock), true);
+  // The child has exited; simulate the documented stale-lock recovery.
+  fs.rmSync(lock);
+}
+
+test('OpenCode: process interruption before and after rename retains restorable committed state', async () => {
+  for (const reload of [false, true]) {
+    for (const point of ['before', 'after']) {
+      const original = { model: 'user/original', provider: { qiniu: { options: { timeout: 123 } } } };
+      const file = freshConfig('crash-' + reload + point, original);
+      const tool = new OpenCodeTool();
+      if (reload) await tool.loadConfig('fake-first-key', QINIU, MODELS);
+      const committed = stateStore.getState('opencode', file)?.applied;
+      await crashLoad(file, point);
+      const pending = stateStore.getState('opencode', file);
+      assert.deepEqual(pending.applied, committed);
+      assert.ok(pending.pending);
+      tool.unloadConfig();
+      assert.deepEqual(json(file), original);
+      assert.equal(stateStore.getState('opencode', file), undefined);
+      await tool.loadConfig('fake-retry', QINIU, MODELS);
+      tool.unloadConfig();
+      assert.deepEqual(json(file), original);
+    }
+  }
+});
+
+test('OpenCode: interrupted initial write to a missing file can safely unload', async () => {
+  for (const point of ['before', 'after']) {
+    const file = freshConfig('crash-missing-' + point);
+    fs.rmSync(file);
+    await crashLoad(file, point);
+    new OpenCodeTool().unloadConfig();
+    assert.equal(fs.existsSync(file), false);
+    assert.equal(stateStore.getState('opencode', file), undefined);
+  }
+});
+
+test('OpenCode: ambiguous interrupted writes retain the file and restoration journal', async () => {
+  const file = freshConfig('crash-user-edit', { model: 'original' });
+  const tool = new OpenCodeTool();
+  await tool.loadConfig('fake-first', QINIU, MODELS);
+  await crashLoad(file, 'after');
+  const saved = stateStore.getState('opencode', file);
+  const edited = { ...json(file), permission: { edit: 'ask' } };
+  write(file, JSON.stringify(edited));
+  assert.throws(() => tool.unloadConfig(), /journal retained/);
+  await assert.rejects(tool.loadConfig('fake', QINIU, MODELS), /journal retained/);
+  assert.deepEqual(json(file), edited);
+  assert.deepEqual(stateStore.getState('opencode', file), saved);
+});
+
+test('OpenCode: failed final state commit remains recoverable on retry', async () => {
+  const original = { model: 'original' };
+  const file = freshConfig('final-state-failure', original);
+  const tool = new OpenCodeTool();
+  await tool.loadConfig('fake-first', QINIU, MODELS);
+  const setState = stateStore.setState.bind(stateStore);
+  stateStore.setState = (name, value, target) => {
+    if (name === 'opencode' && value && !value.pending) throw new Error('final commit unavailable');
+    return setState(name, value, target);
+  };
+  try { await assert.rejects(tool.loadConfig('fake-next', QINIU, { defaultModel: 'second' }), /final commit unavailable/); }
+  finally { stateStore.setState = setState; }
+  assert.ok(stateStore.getState('opencode', file).pending);
+  assert.equal(json(file).model, 'qiniu/second');
+  await tool.loadConfig('fake-retry', QINIU, { defaultModel: 'third' });
+  assert.equal(stateStore.getState('opencode', file).pending, undefined);
+  tool.unloadConfig();
+  assert.deepEqual(json(file), original);
+});
