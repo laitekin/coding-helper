@@ -138,7 +138,7 @@ test('metadata carries reasoning and leaves fallback unspecified', async () => {
   const { marketModelService } = await import('../dist/lib/market-model-service.js');
   const original = marketModelService.fetchModels;
   try {
-    marketModelService.fetchModels = async () => [{ id: 'reasoner', features: [], architecture: { reasoning: { supported: true } } }];
+    marketModelService.fetchModels = async () => [{ id: 'reasoner', features: [], model_constraints: { context_length: 32000, max_tokens: 4096 }, architecture: { input_modalities: ['text'], output_modalities: ['text'], function_calling: { supported: false }, reasoning: { supported: true } } }];
     assert.equal((await fetchModelLimits('https://api.qnaigc.com', 'fake', 'reasoner')).reasoning, true);
     assert.equal((await fetchModelLimits('https://api.qnaigc.com', 'fake', 'missing')).reasoning, undefined);
     marketModelService.fetchModels = async () => { throw new Error('offline'); };
