@@ -186,3 +186,36 @@ test('strict snapshot parses exactly the guarded text from a single read', async
     assert.equal(reads, 1);
   } finally { fs.readFileSync = read; }
 });
+
+test('removal preserves directories and directory symlink targets', async () => {
+  const { writeJsonOrRemove } = await import('../dist/lib/core/safe-write.js');
+  const dir = path.join(home, 'owned-by-user');
+  fs.mkdirSync(dir);
+  const alias = path.join(home, 'user-directory-link');
+  fs.symlinkSync(dir, alias, process.platform === 'win32' ? 'junction' : 'dir');
+  for (const parent of [dir, alias]) {
+    const file = path.join(parent, 'settings.json');
+    safeWriteFile(file, '{}');
+    writeJsonOrRemove(file, {}, { content: '{}' });
+    assert.equal(fs.existsSync(file), false);
+    assert.equal(fs.statSync(dir).isDirectory(), true);
+    assert.equal(fs.statSync(alias).isDirectory(), true);
+    assert.equal(fs.lstatSync(alias).isSymbolicLink(), true);
+  }
+});
+
+test('state preserves pending journals and rejects malformed journals', () => {
+  stateStore.clear();
+  const entry = { priors: { model: 'original' }, applied: { model: 'committed' },
+    pending: { before: 'before', after: 'after', applied: { model: 'next' } } };
+  stateStore.setState('journal', entry);
+  assert.deepEqual(stateStore.getState('journal'), entry);
+  const file = path.join(home, '.coding-helper', 'state.json');
+  for (const pending of [null, {}, { before: false, after: '{}', applied: {} }, { before: null, after: 1, applied: {} }, { before: null, after: '{}', applied: [] }]) {
+    const text = JSON.stringify({ version: 1, tools: { journal: { ...entry, pending } } });
+    fs.writeFileSync(file, text);
+    assert.throws(() => stateStore.getState('journal'), /parse|state/i);
+    assert.equal(fs.readFileSync(file, 'utf8'), text);
+  }
+  stateStore.clear();
+});
