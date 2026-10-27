@@ -119,3 +119,55 @@ test('last-moment second-file edit survives while first-file write rolls back', 
   assert.equal(changed, true); assert.equal(read(settings), '{}'); assert.equal(read(onboarding), '{"keep":2}');
   assert.equal(stateStore.getState(tool.name, settings), undefined);
 });
+
+
+for (const completed of [0, 1, 2]) {
+  test('Claude reconciles interrupted reload after ' + completed + ' client writes', async () => {
+    reset('{}', '{}'); await load();
+    const files = [settings, onboarding]; const before = files.map(read);
+    const previous = files.map(file => stateStore.getState(tool.name, file));
+    await tool.loadConfig('next-key', 'https://api.qnaigc.com', models);
+    const after = files.map(read); const next = files.map(file => stateStore.getState(tool.name, file));
+    files.forEach((file, i) => {
+      write(file, i < completed ? after[i] : before[i]);
+      stateStore.setState(tool.name, { priors: next[i].priors, applied: previous[i].applied,
+        pending: { before: before[i], after: after[i], applied: next[i].applied } }, file);
+    });
+    tool.unloadConfig(); assert.equal(read(settings), '{}'); assert.equal(read(onboarding), '{}');
+  });
+}
+
+test('Claude post-rename failure rolls back both files and state', async () => {
+  reset('{}', '{}'); const rename = fs.renameSync; let once = true;
+  fs.renameSync = (from, to) => { const result = rename(from, to); if (to === onboarding && once) { once = false; throw Error('after rename'); } return result; };
+  try { await assert.rejects(load(), /after rename/); } finally { fs.renameSync = rename; }
+  assert.equal(read(settings), '{}'); assert.equal(read(onboarding), '{}');
+  assert.equal(stateStore.getState(tool.name, settings), undefined);
+});
+
+
+test('unload cleanup plus rollback failure preserves all original records for retry', async () => {
+  reset('{}', '{}'); await load(); const loaded = read(settings);
+  const remove = stateStore.markRemoved; const rename = fs.renameSync; let cleanupFailed = false;
+  stateStore.markRemoved = function (name, file) {
+    if (file === onboarding) { cleanupFailed = true; throw Error('cleanup failure'); }
+    return remove.call(this, name, file);
+  };
+  fs.renameSync = (from, to) => { if (cleanupFailed && to === settings) throw Error('rollback failure'); return rename(from, to); };
+  try { assert.throws(() => tool.unloadConfig(), /recovery failed/); }
+  finally { stateStore.markRemoved = remove; fs.renameSync = rename; }
+  assert.ok(stateStore.getState(tool.name, settings)); assert.ok(stateStore.getState(tool.name, onboarding));
+  tool.unloadConfig(); assert.equal(read(settings), '{}'); assert.equal(read(onboarding), '{}');
+});
+
+
+test('partial load rollback reconciles each successful rollback independently', async () => {
+  reset('{}', '{}'); await load();
+  write(onboarding, '{}'); stateStore.markRemoved(tool.name, onboarding);
+  const set = stateStore.setState; const rename = fs.renameSync; let calls = 0; let finalFailed = false;
+  stateStore.setState = function (...args) { if (++calls === 4) { finalFailed = true; throw Error('final commit failed'); } return set.apply(this, args); };
+  fs.renameSync = (from, to) => { if (finalFailed && to === onboarding) throw Error('rollback failed'); return rename(from, to); };
+  try { await assert.rejects(tool.loadConfig('next-key', 'https://api.qnaigc.com', models), /recovery failed/); }
+  finally { stateStore.setState = set; fs.renameSync = rename; }
+  tool.unloadConfig(); assert.equal(read(settings), '{}'); assert.equal(read(onboarding), '{}');
+});
