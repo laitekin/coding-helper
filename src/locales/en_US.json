@@ -168,5 +168,6 @@
   "auth_reload_usage": "Usage: coding-helper auth reload <tool>",
   "auth_reload_tools": "Available tools: {{tools}}",
   "auth_unknown_tool": "Unknown tool: {{tool}}",
-  "kimi_legacy_cli": "Found the legacy kimi-cli {{version}} (reads ~/.kimi). Install the new Kimi Code instead: {{command}}"
+  "kimi_legacy_cli": "Found the legacy kimi-cli {{version}} (reads ~/.kimi). Install the new Kimi Code instead: {{command}}",
+  "minimax_provider_add_failed": "mcode provider add failed: {{error}}"
 }
