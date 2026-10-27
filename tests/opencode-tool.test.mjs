@@ -659,3 +659,21 @@ test('OpenCode: failed final state commit remains recoverable on retry', async (
   tool.unloadConfig();
   assert.deepEqual(json(file), original);
 });
+
+test('OpenCode: an error after client rename does not discard the applied journal', async () => {
+  const original = { model: 'original' };
+  const file = freshConfig('post-rename-error', original);
+  const tool = new OpenCodeTool();
+  await tool.loadConfig('fake-first', QINIU, MODELS);
+  const rename = fs.renameSync;
+  fs.renameSync = (from, to) => {
+    const result = rename(from, to);
+    if (String(to) === file) throw new Error('post-rename cleanup failed');
+    return result;
+  };
+  try { await assert.rejects(tool.loadConfig('fake-next', QINIU, { defaultModel: 'second' }), /post-rename/); }
+  finally { fs.renameSync = rename; }
+  assert.ok(stateStore.getState('opencode', file).pending);
+  tool.unloadConfig();
+  assert.deepEqual(json(file), original);
+});

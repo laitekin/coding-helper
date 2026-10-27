@@ -237,8 +237,9 @@ export class OpenCodeTool extends OpenAICompatTool {
       try {
         safeWriteFile(file, after, 0o600, { content: before });
       } catch (err) {
-        // 写入未提交：完整回滚本轮状态；失败会明确报错，不伪装成装载成功
-        stateStore.setState(this.name, previous, file);
+        // rename 已完成但后续清理报错时仍保留日志，不能丢失已写入的快照。
+        // 无法读取当前文件时也保留日志，交由下次操作确认。
+        if (readTextFile(file) !== after) stateStore.setState(this.name, previous, file);
         throw err;
       }
       // 最后提交失败时保留 pending，下一次操作可识别已经写入的客户端内容。
