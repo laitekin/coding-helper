@@ -23,6 +23,7 @@
 | CodeBuddy | CLI | `~/.codebuddy/models.json` |
 | WorkBuddy | Desktop app | `~/.workbuddy/models.json` |
 | Hermes Agent | CLI | `~/.hermes/config.yaml` |
+| Factory Droid | CLI | [配置说明 / Configuration](docs/tools/droid.md) |
 
 ## ✨ Features
 
