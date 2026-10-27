@@ -228,6 +228,8 @@ npx qiniu-coding-helper enter hermes
 
 > **说明:** 工具还会设置 `API_TIMEOUT_MS`（50 分钟，适配长时间推理请求）、禁用非必要流量（第三方端点不需要 Anthropic 遥测）、禁用 commit/PR 归属标注（通过代理端点运行时标注不准确）。
 
+Claude Code 装载会先校验两个配置文件，并备份原值；卸载还原有记录的配置，保留之后的手动修改，没有装载记录时不动文件。显式切换模型会清除 /model 保存的选择和 ANTHROPIC_MODEL，卸载时还原原值。损坏 JSON、无效的 env 或文件符号链接会阻止写入。
+
 ### 🔧 Codex 配置
 
 Codex 使用共享事务写入 config.toml、auth.json 和模型目录，保留 MCP、沙箱设置及其他 provider。首次装载前备份原文件，卸载按记录逐字节还原；有外部修改时停止，避免覆盖。除内置 GPT 目录外，也为选中的非 GPT 模型生成能力元数据。原有 qn-gpt profile 保留，本层不新增多配置档或模型槽位。
