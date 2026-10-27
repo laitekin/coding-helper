@@ -167,5 +167,6 @@
 
   "auth_reload_usage": "Usage: coding-helper auth reload <tool>",
   "auth_reload_tools": "Available tools: {{tools}}",
-  "auth_unknown_tool": "Unknown tool: {{tool}}"
+  "auth_unknown_tool": "Unknown tool: {{tool}}",
+  "minimax_provider_add_failed": "mcode provider add failed: {{error}}"
 }
