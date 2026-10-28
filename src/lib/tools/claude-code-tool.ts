@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
 import path from 'node:path';
 import os from 'node:os';
@@ -78,8 +79,15 @@ export class ClaudeCodeTool implements ITool {
   // 卸载只处理本工具记录过的字段，保留之后的用户编辑
   clearModelConfig(): void {
     stateStore.withLock(() => {
+      const targets = [CLAUDE_SETTINGS_FILE, CLAUDE_JSON_FILE];
+      const unrecorded = targets.filter(file => !stateStore.getState(this.name, file));
+      const exists = unrecorded.some(file => {
+        try { fs.lstatSync(file); return true; }
+        catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false; throw error; }
+      });
+      if (exists) throw new Error('No restoration record for existing Claude configuration. Configuration is unchanged; remove legacy credentials manually or recover a known backup.');
       const plans: ConfigPlan[] = [];
-      for (const file of [CLAUDE_SETTINGS_FILE, CLAUDE_JSON_FILE]) {
+      for (const file of targets) {
         if (!stateStore.getState(this.name, file)) continue;
         assertNotSymlink(file);
         const current = readJsonSnapshot(file);
