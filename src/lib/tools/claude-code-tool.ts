@@ -5,6 +5,7 @@ import os from 'node:os';
 import { execSync } from 'node:child_process';
 import type { ITool } from './base-tool.js';
 import { configManager, type ModelConfig } from '../config.js';
+import { isQiniuBaseUrl } from '../endpoints.js';
 import { t } from '../i18n.js';
 import { assertNotSymlink, readTextFile, readJsonSnapshot, readJsonObjectStrict, safeWriteFile, writeJsonOrRemove, formatJsonLike } from '../core/safe-write.js';
 import { stateStore, type ToolState, type PriorValues } from '../core/state-store.js';
@@ -117,6 +118,11 @@ export class ClaudeCodeTool implements ITool {
         const current = readJsonSnapshot(file);
         const settingsFile = file === CLAUDE_SETTINGS_FILE;
         const previous = checkedState(recoverPending(this.name, file, current.content), file === CLAUDE_SETTINGS_FILE);
+        const env = current.value.env;
+        if (settingsFile && !previous && isRecord(env) && isQiniuBaseUrl(env.ANTHROPIC_BASE_URL) &&
+            typeof env.ANTHROPIC_AUTH_TOKEN === 'string' && env.ANTHROPIC_AUTH_TOKEN) {
+          throw new Error('Legacy Claude credentials have no restoration record. Configuration is unchanged; remove legacy credentials manually or recover a known backup before loading.');
+        }
         const managedBefore = previous?.priors?.manageModel === true;
         const beforeSnapshot = snapshot(current.value, settingsFile, managedBefore);
         if (previous) {
