@@ -1,3 +1,5 @@
+import { applyConfigEdits, restoreConfigEdits } from '../core/config-transaction.js';
+import { parseYamlDocument, setYamlValue, stringifyYamlDocument, deleteYamlValue } from '../core/yaml-edit.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -46,20 +48,15 @@ export class HermesTool implements ITool {
     return parseYamlObject(readHermesConfig());
   }
 
-  clearModelConfig(): void {
-    writeHermesConfig(removeManagedHermesConfig(readHermesConfig()));
-  }
+  clearModelConfig(): void { restoreConfigEdits(this.name, [HERMES_CONFIG_FILE]); }
 
   async loadConfig(apiKey: string, baseUrl: string, models: ModelConfig): Promise<void> {
-    if (!models.hermesModel) {
-      throw new Error(t('hermes_model_not_configured'));
-    }
-    writeHermesConfig(buildHermesConfig(readHermesConfig(), baseUrl, apiKey, models.hermesModel));
+    if (!models.hermesModel) throw new Error(t('hermes_model_not_configured'));
+    applyConfigEdits(this.name, [{ file: HERMES_CONFIG_FILE,
+      build: (content) => buildHermesConfig(content ?? '', baseUrl, apiKey, models.hermesModel!) }]);
   }
 
-  async unloadConfig(): Promise<void> {
-    this.clearModelConfig();
-  }
+  async unloadConfig(): Promise<void> { this.clearModelConfig(); }
 
   async runModelConfigFlow(): Promise<boolean> {
     const selected = await runHermesModelSelectionFlow();
@@ -78,65 +75,24 @@ export class HermesTool implements ITool {
   }
 }
 
-export function buildHermesConfig(
-  existing: string,
-  baseUrl: string,
-  apiKey: string,
-  model: string,
-): string {
-  const config = parseYamlObject(existing);
-  const existingModel = isRecord(config.model) ? config.model : {};
-  const preservedModel = { ...existingModel };
-  for (const key of MANAGED_MODEL_KEYS) {
-    delete preservedModel[key];
+export function buildHermesConfig(existing: string, baseUrl: string, apiKey: string, model: string): string {
+  const doc = parseYamlDocument(existing);
+  for (const [key, value] of Object.entries({ provider: 'custom', default: model, base_url: baseUrl.replace(/\/+$/, '') + '/v1', api_key: apiKey })) {
+    setYamlValue(doc, ['model', key], value);
   }
-
-  config.model = {
-    provider: 'custom',
-    default: model,
-    base_url: `${baseUrl.replace(/\/+$/, '')}/v1`,
-    api_key: apiKey,
-    ...preservedModel,
-  };
-
-  return dumpYaml(config);
+  return stringifyYamlDocument(doc);
 }
 
+// 仅作为纯转换函数保留兼容；实际卸载通过有记录的事务还原
 export function removeManagedHermesConfig(existing: string): string {
-  const config = parseYamlObject(existing);
-  if (!isRecord(config.model)) {
-    return dumpYaml(config);
-  }
-
-  const modelConfig = { ...config.model };
-  for (const key of MANAGED_MODEL_KEYS) {
-    delete modelConfig[key];
-  }
-
-  if (Object.keys(modelConfig).length > 0) {
-    config.model = modelConfig;
-  } else {
-    delete config.model;
-  }
-
-  return dumpYaml(config);
+  const doc = parseYamlDocument(existing);
+  for (const key of ['provider', 'default', 'base_url', 'api_key']) deleteYamlValue(doc, ['model', key]);
+  return stringifyYamlDocument(doc);
 }
 
 function readHermesConfig(): string {
-  try {
-    if (fs.existsSync(HERMES_CONFIG_FILE)) {
-      return fs.readFileSync(HERMES_CONFIG_FILE, 'utf-8');
-    }
-  } catch {
-    // 文件不存在或读取失败时按空配置处理
-  }
-  return '';
-}
-
-function writeHermesConfig(content: string): void {
-  fs.mkdirSync(HERMES_DIR, { recursive: true, mode: 0o700 });
-  fs.writeFileSync(HERMES_CONFIG_FILE, content, { encoding: 'utf-8', mode: 0o600 });
-  applyHermesConfigPermissions(HERMES_DIR, HERMES_CONFIG_FILE);
+  try { return fs.readFileSync(HERMES_CONFIG_FILE, 'utf8'); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return ''; throw error; }
 }
 
 export function applyHermesConfigPermissions(configDir: string, configFile: string): void {

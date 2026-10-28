@@ -1,3 +1,4 @@
+import { runCommand } from '../../../commands/run.js';
 import chalk from 'chalk';
 import select from '@inquirer/select';
 import { t } from '../../i18n.js';
@@ -73,8 +74,10 @@ export async function showToolMenu(tool: ITool): Promise<void> {
         message: t('menu_select_action'),
         choices: [
           { name: `${theme.icon('◆')} ${t('tool_configure_models')}`, value: 'models' as const },
-          { name: `${theme.icon('◇')} ${t('tool_load_config')}`, value: 'load' as const },
-          { name: `${theme.icon('◈')} ${t('tool_unload_config')}`, value: 'unload' as const },
+          ...(tool.launchOnly ? [] : [
+            { name: t('tool_load_config'), value: 'load' as const },
+            { name: t('tool_unload_config'), value: 'unload' as const },
+          ]),
           { name: `${theme.icon('▸')} ${t('tool_launch')}`, value: 'launch' as const },
           { name: `${theme.dimIcon('△')} ${t('tool_update')}`, value: 'update' as const },
           { name: `${theme.dimIcon('▪')} ${t('tool_view_config')}`, value: 'view' as const },
@@ -175,13 +178,13 @@ export function hasSavedToolModelConfig(
     case 'hermes':
       return !!models.hermesModel;
     default:
-      return false;
+      return !!(models.toolModels?.[tool.name] ?? models.defaultModel);
   }
 }
 
 async function runInitialToolSetup(tool: ITool): Promise<void> {
   const completed = await tool.runModelConfigFlow();
-  if (!completed) return;
+  if (!completed || tool.launchOnly) return;
 
   if (tool.name === 'codex') {
     uiRenderer.renderHeader();
@@ -289,6 +292,7 @@ async function applyConfig(tool: ITool): Promise<void> {
 
 // 启动工具
 async function launchTool(tool: ITool): Promise<void> {
+  if (tool.launchOnly) { await runCommand(tool.name, []); return; }
   const installed = tool.isInstalled();
   // null 表示无法检测（桌面应用），视为已安装
   if (installed === false) {
