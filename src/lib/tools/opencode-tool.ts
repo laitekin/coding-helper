@@ -17,6 +17,27 @@ import {
 
 const PROVIDER_ID = 'qiniu';
 
+// 选中模型的路由不能悄悄指向旧别名或另一 SDK；保留配置并要求先解决冲突。
+function validateSelectedModel(selected: unknown, model: string): void {
+  if (selected === undefined) return;
+  if (!isRecord(selected)) throw new Error('Invalid OpenCode selected model object.');
+  if (selected.status === 'deprecated') throw new Error('OpenCode selected model is deprecated: ' + model);
+  if (selected.id !== undefined && selected.id !== model) throw new Error('OpenCode selected model has a conflicting wire-model id: ' + model);
+  if (selected.provider !== undefined && (!isRecord(selected.provider) ||
+      selected.provider.npm !== undefined && selected.provider.npm !== '@ai-sdk/openai-compatible')) {
+    throw new Error('OpenCode selected model has a conflicting provider SDK: ' + model);
+  }
+}
+
+function mergeConfig(base: Record<string, unknown>, next: Record<string, unknown>): Record<string, unknown> {
+  const result = { ...base };
+  for (const [key, value] of Object.entries(next)) {
+    Object.defineProperty(result, key, { value: isRecord(value) && isRecord(base[key]) ? mergeConfig(base[key], value) : value,
+      enumerable: true, writable: true, configurable: true });
+  }
+  return result;
+}
+
 // OpenCode 后加载 JSONC；优先操作生效的文件（含注释时拒绝覆盖）
 function getOpenCodeConfigFiles(home = os.homedir()): [string, string] {
   const dir = canonicalDirectory(path.resolve(process.env.XDG_CONFIG_HOME || path.join(home, '.config'), 'opencode'));
@@ -76,6 +97,7 @@ export function applyOpenCodeConfig(
   const previous = isRecord(providers[PROVIDER_ID]) ? providers[PROVIDER_ID] : {};
   const existingModels = isRecord(previous.models) ? previous.models : {};
   const selected = existingModels[model];
+  validateSelectedModel(selected, model);
   if (selected !== undefined && !isRecord(selected)) throw new Error('Invalid OpenCode selected model object.');
   const existingModel = isRecord(selected) ? selected : {};
   if (existingModel.limit !== undefined && !isRecord(existingModel.limit)) throw new Error('Invalid OpenCode model limit object.');
@@ -206,7 +228,7 @@ export class OpenCodeTool extends OpenAICompatTool {
       validateConfig(layer);
       effective = { ...effective, ...layer };
       const provider = getPath(layer, 'provider.qiniu');
-      if (isRecord(provider)) effectiveProvider = { ...effectiveProvider, ...provider };
+      if (isRecord(provider)) effectiveProvider = mergeConfig(effectiveProvider, provider);
     }
     if ((Array.isArray(effective.enabled_providers) && !effective.enabled_providers.includes(PROVIDER_ID)) ||
         (Array.isArray(effective.disabled_providers) && effective.disabled_providers.includes(PROVIDER_ID))) {
@@ -216,6 +238,7 @@ export class OpenCodeTool extends OpenAICompatTool {
         (Array.isArray(effectiveProvider.blacklist) && effectiveProvider.blacklist.includes(model))) {
       throw new Error('OpenCode model filters exclude ' + model + '. Update qiniu whitelist/blacklist before loading.');
     }
+    validateSelectedModel(isRecord(effectiveProvider.models) ? effectiveProvider.models[model] : undefined, model);
     stateStore.withLock(() => {
       // JSON/JSONC 优先级切换不能留下两个独立的托管配置，先还原原文件
       const otherManaged = getOpenCodeConfigFiles().find((candidate) => candidate !== file && stateStore.getState(this.name, candidate));
@@ -239,7 +262,7 @@ export class OpenCodeTool extends OpenAICompatTool {
       } catch (err) {
         // rename 已完成但后续清理报错时仍保留日志，不能丢失已写入的快照。
         // 无法读取当前文件时也保留日志，交由下次操作确认。
-        if (readTextFile(file) !== after) stateStore.setState(this.name, previous, file);
+        try { if (readTextFile(file) === before) stateStore.setState(this.name, previous, file); } catch { /* 保留待恢复日志 */ }
         throw err;
       }
       // 最后提交失败时保留 pending，下一次操作可识别已经写入的客户端内容。

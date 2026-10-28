@@ -12,3 +12,18 @@ test('anchors and aliases fail closed rather than changing unrelated configurati
     assert.throws(() => parseYamlDocument(content), /anchors and aliases/);
   }
 });
+
+test('changing explicit scalar tags preserves comments and the new value type',()=>{
+  for(const source of ['!!bool true','!!int 42','!!null null']){
+    const doc=parseYamlDocument('model: '+source+' # keep\n');setYamlValue(doc,['model'],'new/model');
+    const output=String(doc);assert.match(output,/# keep/);assert.equal(getYamlValue(parseYamlDocument(output),['model']),'new/model');
+  }
+});
+test('unrelated integers retain precision through serialization',()=>{
+  const doc=parseYamlDocument('large: 9007199254740993\nsmall: 12\nmodel: old\n');setYamlValue(doc,['model'],'new');
+  const reparsed=parseYamlDocument(String(doc));assert.equal(getYamlValue(reparsed,['large']),9007199254740993n);assert.equal(getYamlValue(reparsed,['small']),12);
+});
+test('native binary and timestamp scalar snapshots restore their types',()=>{
+  const doc=parseYamlDocument('blob: !!binary SGVsbG8=\nwhen: !!timestamp 2026-01-02T03:04:05Z\n');
+  for(const key of ['blob','when']){const before=getYamlValue(doc,[key]);assert.ok(key==='blob'?Buffer.isBuffer(before):before instanceof Date);setYamlValue(doc,[key],'changed');restoreYamlValue(doc,[key],before);assert.deepEqual(getYamlValue(parseYamlDocument(String(doc)),[key]),before);}
+});

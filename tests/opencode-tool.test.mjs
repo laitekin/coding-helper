@@ -338,7 +338,7 @@ test('OpenCode: overlapping loads cannot record each other as original configura
   } finally { marketModelService.fetchModels = fetch; }
 });
 
-test('OpenCode: external edit at final write rolls back its pending restoration record', async () => {
+test('OpenCode: external edit at final write retains its pending restoration record', async () => {
   const file = freshConfig('last-write-race', { model: 'original' });
   const copy = fs.copyFileSync;
   fs.copyFileSync = (source, ...args) => {
@@ -349,7 +349,7 @@ test('OpenCode: external edit at final write rolls back its pending restoration 
   try { await assert.rejects(new OpenCodeTool().loadConfig('fake', QINIU, MODELS), /changed before writing/); }
   finally { fs.copyFileSync = copy; }
   assert.deepEqual(json(file), { model: 'editor', mcp: { new: {} } });
-  assert.equal(stateStore.getState('opencode', file), undefined);
+  assert.ok(stateStore.getState('opencode', file).pending);
 });
 
 test('OpenCode: dangling higher-precedence JSONC is rejected instead of writing JSON', async () => {
@@ -676,4 +676,18 @@ test('OpenCode: an error after client rename does not discard the applied journa
   assert.ok(stateStore.getState('opencode', file).pending);
   tool.unloadConfig();
   assert.deepEqual(json(file), original);
+});
+
+for(const [label,selected] of [['wire-id',{id:'old-model'}],['sdk',{provider:{npm:'@ai-sdk/anthropic'}}],['deprecated',{status:'deprecated'}]]){
+  for(const inherited of [false,true])test('OpenCode: refuses '+label+' route '+(inherited?'inherited from lower config':'in target'),async()=>{
+    const original={provider:{qiniu:{models:{'deepseek-v3':selected}}}};const file=freshConfig(label+'-'+inherited,inherited?{provider:{qiniu:{models:{'deepseek-v3':{name:'selected'}}}}}:original);
+    const lower=path.join(path.dirname(file),'config.json');if(inherited)write(lower,JSON.stringify(original));const before=fs.readFileSync(file,'utf8');
+    await assert.rejects(new OpenCodeTool().loadConfig('fake',QINIU,MODELS),/conflicting|deprecated/);assert.equal(fs.readFileSync(file,'utf8'),before);assert.equal(stateStore.getState('opencode',file),undefined);
+  });
+}
+test('OpenCode: ambiguous post-rename edits preserve the pending journal',async()=>{
+  const file=freshConfig('ambiguous-postrename',{model:'original'});const rename=fs.renameSync;let once=true;
+  fs.renameSync=(from,to)=>{const result=rename(from,to);if(to===file&&once){once=false;const current=json(file);current.theme='edited';write(file,JSON.stringify(current));throw Error('post rename failure');}return result;};
+  try{await assert.rejects(new OpenCodeTool().loadConfig('fake',QINIU,MODELS),/post rename failure/);}finally{fs.renameSync=rename;}
+  assert.ok(stateStore.getState('opencode',file).pending);assert.equal(json(file).theme,'edited');assert.throws(()=>new OpenCodeTool().unloadConfig(),/journal retained/);
 });
