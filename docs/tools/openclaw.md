@@ -13,3 +13,7 @@ Configuration path precedence: OPENCLAW_CONFIG_PATH, then OPENCLAW_STATE_DIR, th
 无恢复记录且目标文件仍存在时，卸载会明确报错，配置保持不变。请手动清理旧凭据或恢复已知备份；不会将未修改报告为成功移除。
 
 If a target file exists without a restoration record, unloading fails with recovery guidance and leaves it unchanged. Remove legacy credentials manually or recover a known backup; unchanged files are not reported as successfully cleared.
+
+设置 OPENCLAW_CONFIG_READONLY=1 或 OPENCLAW_NIX_MODE=1 时，装载和卸载都会报错，并保持配置及恢复记录不变；请修改外部配置源。读取配置仍然可用。
+
+With OPENCLAW_CONFIG_READONLY=1 or OPENCLAW_NIX_MODE=1, loading and unloading refuse to modify configuration or restoration records. Update the external configuration source. Reading configuration remains available.
