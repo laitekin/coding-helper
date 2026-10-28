@@ -2,7 +2,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { ModelConfig } from '../config.js';
 import { readTextFile } from '../core/safe-write.js';
-import { applyConfigEdits, restoreConfigEdits } from '../core/config-transaction.js';
+import { applyConfigEdits } from '../core/config-transaction.js';
 import { OpenAICompatTool, fetchModelLimits, openAIBaseUrl } from './openai-compat-tool.js';
 import { escapeTomlString, normalizeToml, removeTomlTable, upsertTomlTableKey, validateToml } from '../core/toml-edit.js';
 const MODEL_ID = 'qiniu';
@@ -63,5 +63,5 @@ export class GrokTool extends OpenAICompatTool {
     const limits = await fetchModelLimits(baseUrl, apiKey, model);
     applyConfigEdits(this.name, [{ file: getGrokConfigFile(), build: content => applyGrokConfig(content ?? '', baseUrl, apiKey, model, limits.contextWindow) }]);
   }
-  unloadConfig(): void { restoreConfigEdits(this.name, [getGrokConfigFile()]); }
+  unloadConfig(): void { this.restoreManagedConfig([getGrokConfigFile()]); }
 }

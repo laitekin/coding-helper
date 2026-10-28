@@ -47,3 +47,31 @@ test('Qwen custom home, JSON comments, and selected endpoint roundtrip',async()=
     assert.equal(fs.existsSync(files[0]),false);await tool.unloadConfig();assert.equal(read(targets[0]),original);assert.equal(read(targets[1]),'OTHER=keep\n');
   }finally{if(originalHome===undefined)delete process.env.QWEN_HOME;else process.env.QWEN_HOME=originalHome;}
 });
+
+test('unload without a restoration record preserves every existing target and reports recovery guidance', () => {
+  files.forEach(file => fs.rmSync(file, {force:true}));
+  assert.doesNotThrow(() => tool.unloadConfig());
+  for (const file of files) {
+    write(file, 'legacy credential bytes');
+    assert.throws(() => tool.unloadConfig(), /No restoration record.*Configuration is unchanged.*manually/);
+    assert.equal(read(file), 'legacy credential bytes');
+    fs.rmSync(file);
+  }
+});
+
+test('Qwen legacy unload menu displays unchanged guidance instead of successful removal', async () => {
+  const {unloadToolConfig}=await import('../dist/lib/wizard/menus/tool-menu.js');
+  const {promptHelper}=await import('../dist/lib/wizard/ui/prompt-helper.js');
+  const {uiRenderer}=await import('../dist/lib/wizard/ui/ui-renderer.js');
+  const {i18n}=await import('../dist/lib/i18n.js');i18n.init('en_US');
+  const oldConfirm=promptHelper.confirm,oldEnter=promptHelper.pressEnter;
+  const names=['renderHeader','renderSuccess','renderError'];const old=Object.fromEntries(names.map(n=>[n,uiRenderer[n]]));const messages=[];
+  for(const n of names)uiRenderer[n]=(...args)=>messages.push([n,...args]);
+  promptHelper.confirm=async()=>true;promptHelper.pressEnter=async()=>{};write(files[1],'QINIU_API_KEY=legacy-key');
+  try {
+    await unloadToolConfig(tool);
+    assert.ok(messages.some(([kind,text])=>kind==='renderError'&&text.includes('Configuration is unchanged')));
+    assert.equal(messages.some(([kind])=>kind==='renderSuccess'),false);
+    assert.equal(read(files[1]),'QINIU_API_KEY=legacy-key');
+  } finally {Object.assign(uiRenderer,old);promptHelper.confirm=oldConfirm;promptHelper.pressEnter=oldEnter;fs.rmSync(files[1]);}
+});
