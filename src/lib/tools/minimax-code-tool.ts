@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger.js';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -38,18 +39,21 @@ export class MinimaxCodeTool extends OpenAICompatTool {
     // provider add generates qiniu-2 when qiniu already exists. Replace only in staging.
     if (staged.hasIn(['custom_provider', 'qiniu'])) staged.deleteIn(['custom_provider', 'qiniu']);
     if (/^(?:custom_provider:)?qiniu\//.test(String(staged.get('defaultModel') ?? ''))) staged.delete('defaultModel');
+    logger.info(t('minimax_fetching_limits'));
     const limits = await fetchModelLimits(baseUrl, apiKey, model);
     // 官方命令只写临时数据目录，成功并校验后才替换用户文件
     const stage = fs.mkdtempSync(path.join(os.tmpdir(), 'coding-helper-mcode-'));
     try {
       fs.writeFileSync(path.join(stage, 'config.yaml'), String(staged), { mode: 0o600 });
       try {
+        logger.info(t('minimax_provider_start'));
         execFileSync(this.command, ['provider', 'add', '--name', 'qiniu', '--base-url', openAIBaseUrl(baseUrl),
           '--api-format', 'openai-completions', '--model', model, '--api-key-env', 'QINIU_API_KEY',
           '--context-limit', String(limits.contextWindow), '--output-limit', String(limits.maxOutputTokens), '--use'], {
           env: { ...process.env, MINIMAX_DATA_DIR: stage, MAVIS_DATA_DIR: stage, QINIU_API_KEY: apiKey },
           stdio: 'pipe', encoding: 'utf8', timeout: 90000,
         });
+        logger.info(t('minimax_provider_complete'));
       } catch {
         // 不转发子进程原始输出，避免命令错误信息泄露 Key
         throw new Error(t('minimax_provider_add_failed', { error: 'provider command failed; original configuration was not changed' }));
@@ -70,6 +74,7 @@ export class MinimaxCodeTool extends OpenAICompatTool {
         if (current !== before) throw new Error('MiniMax configuration changed during provider setup. Retry.');
         return after;
       } }]);
+      logger.info(t('minimax_config_applied'));
     } finally { fs.rmSync(stage, { recursive: true, force: true }); }
   }
   unloadConfig(): void { this.restoreManagedConfig([getMinimaxConfigFile()]); }

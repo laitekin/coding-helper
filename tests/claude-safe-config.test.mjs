@@ -37,7 +37,7 @@ test('Claude new files are removed and existing empty objects survive', async ()
 
 test('unload without a record preserves even Qiniu-owned-looking values', () => {
   const original = '{"env":{"ANTHROPIC_BASE_URL":"https://api.qnaigc.com","ANTHROPIC_AUTH_TOKEN":"user"}}';
-  reset(original, '{}'); tool.unloadConfig(); assert.equal(read(settings), original);
+  reset(original, '{}'); assert.throws(() => tool.unloadConfig(), /No restoration record.*Configuration is unchanged/); assert.equal(read(settings), original);
 });
 
 for (const [a, b] of [['{broken','{}'], ['{}','{broken'], ['{"env":null}','{}'], ['{"env":[]}','{}']]) {
@@ -176,4 +176,11 @@ test('default mode preserves both model overrides and explicit switching restore
   const original='{"model":"user/model","env":{"ANTHROPIC_MODEL":"user/env-model"}}';reset(original,'{}');
   await load({claudeCode:{useDefaultModels:true}});assert.equal(JSON.parse(read(settings)).env.ANTHROPIC_MODEL,'user/env-model');
   await load();assert.equal(JSON.parse(read(settings)).env.ANTHROPIC_MODEL,undefined);tool.unloadConfig();assert.equal(read(settings),original);
+});
+
+test('Claude missing restoration state for one existing target blocks partial unload', async () => {
+  reset('{}','{}');await load();const before=read(settings),other=read(onboarding);stateStore.setState(tool.name,undefined,onboarding);
+  assert.throws(()=>tool.unloadConfig(),/No restoration record.*Configuration is unchanged/);
+  assert.equal(read(settings),before);assert.equal(read(onboarding),other);assert.ok(stateStore.getState(tool.name,settings));
+  reset();assert.doesNotThrow(()=>tool.unloadConfig());
 });

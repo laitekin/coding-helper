@@ -30,3 +30,17 @@ test('spawn errors and child termination clean listeners and preserve failure st
     }
   } finally { childProcess.spawn = original; syncBuiltinESMExports(); process.exitCode = 0; }
 });
+
+test('launch-only menu retains errors until Enter and restores the parent exit status', async () => {
+  const {launchTool}=await import('../dist/lib/wizard/menus/tool-menu.js');const {promptHelper}=await import('../dist/lib/wizard/ui/prompt-helper.js');const {uiRenderer}=await import('../dist/lib/wizard/ui/ui-renderer.js');
+  const spawnOriginal=childProcess.spawn,enter=promptHelper.pressEnter,getKey=configManager.getApiKey,renderError=uiRenderer.renderError;const initialExit=process.exitCode;
+  const fake={name:'menu-launch-test',displayName:'Menu tool',command:'missing-menu-test',installCommand:'install',launchOnly:true,isInstalled:()=>true,getLaunchEnv:()=>({})};toolManager.register(fake);
+  try {
+    for(const mode of ['missing-key','not-installed','child-exit']) {
+      const messages=[];let pauses=0,spawns=0;process.exitCode=9;configManager.getApiKey=()=>mode==='missing-key'?undefined:'test-key';fake.isInstalled=()=>mode!=='not-installed';
+      uiRenderer.renderError=message=>messages.push(message);promptHelper.pressEnter=async()=>{pauses++;assert.ok(messages.length);assert.equal(process.exitCode,9);};
+      childProcess.spawn=()=>{spawns++;const child=new EventEmitter();child.kill=()=>true;queueMicrotask(()=>child.emit('exit',7,null));return child;};syncBuiltinESMExports();
+      await launchTool(fake);assert.equal(pauses,1);assert.equal(process.exitCode,9);assert.equal(spawns,mode==='child-exit'?1:0);
+    }
+  } finally {childProcess.spawn=spawnOriginal;syncBuiltinESMExports();promptHelper.pressEnter=enter;configManager.getApiKey=getKey;uiRenderer.renderError=renderError;process.exitCode=initialExit;}
+});
