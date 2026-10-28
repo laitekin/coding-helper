@@ -69,3 +69,8 @@ test('Buddy tools load concurrently with independent restoration state', async (
     await tools[1].unloadConfig(); files.forEach((file, i) => assert.equal(read(file), JSON.stringify({ original: i })));
   } finally { marketModelService.fetchModels = fetch; }
 });
+
+for(const [Tool,dir] of cases)test(Tool.name+' legacy unload reports unchanged configuration',async()=>{
+  stateStore.clear();const file=path.join(home,dir,'models.json');const original='{"models":[{"id":"legacy","vendor":"Qiniu","apiKey":"legacy-key"}]}';write(file,original);
+  await assert.rejects(new Tool().unloadConfig(),/No restoration record/);assert.equal(read(file),original);
+});

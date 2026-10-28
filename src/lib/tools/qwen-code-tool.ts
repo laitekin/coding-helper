@@ -2,7 +2,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { ModelConfig } from '../config.js';
 import { isQiniuBaseUrl } from '../endpoints.js';
-import { readJsonObjectStrict, formatJsonLike } from '../core/safe-write.js';
+import { readTextFile, formatJsonLike } from '../core/safe-write.js';
 import { applyConfigEdits, restoreConfigEdits, parseConfigObject } from '../core/config-transaction.js';
 import { OpenAICompatTool, fetchModelLimits, getPath, isRecord, openAIBaseUrl, setPath } from './openai-compat-tool.js';
 import { setDotenvValue } from '../core/dotenv-edit.js';
@@ -12,7 +12,35 @@ const AUTH_TYPE = 'openai';
 const MANAGED_PATHS = ['security.auth.selectedType', 'model.name'] as const;
 
 function qwenDir(): string {
+  const override = process.env.QWEN_HOME;
+  if (override) return path.resolve(override === '~' ? os.homedir() : override.startsWith('~/') || override.startsWith('~\\') ? path.join(os.homedir(), override.slice(2)) : override);
   return path.join(os.homedir(), '.qwen');
+}
+
+// 与 Qwen 一样允许 JSON 注释；事务另行保存完整原文供卸载还原。
+export function parseQwenSettings(content: string | undefined): Record<string, unknown> {
+  if (content === undefined) return {};
+  const input = content.replace(/^\uFEFF/, '');
+  let output = '';
+  let quoted = false;
+  for (let i = 0; i < input.length; i++) {
+    const char = input[i];
+    if (quoted) {
+      output += char;
+      if (char === '\\') output += input[++i] ?? '';
+      else if (char === '"') quoted = false;
+    } else if (char === '"') { quoted = true; output += char; }
+    else if (char === '/' && input[i + 1] === '/') {
+      while (i < input.length && input[i] !== '\n' && input[i] !== '\r') { output += ' '; i++; }
+      if (i < input.length) output += input[i];
+    } else if (char === '/' && input[i + 1] === '*') {
+      const end = input.indexOf('*/', i + 2);
+      if (end < 0) throw new Error('Unterminated Qwen settings comment.');
+      output += input.slice(i, end + 2).replace(/[^\r\n]/g, ' ');
+      i = end + 1;
+    } else output += char;
+  }
+  return parseConfigObject(output);
 }
 
 interface QwenModelEntry {
@@ -55,6 +83,7 @@ export function applyQwenSettings(
   next.modelProviders = providers;
   setPath(next, 'security.auth.selectedType', AUTH_TYPE);
   setPath(next, 'model.name', model);
+  setPath(next, 'model.baseUrl', openAIBaseUrl(baseUrl));
   return next;
 }
 
@@ -77,7 +106,7 @@ export class QwenCodeTool extends OpenAICompatTool {
 
   getConfig(): Record<string, unknown> {
     try {
-      return readJsonObjectStrict(this.settingsFile());
+      return parseQwenSettings(readTextFile(this.settingsFile()));
     } catch {
       return {};
     }
@@ -92,7 +121,7 @@ export class QwenCodeTool extends OpenAICompatTool {
     const model = this.resolveModel(models);
     const limits = await fetchModelLimits(baseUrl, apiKey, model);
     applyConfigEdits(this.name, [
-      { file: this.settingsFile(), build: content => formatJsonLike(content, applyQwenSettings(parseConfigObject(content), baseUrl, model, limits.contextWindow)) },
+      { file: this.settingsFile(), build: content => formatJsonLike(content?.replace(/^\uFEFF/, ''), applyQwenSettings(parseQwenSettings(content), baseUrl, model, limits.contextWindow)) },
       { file: this.envFile(), build: content => setDotenvValue(content ?? '', QWEN_ENV_KEY, apiKey) },
     ]);
   }
