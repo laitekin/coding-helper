@@ -43,3 +43,14 @@ test('Grok loads equivalent quoted TOML tables and restores original bytes', asy
   write(files[0], original); await load(); await load('second-key');
   await tool.unloadConfig(); assert.equal(read(files[0]), original);
 });
+
+test('unload without a restoration record preserves every existing target and reports recovery guidance', () => {
+  files.forEach(file => fs.rmSync(file, {force:true}));
+  assert.doesNotThrow(() => tool.unloadConfig());
+  for (const file of files) {
+    write(file, 'legacy credential bytes');
+    assert.throws(() => tool.unloadConfig(), /No restoration record.*Configuration is unchanged.*manually/);
+    assert.equal(read(file), 'legacy credential bytes');
+    fs.rmSync(file);
+  }
+});

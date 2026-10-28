@@ -36,3 +36,14 @@ test('droid restores bytes and refuses corrupt or changed config', async () => {
   files.forEach(file => fs.rmSync(file));
   await load(); await tool.unloadConfig(); files.forEach(file => assert.equal(fs.existsSync(file), false));
 });
+
+test('unload without a restoration record preserves every existing target and reports recovery guidance', () => {
+  files.forEach(file => fs.rmSync(file, {force:true}));
+  assert.doesNotThrow(() => tool.unloadConfig());
+  for (const file of files) {
+    write(file, 'legacy credential bytes');
+    assert.throws(() => tool.unloadConfig(), /No restoration record.*Configuration is unchanged.*manually/);
+    assert.equal(read(file), 'legacy credential bytes');
+    fs.rmSync(file);
+  }
+});
