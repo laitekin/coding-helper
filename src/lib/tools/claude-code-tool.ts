@@ -121,7 +121,7 @@ export class ClaudeCodeTool implements ITool {
         const next = structuredClone(current.value);
         if (settingsFile) {
           const env: Record<string, unknown> = { ...(isRecord(next.env) ? next.env : {}) };
-          for (const key of CLAUDE_ENV_KEYS) delete env[key];
+          for (const key of CLAUDE_ENV_KEYS) if (key !== 'ANTHROPIC_MODEL' || clearSelection) delete env[key];
           Object.assign(env, {
             ANTHROPIC_BASE_URL: baseUrl, ANTHROPIC_AUTH_TOKEN: apiKey, API_TIMEOUT_MS: API_TIMEOUT,
             CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1', CLAUDE_CODE_ATTRIBUTION_HEADER: '0',
