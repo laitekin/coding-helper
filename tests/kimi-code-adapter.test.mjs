@@ -58,3 +58,14 @@ test('legacy Kimi guidance recommends the compatible install script without writ
     files.forEach(file => assert.equal(fs.existsSync(file), false));
   } finally { tool.getVersion = () => null; }
 });
+
+test('unload without a restoration record preserves every existing target and reports recovery guidance', () => {
+  files.forEach(file => fs.rmSync(file, {force:true}));
+  assert.doesNotThrow(() => tool.unloadConfig());
+  for (const file of files) {
+    write(file, 'legacy credential bytes');
+    assert.throws(() => tool.unloadConfig(), /No restoration record.*Configuration is unchanged.*manually/);
+    assert.equal(read(file), 'legacy credential bytes');
+    fs.rmSync(file);
+  }
+});

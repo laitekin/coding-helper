@@ -16,3 +16,11 @@ test('MiniMax success exit without matching staged provider never overwrites use
   finally { childProcess.execFileSync = exec; syncBuiltinESMExports(); }
   assert.equal(fs.readFileSync(file, 'utf8'), original);
 });
+
+test('MiniMax unload without a restoration record preserves legacy credentials and reports recovery guidance', () => {
+  const file=getMinimaxConfigFile(); const tool=new MinimaxCodeTool();
+  fs.rmSync(file,{force:true}); assert.doesNotThrow(()=>tool.unloadConfig());
+  fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,'legacy credential bytes');
+  assert.throws(()=>tool.unloadConfig(),/No restoration record.*Configuration is unchanged.*manually/);
+  assert.equal(fs.readFileSync(file,'utf8'),'legacy credential bytes');
+});
