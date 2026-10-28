@@ -5,7 +5,7 @@ import path from 'node:path';
 import type { ModelConfig } from '../config.js';
 import { t } from '../i18n.js';
 import { readTextFile, assertNotSymlink } from '../core/safe-write.js';
-import { applyConfigEdits, restoreConfigEdits } from '../core/config-transaction.js';
+import { applyConfigEdits } from '../core/config-transaction.js';
 import { parseYamlDocument } from '../core/yaml-edit.js';
 import { OpenAICompatTool, fetchModelLimits, isRecord, openAIBaseUrl } from './openai-compat-tool.js';
 
@@ -72,5 +72,5 @@ export class MinimaxCodeTool extends OpenAICompatTool {
       } }]);
     } finally { fs.rmSync(stage, { recursive: true, force: true }); }
   }
-  unloadConfig(): void { restoreConfigEdits(this.name, [getMinimaxConfigFile()]); }
+  unloadConfig(): void { this.restoreManagedConfig([getMinimaxConfigFile()]); }
 }

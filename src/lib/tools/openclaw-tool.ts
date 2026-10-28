@@ -4,7 +4,7 @@ import type { ModelConfig } from '../config.js';
 import { t } from '../i18n.js';
 import { isQiniuBaseUrl } from '../endpoints.js';
 import { readJsonObjectStrict, formatJsonLike } from '../core/safe-write.js';
-import { applyConfigEdits, restoreConfigEdits, parseConfigObject } from '../core/config-transaction.js';
+import { applyConfigEdits, parseConfigObject } from '../core/config-transaction.js';
 import { OpenAICompatTool, fetchModelLimits, getPath, isRecord, openAIBaseUrl, setPath } from './openai-compat-tool.js';
 const PROVIDER_ID = 'qiniu';
 const PRIMARY_PATH = 'agents.defaults.model.primary';
@@ -84,5 +84,5 @@ export class OpenClawTool extends OpenAICompatTool {
       return formatJsonLike(content, applyOpenClawConfig(config, baseUrl, apiKey, model, limits));
     } }]);
   }
-  unloadConfig(): void { restoreConfigEdits(this.name, [getOpenClawConfigFile()]); }
+  unloadConfig(): void { this.restoreManagedConfig([getOpenClawConfigFile()]); }
 }
