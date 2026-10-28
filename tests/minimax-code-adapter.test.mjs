@@ -24,3 +24,13 @@ test('MiniMax unload without a restoration record preserves legacy credentials a
   assert.throws(()=>tool.unloadConfig(),/No restoration record.*Configuration is unchanged.*manually/);
   assert.equal(fs.readFileSync(file,'utf8'),'legacy credential bytes');
 });
+
+test('MiniMax shows progress before slow metadata and provider work without exposing credentials', async () => {
+  const {logger}=await import('../dist/utils/logger.js');const {i18n}=await import('../dist/lib/i18n.js');i18n.init('en_US');
+  const info=logger.info,fetch=marketModelService.fetchModels,exec=childProcess.execFileSync;const messages=[];logger.info=message=>messages.push(message);
+  const file=getMinimaxConfigFile();fs.rmSync(file,{force:true});
+  marketModelService.fetchModels=async()=>{assert.ok(messages.some(m=>m.includes('model limits')));return [];};
+  childProcess.execFileSync=(_file,_args,options)=>{assert.ok(messages.some(m=>m.includes('90 seconds')));fs.writeFileSync(path.join(options.env.MINIMAX_DATA_DIR,'config.yaml'),'custom_provider:\n  qiniu: {api: openai-completions, options: {baseURL: "https://api.qnaigc.com/v1", apiKey: secret-key}, models: {"test/model": {}}}\ndefaultModel: custom_provider:qiniu/test/model\n');return {status:0};};syncBuiltinESMExports();
+  try {const tool=new MinimaxCodeTool();await tool.loadConfig('secret-key','https://api.qnaigc.com',{defaultModel:'test/model'});assert.ok(messages.some(m=>m.includes('Validating')));assert.ok(messages.some(m=>m.includes('configuration applied')));assert.ok(messages.every(m=>!m.includes('secret-key')));tool.unloadConfig();}
+  finally{logger.info=info;marketModelService.fetchModels=fetch;childProcess.execFileSync=exec;syncBuiltinESMExports();}
+});
