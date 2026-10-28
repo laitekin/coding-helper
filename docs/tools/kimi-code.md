@@ -13,3 +13,7 @@ Use coding-helper enter kimi-code to select and apply a model. Original files ar
 Installation hints and menu updates use the official Kimi installer with its bundled runtime, independent of the Node version running coding-helper. Updates display the command and require confirmation, defaulting to cancel. Windows also requires Git for Windows before first launch. The optional npm installation requires Node.js 22.19.0+, so it is not the default here.
 
 Source: https://www.kimi.com/en/help/kimi-code/cli-getting-started (2026-10-28).
+
+无恢复记录且目标文件仍存在时，卸载会明确报错，配置保持不变。请手动清理旧凭据或恢复已知备份；不会将未修改报告为成功移除。
+
+If a target file exists without a restoration record, unloading fails with recovery guidance and leaves it unchanged. Remove legacy credentials manually or recover a known backup; unchanged files are not reported as successfully cleared.

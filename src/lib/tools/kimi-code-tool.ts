@@ -3,7 +3,7 @@ import path from 'node:path';
 import type { ModelConfig } from '../config.js';
 import { t } from '../i18n.js';
 import { readTextFile } from '../core/safe-write.js';
-import { applyConfigEdits, restoreConfigEdits } from '../core/config-transaction.js';
+import { applyConfigEdits } from '../core/config-transaction.js';
 import { OpenAICompatTool, fetchModelLimits, openAIBaseUrl } from './openai-compat-tool.js';
 import { escapeTomlString, normalizeToml, removeTomlTablesWhere, upsertTopLevelTomlKey, validateToml } from '../core/toml-edit.js';
 const PROVIDER_ID = 'qiniu';
@@ -86,5 +86,5 @@ export class KimiCodeTool extends OpenAICompatTool {
       const next = applyKimiConfig(content ?? '', baseUrl, apiKey, model, limits.contextWindow); validateToml(next); return next;
     } }]);
   }
-  unloadConfig(): void { restoreConfigEdits(this.name, [getKimiConfigFile()]); }
+  unloadConfig(): void { this.restoreManagedConfig([getKimiConfigFile()]); }
 }

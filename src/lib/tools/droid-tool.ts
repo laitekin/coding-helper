@@ -2,7 +2,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { ModelConfig } from '../config.js';
 import { readJsonObjectStrict, formatJsonLike } from '../core/safe-write.js';
-import { applyConfigEdits, restoreConfigEdits, parseConfigObject } from '../core/config-transaction.js';
+import { applyConfigEdits, parseConfigObject } from '../core/config-transaction.js';
 import { OpenAICompatTool, fetchModelLimits, isRecord, openAIBaseUrl } from './openai-compat-tool.js';
 const DISPLAY_PREFIX = 'Qiniu: ';
 function droidSettingsFile(): string { return path.join(os.homedir(), '.factory', 'settings.json'); }
@@ -40,5 +40,5 @@ export class DroidTool extends OpenAICompatTool {
     const model = this.resolveModel(models); const limits = await fetchModelLimits(baseUrl, apiKey, model);
     applyConfigEdits(this.name, [{ file: droidSettingsFile(), build: content => formatJsonLike(content, applyDroidSettings(parseConfigObject(content), baseUrl, apiKey, model, limits)) }]);
   }
-  unloadConfig(): void { restoreConfigEdits(this.name, [droidSettingsFile()]); }
+  unloadConfig(): void { this.restoreManagedConfig([droidSettingsFile()]); }
 }
