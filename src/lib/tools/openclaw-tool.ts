@@ -9,6 +9,11 @@ import { OpenAICompatTool, fetchModelLimits, getPath, isRecord, openAIBaseUrl, s
 const PROVIDER_ID = 'qiniu';
 const PRIMARY_PATH = 'agents.defaults.model.primary';
 
+function assertConfigWritable(): void {
+  const flag = ['OPENCLAW_CONFIG_READONLY', 'OPENCLAW_NIX_MODE'].find(key => process.env[key] === '1');
+  if (flag) throw new Error(flag + '=1: OpenClaw configuration is externally managed and read-only. Update the external configuration source; configuration and restoration records are unchanged.');
+}
+
 export function getOpenClawConfigFile(): string {
   const userHome = os.homedir();
   const expand = (value: string, home: string): string => path.resolve(value === '~' ? home : value.startsWith('~/') || value.startsWith('~\\') ? path.join(home, value.slice(2)) : value);
@@ -76,7 +81,9 @@ export class OpenClawTool extends OpenAICompatTool {
   }
 
   async loadConfig(apiKey: string, baseUrl: string, models: ModelConfig): Promise<void> {
+    assertConfigWritable();
     const model = this.resolveModel(models); const limits = await fetchModelLimits(baseUrl, apiKey, model);
+    assertConfigWritable();
     applyConfigEdits(this.name, [{ file: getOpenClawConfigFile(), build: content => {
       let config: Record<string, unknown>;
       try { config = parseConfigObject(content); }
@@ -84,5 +91,5 @@ export class OpenClawTool extends OpenAICompatTool {
       return formatJsonLike(content, applyOpenClawConfig(config, baseUrl, apiKey, model, limits));
     } }]);
   }
-  unloadConfig(): void { this.restoreManagedConfig([getOpenClawConfigFile()]); }
+  unloadConfig(): void { assertConfigWritable(); this.restoreManagedConfig([getOpenClawConfigFile()]); }
 }

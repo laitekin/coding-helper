@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'adapter-openclaw-')));
 process.env.HOME = process.env.USERPROFILE = home;
-for (const key of ['OPENCLAW_CONFIG_PATH', 'OPENCLAW_STATE_DIR', 'OPENCLAW_PROFILE', 'OPENCLAW_HOME']) delete process.env[key];
+for (const key of ['OPENCLAW_CONFIG_PATH', 'OPENCLAW_STATE_DIR', 'OPENCLAW_PROFILE', 'OPENCLAW_HOME', 'OPENCLAW_CONFIG_READONLY', 'OPENCLAW_NIX_MODE']) delete process.env[key];
 delete process.env.KIMI_CODE_HOME; delete process.env.GROK_HOME;
 const { OpenClawTool, getOpenClawConfigFile } = await import('../dist/lib/tools/openclaw-tool.js');
 const { marketModelService } = await import('../dist/lib/market-model-service.js');
@@ -75,4 +75,37 @@ test('unload without a restoration record preserves every existing target and re
     assert.equal(read(file), 'legacy credential bytes');
     fs.rmSync(file);
   }
+});
+
+for (const flag of ['OPENCLAW_CONFIG_READONLY', 'OPENCLAW_NIX_MODE']) {
+  test('OpenClaw respects immutable configuration: ' + flag, async () => {
+    const { stateStore } = await import('../dist/lib/core/state-store.js');
+    const file = files[0]; write(file, originals[0]); await load();
+    const applied = read(file), saved = stateStore.getState(tool.name, file);
+    const fetch = marketModelService.fetchModels; let requests = 0;
+    marketModelService.fetchModels = async () => { requests++; return []; };
+    process.env.OPENCLAW_CONFIG_READONLY = '0'; process.env[flag] = '1';
+    try {
+      assert.ok(tool.getConfig().models);
+      await assert.rejects(load(), /externally managed and read-only/);
+      assert.throws(() => tool.unloadConfig(), /externally managed and read-only/);
+      assert.equal(requests, 0); assert.equal(read(file), applied);
+      assert.deepEqual(stateStore.getState(tool.name, file), saved);
+    } finally {
+      delete process.env.OPENCLAW_CONFIG_READONLY; delete process.env.OPENCLAW_NIX_MODE;
+      marketModelService.fetchModels = fetch;
+    }
+    tool.unloadConfig(); assert.equal(read(file), originals[0]);
+    process.env[flag] = '0';
+    try { await load(); tool.unloadConfig(); assert.equal(read(file), originals[0]); }
+    finally { delete process.env[flag]; }
+  });
+}
+
+test('OpenClaw rechecks immutable mode after asynchronous metadata lookup', async () => {
+  const file = files[0]; write(file, originals[0]);
+  const fetch = marketModelService.fetchModels;
+  marketModelService.fetchModels = async () => { process.env.OPENCLAW_CONFIG_READONLY = '1'; return []; };
+  try { await assert.rejects(load(), /externally managed and read-only/); assert.equal(read(file), originals[0]); }
+  finally { delete process.env.OPENCLAW_CONFIG_READONLY; marketModelService.fetchModels = fetch; }
 });
