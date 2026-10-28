@@ -36,3 +36,14 @@ test('qwen-code restores bytes and refuses corrupt or changed config', async () 
   files.forEach(file => fs.rmSync(file));
   await load(); await tool.unloadConfig(); files.forEach(file => assert.equal(fs.existsSync(file), false));
 });
+
+test('Qwen custom home, JSON comments, and selected endpoint roundtrip',async()=>{
+  const originalHome=process.env.QWEN_HOME;process.env.QWEN_HOME=path.join(home,'custom-qwen');
+  const targets=['settings.json','.env'].map(f=>path.join(process.env.QWEN_HOME,f));
+  const original='\uFEFF{\n // user comment\n "model":{"name":"test/model","baseUrl":"https://old.example/v1"},\n "modelProviders":{"custom":[{"id":"test/model","baseUrl":"https://old.example/v1"}]},\n "url":"https://example.com/a//b", /* block */ "quoted":"\\\"//literal"\n}\n';
+  write(targets[0],original);write(targets[1],'OTHER=keep\n');
+  try{
+    await load();const settings=JSON.parse(read(targets[0]));assert.equal(settings.model.baseUrl,'https://api.qnaigc.com/v1');assert.equal(settings.model.name,'test/model');assert.equal(settings.url,'https://example.com/a//b');assert.equal(settings.quoted,'"//literal');assert.equal(tool.getConfig().model.baseUrl,'https://api.qnaigc.com/v1');
+    assert.equal(fs.existsSync(files[0]),false);await tool.unloadConfig();assert.equal(read(targets[0]),original);assert.equal(read(targets[1]),'OTHER=keep\n');
+  }finally{if(originalHome===undefined)delete process.env.QWEN_HOME;else process.env.QWEN_HOME=originalHome;}
+});
