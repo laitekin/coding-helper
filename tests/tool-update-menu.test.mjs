@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 const home=fs.mkdtempSync(path.join(os.tmpdir(),'tool-actions-'));process.env.HOME=process.env.USERPROFILE=home;
-const {unloadToolConfig,updateTool}=await import('../dist/lib/wizard/menus/tool-menu.js');
+const {updateTool}=await import('../dist/lib/wizard/menus/tool-menu.js');
 const {promptHelper}=await import('../dist/lib/wizard/ui/prompt-helper.js');
 const {uiRenderer}=await import('../dist/lib/wizard/ui/ui-renderer.js');
 const {i18n}=await import('../dist/lib/i18n.js');
