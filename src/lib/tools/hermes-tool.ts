@@ -1,3 +1,5 @@
+import { stateStore } from '../core/state-store.js';
+import { isQiniuBaseUrl } from '../endpoints.js';
 import { applyConfigEdits, restoreConfigEdits } from '../core/config-transaction.js';
 import { parseYamlDocument, setYamlValue, stringifyYamlDocument, deleteYamlValue } from '../core/yaml-edit.js';
 import fs from 'node:fs';
@@ -56,8 +58,18 @@ export class HermesTool implements ITool {
 
   async loadConfig(apiKey: string, baseUrl: string, models: ModelConfig): Promise<void> {
     if (!models.hermesModel) throw new Error(t('hermes_model_not_configured'));
-    applyConfigEdits(this.name, [{ file: HERMES_CONFIG_FILE,
-      build: (content) => buildHermesConfig(content ?? '', baseUrl, apiKey, models.hermesModel!) }]);
+    stateStore.withLock(() => {
+      const content = readHermesConfig();
+      const existing = parseYamlDocument(content).toJS() as unknown;
+      const model = isRecord(existing) && isRecord(existing.model) ? existing.model : undefined;
+      const canonical = fs.existsSync(HERMES_DIR) ? path.join(fs.realpathSync(HERMES_DIR), 'config.yaml') : HERMES_CONFIG_FILE;
+      // 旧凭据不能作为新的“用户原值”保存，否则卸载会重新写回旧 Key。
+      if (!stateStore.getState(this.name, canonical) && model && isQiniuBaseUrl(model.base_url) && typeof model.api_key === 'string' && model.api_key) {
+        throw new Error('Legacy Hermes credentials have no restoration record. Configuration is unchanged; remove legacy credentials manually or recover a known backup before loading.');
+      }
+      applyConfigEdits(this.name, [{ file: HERMES_CONFIG_FILE,
+        build: (current) => buildHermesConfig(current ?? '', baseUrl, apiKey, models.hermesModel!) }]);
+    });
     applyHermesConfigPermissions(HERMES_DIR, HERMES_CONFIG_FILE);
   }
 
