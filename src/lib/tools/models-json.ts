@@ -111,7 +111,8 @@ export function loadModelsJson(tool: string, file: string, models: VendorModel[]
     stateStore.setState(tool, { priors, applied: previous?.applied, pending: { before: content ?? null, after, applied } }, file);
     try { safeWriteFile(file, after, 0o600, { content }); }
     catch (err) {
-      if (readTextFile(file) !== after) stateStore.setState(tool, previous, file);
+      // 仅确认仍是写入前版本才撤销日志；无法读取或出现第三种内容时保留原值。
+      try { if (readTextFile(file) === content) stateStore.setState(tool, previous, file); } catch { /* 保留待恢复日志 */ }
       throw err;
     }
     stateStore.setState(tool, { priors, applied }, file);
@@ -120,13 +121,18 @@ export function loadModelsJson(tool: string, file: string, models: VendorModel[]
 
 export function unloadModelsJson(tool: string, file: string): void {
   stateStore.withLock(() => {
-    if (!stateStore.getState(tool, file)) return;
+    if (!stateStore.getState(tool, file)) {
+      if (readTextFile(file) !== undefined) throw new Error('No restoration record for models.json. Configuration is unchanged; remove legacy credentials manually or recover a known backup.');
+      return;
+    }
     assertNotSymlink(file);
     const { value: config, content } = readJsonSnapshot(file);
     const saved = checkedState(recoverPending(tool, file, content));
     if (!saved) return;
-    if (content !== undefined && !isDeepStrictEqual(captureModelsJsonPriors(config), saved.priors!.snapshot)) {
-      const next = revertModelsJson(config, saved.priors!.snapshot as PriorValues, saved.applied!);
+    if (content === undefined && saved.priors!.content !== null) throw new Error('models.json changed since loading: original file was deleted; restoration journal retained.');
+    if (content !== undefined) {
+      const next = isDeepStrictEqual(captureModelsJsonPriors(config), saved.priors!.snapshot)
+        ? config : revertModelsJson(config, saved.priors!.snapshot as PriorValues, saved.applied!);
       const original = saved.priors!.content as string | null;
       // 未发生额外编辑时逐字节还原，包括 CRLF、空格、字段顺序和末尾换行
       if (original !== null && isDeepStrictEqual(next, JSON.parse(original))) {
