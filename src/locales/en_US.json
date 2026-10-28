@@ -1,4 +1,9 @@
 {
+  "tool_launch_exit": "{{tool}} returned exit status {{code}}. Press Enter to return to the menu.",
+  "minimax_fetching_limits": "Fetching MiniMax model limits...",
+  "minimax_provider_start": "Running MiniMax provider setup in a temporary directory; validation may take up to 90 seconds...",
+  "minimax_provider_complete": "MiniMax provider setup finished. Validating the staged configuration...",
+  "minimax_config_applied": "MiniMax configuration applied.",
   "tool_update_command_confirm": "Run this update command for {{tool}}? {{command}}",
   "welcome": "Welcome to Coding Helper!",
   "welcome_description": "This tool helps you configure API endpoints and models for AI coding assistants.",

@@ -245,7 +245,7 @@ Use coding-helper run <tool> -- <args> to launch with connection environment var
 
 > **说明:** 工具还会设置 `API_TIMEOUT_MS`（50 分钟，适配长时间推理请求）、禁用非必要流量（第三方端点不需要 Anthropic 遥测）、禁用 commit/PR 归属标注（通过代理端点运行时标注不准确）。
 
-Claude Code 装载会先校验两个配置文件，并备份原值；卸载还原有记录的配置，保留之后的手动修改，没有装载记录时不动文件。显式切换模型会清除 /model 保存的选择和 ANTHROPIC_MODEL，卸载时还原原值。损坏 JSON、无效的 env 或文件符号链接会阻止写入。
+Claude Code 装载会先校验两个配置文件，并备份原值；卸载还原有记录的配置，保留之后的手动修改，存在配置但没有装载记录时明确报错并保持文件不变，请手动清理旧凭据或恢复已知备份。显式切换模型会清除 /model 保存的选择和 ANTHROPIC_MODEL，卸载时还原原值。损坏 JSON、无效的 env 或文件符号链接会阻止写入。
 
 ### 🔧 Codex 配置
 
@@ -324,7 +324,7 @@ OpenCode 的全局配置在 `~/.config/opencode/opencode.json`（设置了 `XDG_
 }
 ```
 
-卸载配置会还原装载前的 `qiniu` provider 和 `model`；装载前不存在的字段会被移除。只有本工具新建且还原后为空的文件才删除；原有空对象文件保留。卸载只撤销仍与最后装载值相同的字段，保留用户后续修改；没有本工具的还原记录时不删除手动配置。JSONC 与 JSON 同时存在时优先使用 JSONC；含注释、损坏或符号链接配置会明确报错，不会覆盖。provider 过滤禁止七牛，或 qiniu 的 whitelist/blacklist 排除所选模型时，需先调整过滤配置。装载后新增 JSONC 时，卸载仍还原原先记录的目标文件；切换装载目标前必须先卸载原目标。请求模型信息期间配置变化时需重试；装载后的托管字段被手动修改时，先卸载再重新装载。损坏或缺少写入快照的旧还原记录会报错，需要先从备份恢复。多个实例同时操作时会提示稍后重试；异常退出留下的 state.lock 只能在确认没有实例运行后手动移除。重载先保留已提交快照及待提交日志；进程中断后会根据文件内容确认写入是否完成，再继续还原。如果文件又被外部修改而无法判定，则保留恢复记录并报错。卸载不删除配置目录，避免破坏用户目录或目录符号链接。校验过滤时会按 config.json → opencode.json → opencode.jsonc 顺序计算实际配置；选中模型已有的 options、headers、variants 及非托管 limit 字段保留，并写入市场返回的 reasoning 能力。首次写入前的原值按配置文件路径分别记录在 `~/.coding-helper/state.json`，原文件备份在 `~/.coding-helper/backups/`，「清除 Coding Helper 配置」不会删除这两处。
+卸载配置会还原装载前的 `qiniu` provider 和 `model`；装载前不存在的字段会被移除。只有本工具新建且还原后为空的文件才删除；原有空对象文件保留。卸载只撤销仍与最后装载值相同的字段，保留用户后续修改；没有还原记录且任一全局配置（config.json、opencode.json 或 opencode.jsonc）存在时，明确报错并保留文件，请手动清理旧凭据或恢复已知备份，不会显示已移除。JSONC 与 JSON 同时存在时优先使用 JSONC；含注释、损坏或符号链接配置会明确报错，不会覆盖。provider 过滤禁止七牛，或 qiniu 的 whitelist/blacklist 排除所选模型时，需先调整过滤配置。装载后新增 JSONC 时，卸载仍还原原先记录的目标文件；切换装载目标前必须先卸载原目标。请求模型信息期间配置变化时需重试；装载后的托管字段被手动修改时，先卸载再重新装载。损坏或缺少写入快照的旧还原记录会报错，需要先从备份恢复。多个实例同时操作时会提示稍后重试；异常退出留下的 state.lock 只能在确认没有实例运行后手动移除。重载先保留已提交快照及待提交日志；进程中断后会根据文件内容确认写入是否完成，再继续还原。如果文件又被外部修改而无法判定，则保留恢复记录并报错。卸载不删除配置目录，避免破坏用户目录或目录符号链接。校验过滤时会按 config.json → opencode.json → opencode.jsonc 顺序计算实际配置；选中模型已有的 options、headers、variants 及非托管 limit 字段保留，并写入市场返回的 reasoning 能力。首次写入前的原值按配置文件路径分别记录在 `~/.coding-helper/state.json`，原文件备份在 `~/.coding-helper/backups/`，「清除 Coding Helper 配置」不会删除这两处。
 
 ---
 

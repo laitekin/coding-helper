@@ -232,7 +232,7 @@ test('OpenCode: unloading preserves managed fields subsequently changed by the u
 test('OpenCode: unload without restoration state does not delete a user-owned Qiniu provider', () => {
   const original = { model: 'qiniu/user-model', provider: { qiniu: { options: { baseURL: QINIU }, models: { custom: {} } } } };
   const file = freshConfig('unmanaged-qiniu', original);
-  new OpenCodeTool().unloadConfig();
+  assert.throws(() => new OpenCodeTool().unloadConfig(), /No restoration record.*Configuration is unchanged/);
   assert.deepEqual(json(file), original);
 });
 
@@ -268,7 +268,7 @@ test('OpenCode: empty existing files and provider containers round trip', async 
     await tool.loadConfig('fake', QINIU, MODELS);
     await tool.loadConfig('fake2', QINIU, { defaultModel: 'second-model' });
     tool.unloadConfig();
-    tool.unloadConfig();
+    assert.throws(() => tool.unloadConfig(), /No restoration record/);
     assert.deepEqual(json(file), original);
   }
 });
@@ -690,4 +690,23 @@ test('OpenCode: ambiguous post-rename edits preserve the pending journal',async(
   fs.renameSync=(from,to)=>{const result=rename(from,to);if(to===file&&once){once=false;const current=json(file);current.theme='edited';write(file,JSON.stringify(current));throw Error('post rename failure');}return result;};
   try{await assert.rejects(new OpenCodeTool().loadConfig('fake',QINIU,MODELS),/post rename failure/);}finally{fs.renameSync=rename;}
   assert.ok(stateStore.getState('opencode',file).pending);assert.equal(json(file).theme,'edited');assert.throws(()=>new OpenCodeTool().unloadConfig(),/journal retained/);
+});
+
+test('OpenCode: unmanaged global JSON, JSONC and legacy files produce recovery errors', () => {
+  for(const name of ['opencode.json','opencode.jsonc','config.json']) {
+    const file=freshConfig('unmanaged-global-'+name);fs.rmSync(file);
+    const target=path.join(path.dirname(file),name);const content='{ "provider": { "qiniu": { "options": { "apiKey": "legacy" } } } }';write(target,content);
+    assert.throws(()=>new OpenCodeTool().unloadConfig(),/No restoration record.*Configuration is unchanged/);
+    assert.equal(fs.readFileSync(target,'utf8'),content);
+  }
+  const file=freshConfig('unmanaged-missing');fs.rmSync(file);
+  assert.doesNotThrow(()=>new OpenCodeTool().unloadConfig());
+});
+test('OpenCode: menu reports unchanged legacy credentials without success', async () => {
+  const file=freshConfig('unmanaged-menu',{provider:{qiniu:{options:{apiKey:'legacy'}}}});const before=fs.readFileSync(file,'utf8');
+  const {unloadToolConfig}=await import('../dist/lib/wizard/menus/tool-menu.js');const {promptHelper}=await import('../dist/lib/wizard/ui/prompt-helper.js');const {uiRenderer}=await import('../dist/lib/wizard/ui/ui-renderer.js');
+  const oldConfirm=promptHelper.confirm,oldEnter=promptHelper.pressEnter;const names=['renderHeader','renderSuccess','renderError'];const old=Object.fromEntries(names.map(n=>[n,uiRenderer[n]]));const messages=[];
+  for(const n of names)uiRenderer[n]=(...args)=>messages.push([n,...args]);promptHelper.confirm=async()=>true;promptHelper.pressEnter=async()=>{};
+  try {await unloadToolConfig(new OpenCodeTool());assert.equal(messages.some(([kind])=>kind==='renderSuccess'),false);assert.ok(messages.some(([kind,text])=>kind==='renderError'&&text.includes('Configuration is unchanged')));assert.equal(fs.readFileSync(file,'utf8'),before);}
+  finally{Object.assign(uiRenderer,old);promptHelper.confirm=oldConfirm;promptHelper.pressEnter=oldEnter;}
 });

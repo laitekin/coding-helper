@@ -280,8 +280,17 @@ export class OpenCodeTool extends OpenAICompatTool {
       assertNotSymlink(file);
       const { value: config, content: before } = readJsonSnapshot(file);
       const saved = recoverPending(file, recorded, before);
-      // 域名相同不意味着用户配置归本工具所有；没有记录就不删除
-      if (!saved) return;
+      // 已确认初次写入未发生的 pending 可以正常结束；无记录的既有配置必须明确提示。
+      if (!saved) {
+        if (recorded?.pending) return;
+        const candidates = [path.join(path.dirname(file), 'config.json'), ...getOpenCodeConfigFiles()];
+        const exists = candidates.some(candidate => {
+          try { fs.lstatSync(candidate); return true; }
+          catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false; throw error; }
+        });
+        if (exists) throw new Error('No restoration record for OpenCode. Configuration is unchanged; remove legacy credentials manually or recover a known backup.');
+        return;
+      }
       if (!isRecord(saved.priors?.snapshot) || !isRecord(saved.applied)) {
         throw new Error('OpenCode restoration state lacks a managed snapshot. Restore from backup before unloading.');
       }

@@ -291,8 +291,17 @@ async function applyConfig(tool: ITool): Promise<void> {
 }
 
 // 启动工具
-async function launchTool(tool: ITool): Promise<void> {
-  if (tool.launchOnly) { await runCommand(tool.name, []); return; }
+export async function launchTool(tool: ITool): Promise<void> {
+  if (tool.launchOnly) {
+    const previousExitCode = process.exitCode;
+    try {
+      process.exitCode = undefined;
+      await runCommand(tool.name, []);
+      if (process.exitCode) uiRenderer.renderError(t('tool_launch_exit', { tool: tool.displayName, code: String(process.exitCode) }));
+    } finally { process.exitCode = previousExitCode; }
+    await promptHelper.pressEnter();
+    return;
+  }
   const installed = tool.isInstalled();
   // null 表示无法检测（桌面应用），视为已安装
   if (installed === false) {
