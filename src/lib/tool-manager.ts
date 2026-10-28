@@ -10,8 +10,9 @@ import { OpenClawTool } from './tools/openclaw-tool.js';
 import { HermesTool } from './tools/hermes-tool.js';
 import { DroidTool } from './tools/droid-tool.js';
 
-import { CopilotTool } from './tools/copilot-tool.js';
 import { MinimaxCodeTool } from './tools/minimax-code-tool.js';
+
+import { CopilotTool } from './tools/copilot-tool.js';
 import { OpenCodeTool } from './tools/opencode-tool.js';
 
 // 工具注册中心
@@ -19,8 +20,8 @@ class ToolManager {
   private tools: Map<string, ITool> = new Map();
 
   constructor() {
-    this.register(new CopilotTool());
     this.register(new MinimaxCodeTool());
+    this.register(new CopilotTool());
     // 注册默认工具
     this.register(new ClaudeCodeTool());
     this.register(new QwenCodeTool());
