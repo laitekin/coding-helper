@@ -171,3 +171,9 @@ test('partial load rollback reconciles each successful rollback independently', 
   finally { stateStore.setState = set; fs.renameSync = rename; }
   tool.unloadConfig(); assert.equal(read(settings), '{}'); assert.equal(read(onboarding), '{}');
 });
+
+test('default mode preserves both model overrides and explicit switching restores them',async()=>{
+  const original='{"model":"user/model","env":{"ANTHROPIC_MODEL":"user/env-model"}}';reset(original,'{}');
+  await load({claudeCode:{useDefaultModels:true}});assert.equal(JSON.parse(read(settings)).env.ANTHROPIC_MODEL,'user/env-model');
+  await load();assert.equal(JSON.parse(read(settings)).env.ANTHROPIC_MODEL,undefined);tool.unloadConfig();assert.equal(read(settings),original);
+});
