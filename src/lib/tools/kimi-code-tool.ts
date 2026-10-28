@@ -52,12 +52,20 @@ export function applyKimiConfig(
   return normalizeToml(body ? `${body}\n\n${tables}` : tables);
 }
 
+// 官方安装脚本自带运行时，兼容本项目支持的 Node 18+。
+// https://www.kimi.com/en/help/kimi-code/cli-getting-started
+export function getKimiInstallCommand(platform: NodeJS.Platform = process.platform): string {
+  return platform === 'win32'
+    ? "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$ErrorActionPreference = 'Stop'; irm https://code.kimi.com/kimi-code/install.ps1 | iex\""
+    : 'bash -o pipefail -c "curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash"';
+}
+
 export class KimiCodeTool extends OpenAICompatTool {
   name = 'kimi-code';
   displayName = 'Kimi Code CLI';
   command = 'kimi';
-  installCommand = 'npm install -g @moonshot-ai/kimi-code';
-  updateCommand = 'npm install -g @moonshot-ai/kimi-code@latest';
+  installCommand = getKimiInstallCommand();
+  updateCommand = this.installCommand;
   npmPackageName = '@moonshot-ai/kimi-code';
   aliases = ['kimi'];
 
