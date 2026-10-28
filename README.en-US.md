@@ -229,29 +229,11 @@ When configuration is applied, these environment variables are set in `~/.claude
 
 > **Note:** The tool also sets `API_TIMEOUT_MS` (50 min, for long inference requests), disables non-essential traffic (telemetry not needed for third-party endpoints), and disables commit/PR attribution (inaccurate via proxy endpoints).
 
+Claude Code loading now backs up and validates both configuration files before writing. Unload restores recorded originals, preserves subsequent user edits, and leaves files without a load record untouched. Explicit model selection clears the saved /model override and ANTHROPIC_MODEL; unloading restores their original values. Invalid JSON, malformed env, and file symlinks block writes.
+
 ### 🔧 Codex Configuration
 
-When Codex configuration is applied, Coding Helper first backs up an existing `~/.codex/config.toml` and `~/.codex/model-catalogs/qnaigc.json` to timestamped `.bak-fenno-*` files and prints every backup path. It then replaces `config.toml` with the Qiniu Codex configuration to avoid conflicts with existing settings; unloading does not automatically restore the backup, so restore it manually using the printed path. The API Key is stored in Codex's own `~/.codex/auth.json` auth cache. It does not rely on a `QINIU_API_KEY` shell environment variable.
-
-It also writes the GPT model catalog maintained by Coding Helper to `~/.codex/model-catalogs/qnaigc.json` and loads it through `model_catalog_json`. The catalog includes only Qiniu-supported `openai/gpt*` models together with their context metadata.
-
-The managed Codex profile uses the Qiniu OpenAI-compatible bypass endpoint:
-
-```toml
-model_provider = "qnaigc"
-
-[model_providers.qnaigc]
-name = "Qiniu"
-base_url = "https://api.qnaigc.com/bypass/openai/v1"
-requires_openai_auth = true
-wire_api = "responses"
-
-[profiles.qn-gpt]
-model_provider = "qnaigc"
-model = "<selected-model>"
-```
-
-Treat `~/.codex/auth.json` like a password because it contains API credentials.
+Codex uses a shared transaction for config.toml, auth.json and the model catalog. MCP, sandbox options and other providers are preserved. Originals are backed up and restored byte-for-byte on unload; external edits block replacement. Selected non-GPT models receive catalog metadata alongside the built-in GPT entries. The existing qn-gpt profile remains; this layer adds no multi-profile or model-slot features.
 
 ### 🔧 CodeBuddy Configuration
 
@@ -282,7 +264,7 @@ The configuration flow lets you multi-select models from the Qiniu model market 
 Behavior worth knowing:
 
 - **Non-Qiniu entries are preserved.** Models with a different `vendor` and any other top-level fields you added manually (e.g. UI preferences) are kept untouched on every load/unload.
-- **Unload only removes Qiniu models.** `auth reload` overwrites the Qiniu entries; the unload action removes them but leaves other vendors intact.
+- **Unload restores the recorded original.** Unchanged configurations return byte-for-byte to their original content, including pre-existing Qiniu models. Without a load record, unload leaves the file alone. Changes to managed arrays block reload/unload rather than overwrite user edits; recover those arrays from the backup first. Unrelated top-level edits are preserved.
 - **Stale model IDs are surfaced.** If a previously selected model has been delisted from the Qiniu market, partially missing IDs trigger a warning and only the still-available models are written; if *all* selected IDs have been delisted, the load fails fast and no file changes are made — reconfigure your model selection and retry.
 
 Treat `~/.codebuddy/models.json` like a password because the API Key is stored in plaintext.
@@ -291,7 +273,7 @@ Treat `~/.codebuddy/models.json` like a password because the API Key is stored i
 
 WorkBuddy stores its configuration in `~/.workbuddy/models.json`. It is completely independent from CodeBuddy.
 
-The configuration flow is identical to CodeBuddy — you multi-select models from the Qiniu model market and they are written to the WorkBuddy-specific config file with the same JSON structure. All the same behavior rules apply (non-Qiniu entries preserved, unload only removes Qiniu models, stale model IDs surfaced).
+The configuration flow is identical to CodeBuddy — you multi-select models from the Qiniu model market and they are written to the WorkBuddy-specific config file with the same JSON structure. All the same behavior rules apply (non-Qiniu entries preserved, recorded originals restored on unload, stale model IDs surfaced).
 
 Treat `~/.workbuddy/models.json` like a password because the API Key is stored in plaintext.
 
@@ -395,3 +377,5 @@ pnpm test
 ## 📄 License
 
 This project is licensed under the [AGPL-3.0](LICENSE) License.
+
+Hermes uses shared YAML editing and guarded transactions. Comments are preserved; unloading restores original bytes. External edits block replacement and retain recovery state; restore the backup before retrying.
