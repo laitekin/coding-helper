@@ -9,3 +9,8 @@ test('Codex deleted original blocks unload and keeps the restoration record',asy
   fs.rmSync(config);await assert.rejects(tool.unloadConfig(),/changed/);assert.deepEqual(stateStore.getFileStates(tool.name),states);
   fs.writeFileSync(config,applied);await tool.unloadConfig();assert.equal(fs.readFileSync(config,'utf8'),'model = "original"\n');
 });
+
+test('Codex legacy uninstall refuses unchanged credentials without restoration state',async()=>{
+ const {stateStore}=await import('../dist/lib/core/state-store.js');stateStore.clear();const original='model_provider = "qnaigc"\n[model_providers.qnaigc]\nbase_url = "https://api.qnaigc.com"\n';fs.writeFileSync(config,original);fs.writeFileSync(auth,'{"OPENAI_API_KEY":"legacy-key"}');
+ await assert.rejects(tool.unloadConfig(),/No restoration record.*unchanged/);assert.equal(fs.readFileSync(config,'utf8'),original);assert.equal(fs.readFileSync(auth,'utf8'),'{"OPENAI_API_KEY":"legacy-key"}');
+});
