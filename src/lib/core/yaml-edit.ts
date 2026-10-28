@@ -1,11 +1,12 @@
-import { isAlias, isMap, isScalar, parseDocument, visit, type Document } from 'yaml';
+import { isAlias, isCollection, isMap, isNode, isScalar, parseDocument, visit, type Document } from 'yaml';
 
 // 保留文档节点上的注释和引号；损坏或非映射配置不能当作空对象覆盖
 export function parseYamlDocument(content: string): Document {
-  const doc: Document = parseDocument(content);
+  const doc: Document = parseDocument(content, { intAsBigInt: true, customTags: ['binary', 'timestamp'] });
   if (doc.errors.length) throw doc.errors[0];
   // Editing an anchor also changes its aliases, including unrelated fields.
   visit(doc, { Node(_key, node) {
+    if (isScalar(node) && typeof node.value === 'bigint' && node.value <= BigInt(Number.MAX_SAFE_INTEGER) && node.value >= BigInt(Number.MIN_SAFE_INTEGER)) node.value = Number(node.value);
     if (isAlias(node) || ('anchor' in node && node.anchor)) throw new Error('YAML anchors and aliases are not supported for safe editing.');
   } });
   if (!doc.contents) doc.contents = doc.createNode({});
@@ -21,14 +22,19 @@ export function setYamlValue(doc: Document, keys: string[], value: unknown): voi
     else if (!isMap(doc.getIn(parent, true))) throw new Error('YAML parent must be a mapping: ' + parent.join('.'));
   }
   const node = doc.getIn(keys, true);
-  if (isScalar(node) && (value === null || typeof value !== 'object')) node.value = value;
-  else doc.setIn(keys, doc.createNode(value));
+  const next = doc.createNode(value);
+  if (isNode(node)) {
+    next.comment = node.comment;
+    next.commentBefore = node.commentBefore;
+    next.spaceBefore = node.spaceBefore;
+    if (isScalar(node) && isScalar(next) && typeof node.value === 'string' && typeof value === 'string') next.type = node.type;
+  }
+  doc.setIn(keys, next);
 }
 
 export function getYamlValue(doc: Document, keys: string[]): unknown {
-  const value = doc.getIn(keys);
-  return value && typeof value === 'object' && 'toJSON' in value
-    ? (value as { toJSON(): unknown }).toJSON() : value;
+  const node = doc.getIn(keys, true);
+  return isScalar(node) ? node.value : isCollection(node) ? node.toJS(doc) : node;
 }
 
 export function deleteYamlValue(doc: Document, keys: string[]): void {
