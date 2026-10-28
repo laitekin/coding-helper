@@ -1,5 +1,6 @@
 import { logger } from '../../utils/logger.js';
-import { execFileSync } from 'node:child_process';
+import spawn from 'cross-spawn';
+import { findCommand } from '../../utils/find-command.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -47,12 +48,13 @@ export class MinimaxCodeTool extends OpenAICompatTool {
       fs.writeFileSync(path.join(stage, 'config.yaml'), String(staged), { mode: 0o600 });
       try {
         logger.info(t('minimax_provider_start'));
-        execFileSync(this.command, ['provider', 'add', '--name', 'qiniu', '--base-url', openAIBaseUrl(baseUrl),
+        const result = spawn.sync(findCommand(this.command, this.searchPaths) ?? this.command, ['provider', 'add', '--name', 'qiniu', '--base-url', openAIBaseUrl(baseUrl),
           '--api-format', 'openai-completions', '--model', model, '--api-key-env', 'QINIU_API_KEY',
           '--context-limit', String(limits.contextWindow), '--output-limit', String(limits.maxOutputTokens), '--use'], {
           env: { ...process.env, MINIMAX_DATA_DIR: stage, MAVIS_DATA_DIR: stage, QINIU_API_KEY: apiKey },
           stdio: 'pipe', encoding: 'utf8', timeout: 90000,
         });
+        if (result.error || result.status !== 0) throw new Error('Provider command failed.');
         logger.info(t('minimax_provider_complete'));
       } catch {
         // 不转发子进程原始输出，避免命令错误信息泄露 Key
