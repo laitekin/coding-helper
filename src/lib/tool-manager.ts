@@ -1,6 +1,8 @@
 import type { ITool } from './tools/base-tool.js';
 import { ClaudeCodeTool } from './tools/claude-code-tool.js';
+import { QwenCodeTool } from './tools/qwen-code-tool.js';
 import { CodexTool } from './tools/codex-tool.js';
+import { KimiCodeTool } from './tools/kimi-code-tool.js';
 import { CodeBuddyTool } from './tools/codebuddy-tool.js';
 import { GrokTool } from './tools/grok-tool.js';
 import { WorkBuddyTool } from './tools/workbuddy-tool.js';
@@ -13,7 +15,9 @@ class ToolManager {
   constructor() {
     // 注册默认工具
     this.register(new ClaudeCodeTool());
+    this.register(new QwenCodeTool());
     this.register(new CodexTool());
+    this.register(new KimiCodeTool());
     this.register(new CodeBuddyTool());
     this.register(new GrokTool());
     this.register(new WorkBuddyTool());
