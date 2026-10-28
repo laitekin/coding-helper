@@ -180,5 +180,7 @@
 
   "auth_reload_usage": "用法: coding-helper auth reload <tool>",
   "auth_reload_tools": "可用工具: {{tools}}",
-  "auth_unknown_tool": "未知工具: {{tool}}"
+  "auth_unknown_tool": "未知工具: {{tool}}",
+  "kimi_legacy_cli": "检测到旧版 kimi-cli {{version}}（读取 ~/.kimi），请改装新版 Kimi Code：{{command}}",
+  "minimax_provider_add_failed": "mcode provider add 失败：{{error}}"
 }

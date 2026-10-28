@@ -18,9 +18,13 @@
 
 | 工具 | 类型 | 写入的配置 |
 |------|------|------------|
+| MiniMax Code | CLI | [配置说明 / Configuration](docs/tools/minimax-code.md) |
 | Claude Code | CLI | `~/.claude/settings.json`、`~/.claude.json` |
+| Qwen Code | CLI | [配置说明 / Configuration](docs/tools/qwen-code.md) |
 | Codex | CLI | `~/.codex/config.toml`、`~/.codex/auth.json` |
+| Kimi Code CLI | CLI | [配置说明 / Configuration](docs/tools/kimi-code.md) |
 | CodeBuddy | CLI | `~/.codebuddy/models.json` |
+| Grok CLI | CLI | [配置说明 / Configuration](docs/tools/grok.md) |
 | WorkBuddy | 桌面应用 | `~/.workbuddy/models.json` |
 | Hermes Agent | CLI | `~/.hermes/config.yaml` |
 | Factory Droid | CLI | [配置说明 / Configuration](docs/tools/droid.md) |
@@ -229,29 +233,11 @@ npx qiniu-coding-helper enter hermes
 
 > **说明:** 工具还会设置 `API_TIMEOUT_MS`（50 分钟，适配长时间推理请求）、禁用非必要流量（第三方端点不需要 Anthropic 遥测）、禁用 commit/PR 归属标注（通过代理端点运行时标注不准确）。
 
+Claude Code 装载会先校验两个配置文件，并备份原值；卸载还原有记录的配置，保留之后的手动修改，没有装载记录时不动文件。显式切换模型会清除 /model 保存的选择和 ANTHROPIC_MODEL，卸载时还原原值。损坏 JSON、无效的 env 或文件符号链接会阻止写入。
+
 ### 🔧 Codex 配置
 
-配置应用后，Coding Helper 会先将已有的 `~/.codex/config.toml` 和 `~/.codex/model-catalogs/qnaigc.json` 备份为带时间戳的 `.bak-fenno-*` 文件，并在终端显示每个备份路径。随后会用七牛 Codex 配置完整覆盖 `config.toml`，避免与客户原配置冲突；卸载时不会自动恢复备份，请按提示路径手动恢复。API Key 会写入 Codex 自己的 `~/.codex/auth.json` 认证缓存。它不依赖 `QINIU_API_KEY` shell 环境变量。
-
-同时会在 `~/.codex/model-catalogs/qnaigc.json` 写入维护在 Coding Helper 中的七牛 GPT 模型目录，并通过 `model_catalog_json` 配置项加载。目录只包含七牛支持的 `openai/gpt*` 模型及其上下文元数据。
-
-托管的 Codex profile 使用七牛 OpenAI 兼容 bypass 端点：
-
-```toml
-model_provider = "qnaigc"
-
-[model_providers.qnaigc]
-name = "Qiniu"
-base_url = "https://api.qnaigc.com/bypass/openai/v1"
-requires_openai_auth = true
-wire_api = "responses"
-
-[profiles.qn-gpt]
-model_provider = "qnaigc"
-model = "<selected-model>"
-```
-
-请将 `~/.codex/auth.json` 视为密码文件，因为其中包含 API 凭证。
+Codex 使用共享事务写入 config.toml、auth.json 和模型目录，保留 MCP、沙箱设置及其他 provider。首次装载前备份原文件，卸载按记录逐字节还原；有外部修改时停止，避免覆盖。除内置 GPT 目录外，也为选中的非 GPT 模型生成能力元数据。原有 qn-gpt profile 保留，本层不新增多配置档或模型槽位。
 
 ### 🔧 CodeBuddy 配置
 
@@ -281,8 +267,8 @@ CodeBuddy 是一个 CLI 工具，配置保存在 `~/.codebuddy/models.json`。
 
 需要了解的行为：
 
-- **保留非七牛条目。** `vendor` 不是 `Qiniu` 的模型，以及你手动添加在 `models.json` 顶层的其他字段（如 UI 偏好），在每次装载/卸载时都会被原样保留。
-- **卸载只移除七牛模型。** `auth reload` 会覆盖七牛条目；卸载会清掉它们，但其他厂商条目不会动。
+- **保留非七牛条目。** 其他供应商模型和自定义顶层字段保留原值与顺序。
+- **卸载还原原配置。** 没有额外编辑时逐字节还原，包括原有七牛模型；没有装载记录时不动文件。托管数组被修改后会拒绝重载/卸载，请先从备份恢复这些数组。其他顶层字段的后续编辑会保留。
 - **失效模型 ID 会被显式提示。** 若先前选过的模型被市场下架，部分缺失会触发警告，仅写入仍然存在的模型；若全部下架则直接报错并保持文件不变 — 请重新选择模型后再试。
 
 请将 `~/.codebuddy/models.json` 视为密码文件，因为其中以明文形式保存了 API Key。
@@ -393,3 +379,5 @@ pnpm test
 ## 📄 License
 
 本项目基于 [AGPL-3.0](LICENSE) 协议开源。
+
+Hermes 配置通过共享 YAML 编辑和事务层写入，保留注释；卸载逐字节还原。装载后有外部修改时停止并保留恢复记录，请先恢复备份后重试。
