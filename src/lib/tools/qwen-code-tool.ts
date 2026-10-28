@@ -3,7 +3,7 @@ import path from 'node:path';
 import type { ModelConfig } from '../config.js';
 import { isQiniuBaseUrl } from '../endpoints.js';
 import { readTextFile, formatJsonLike } from '../core/safe-write.js';
-import { applyConfigEdits, restoreConfigEdits, parseConfigObject } from '../core/config-transaction.js';
+import { applyConfigEdits, parseConfigObject } from '../core/config-transaction.js';
 import { OpenAICompatTool, fetchModelLimits, getPath, isRecord, openAIBaseUrl, setPath } from './openai-compat-tool.js';
 import { setDotenvValue } from '../core/dotenv-edit.js';
 // Key 只写进 ~/.qwen/.env，settings.json 里用 envKey 引用，不存明文
@@ -125,5 +125,5 @@ export class QwenCodeTool extends OpenAICompatTool {
       { file: this.envFile(), build: content => setDotenvValue(content ?? '', QWEN_ENV_KEY, apiKey) },
     ]);
   }
-  unloadConfig(): void { restoreConfigEdits(this.name, [this.settingsFile(), this.envFile()]); }
+  unloadConfig(): void { this.restoreManagedConfig([this.settingsFile(), this.envFile()]); }
 }
