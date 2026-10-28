@@ -53,3 +53,15 @@ test('OpenClaw respects explicit paths and never silently edits the default for 
     assert.equal(getOpenClawConfigFile(), path.join(home, 'other-home/.openclaw/openclaw.json'));
   } finally { for (const key of keys) delete process.env[key]; }
 });
+
+test('OpenClaw expands home override tilde against real user home before dependent paths',async()=>{
+ const keys=['OPENCLAW_HOME','OPENCLAW_STATE_DIR','OPENCLAW_CONFIG_PATH'];
+ try{
+  for(const value of ['~','~/custom-home']){
+   process.env.OPENCLAW_HOME=value;const effective=value==='~'?home:path.join(home,'custom-home');const expected=path.join(effective,'.openclaw/openclaw.json');assert.equal(getOpenClawConfigFile(),expected);
+   write(expected,'{"original":true}');await load();assert.equal(JSON.parse(read(expected)).agents.defaults.model.primary,'qiniu/test/model');await tool.unloadConfig();assert.equal(read(expected),'{"original":true}');
+   process.env.OPENCLAW_STATE_DIR='~/state';assert.equal(getOpenClawConfigFile(),path.join(effective,'state/openclaw.json'));
+   process.env.OPENCLAW_CONFIG_PATH='~/chosen.json';assert.equal(getOpenClawConfigFile(),path.join(effective,'chosen.json'));delete process.env.OPENCLAW_STATE_DIR;delete process.env.OPENCLAW_CONFIG_PATH;
+  }
+ }finally{for(const key of keys)delete process.env[key];}
+});
