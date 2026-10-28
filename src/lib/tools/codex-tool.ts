@@ -82,7 +82,12 @@ export class CodexTool implements ITool {
     };
   }
 
-  clearModelConfig(): void { restoreConfigEdits(this.name, [CODEX_CONFIG_FILE, CODEX_AUTH_FILE, CODEX_CATALOG_FILE]); }
+  clearModelConfig(): void {
+    const files = [CODEX_CONFIG_FILE, CODEX_AUTH_FILE, CODEX_CATALOG_FILE];
+    if (!restoreConfigEdits(this.name, files) && files.some(file => fs.existsSync(file))) {
+      throw new Error('No restoration record for Codex. Configuration is unchanged; remove legacy credentials manually or recover a known backup.');
+    }
+  }
 
   async loadConfig(apiKey: string, baseUrl: string, models: ModelConfig): Promise<void> {
     const model = models.codexModel || this.defaultModel;

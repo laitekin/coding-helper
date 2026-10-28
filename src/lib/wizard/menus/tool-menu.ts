@@ -101,25 +101,9 @@ export async function showToolMenu(tool: ITool): Promise<void> {
         await loadConfig(tool);
         break;
 
-      case 'unload': {
-        // 清屏后二次确认
-        uiRenderer.renderHeader();
-        const confirmed = await promptHelper.confirm(
-          t('tool_config_unload_confirm', { tool: tool.displayName }),
-        );
-        if (confirmed) {
-          try {
-            await tool.unloadConfig();
-            uiRenderer.renderHeader();
-            uiRenderer.renderSuccess(t('tool_config_unloaded', { tool: tool.displayName }));
-          } catch {
-            uiRenderer.renderHeader();
-            uiRenderer.renderError(t('tool_config_unload_failed', { tool: tool.displayName }));
-          }
-          await promptHelper.pressEnter();
-        }
+      case 'unload':
+        await unloadToolConfig(tool);
         break;
-      }
 
       case 'launch':
         await launchTool(tool);
@@ -144,6 +128,22 @@ export async function showToolMenu(tool: ITool): Promise<void> {
         return;
     }
   }
+}
+
+// 卸载错误包含恢复操作指引，必须展示，不能只显示通用失败。
+export async function unloadToolConfig(tool: ITool): Promise<void> {
+  uiRenderer.renderHeader();
+  if (!await promptHelper.confirm(t('tool_config_unload_confirm', { tool: tool.displayName }))) return;
+  try {
+    await tool.unloadConfig();
+    uiRenderer.renderHeader();
+    uiRenderer.renderSuccess(t('tool_config_unloaded', { tool: tool.displayName }));
+  } catch (error: unknown) {
+    uiRenderer.renderHeader();
+    uiRenderer.renderError(t('tool_config_unload_failed', { tool: tool.displayName }));
+    if (error instanceof Error && error.message) uiRenderer.renderError(error.message);
+  }
+  await promptHelper.pressEnter();
 }
 
 export function isLatestVersionFetchPending(state: {
@@ -320,7 +320,7 @@ async function launchTool(tool: ITool): Promise<void> {
 }
 
 // 更新工具
-async function updateTool(tool: ITool): Promise<void> {
+export async function updateTool(tool: ITool): Promise<void> {
   // 桌面应用特殊处理：提示手动更新
   if (tool.isInstalled() === null) {
     uiRenderer.renderHint(t('tool_desktop_update_hint', {
@@ -345,13 +345,16 @@ async function updateTool(tool: ITool): Promise<void> {
     return;
   }
 
-  // 有版本信息时，提示确认
-  if (currentVersion && latest) {
-    const confirmed = await promptHelper.confirm(
-      t('tool_update_confirm', { tool: tool.displayName, current: currentVersion, latest }),
-    );
-    if (!confirmed) return;
-  }
+  // 无版本信息或安装脚本也须展示命令并确认，默认不执行。
+  const command = tool.updateCommand ?? tool.installCommand;
+  uiRenderer.renderHint(command);
+  const confirmed = await promptHelper.confirm(
+    currentVersion && latest
+      ? t('tool_update_confirm', { tool: tool.displayName, current: currentVersion, latest })
+      : t('tool_update_command_confirm', { tool: tool.displayName, command }),
+    false,
+  );
+  if (!confirmed) return;
 
   logger.info(t('tool_updating', { tool: tool.displayName }));
   const { execSync } = await import('node:child_process');
