@@ -10,8 +10,10 @@ const PROVIDER_ID = 'qiniu';
 const PRIMARY_PATH = 'agents.defaults.model.primary';
 
 export function getOpenClawConfigFile(): string {
-  const home = process.env.OPENCLAW_HOME?.trim() || os.homedir();
-  const resolve = (value: string): string => path.resolve(value === '~' ? home : value.startsWith('~/') ? path.join(home, value.slice(2)) : value);
+  const userHome = os.homedir();
+  const expand = (value: string, home: string): string => path.resolve(value === '~' ? home : value.startsWith('~/') || value.startsWith('~\\') ? path.join(home, value.slice(2)) : value);
+  const home = expand(process.env.OPENCLAW_HOME?.trim() || userHome, userHome);
+  const resolve = (value: string): string => expand(value, home);
   const explicit = process.env.OPENCLAW_CONFIG_PATH?.trim();
   if (explicit) return resolve(explicit);
   const state = process.env.OPENCLAW_STATE_DIR?.trim();
