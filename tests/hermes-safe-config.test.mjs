@@ -13,3 +13,19 @@ test('Hermes tightens existing directory and unchanged file permissions',async()
   fs.chmodSync(path.dirname(file),0o755);fs.chmodSync(file,0o644);await tool.loadConfig('key','https://api.qnaigc.com',{hermesModel:'test/model'});
   assert.equal(fs.statSync(path.dirname(file)).mode&0o777,0o700);assert.equal(fs.statSync(file).mode&0o777,0o600);await tool.unloadConfig();
 });
+
+test('Hermes refuses to snapshot legacy Qiniu credentials as user originals before reload', async () => {
+  const {stateStore}=await import('../dist/lib/core/state-store.js');stateStore.clear();
+  for(const endpoint of ['https://api.qnaigc.com/v1','https://api.modelink.ai/v1','https://openai.qiniu.com/v1']) {
+    const original='model: {provider: custom, default: old, base_url: "'+endpoint+'", api_key: legacy-key}\n';
+    fs.writeFileSync(file,original);
+    await assert.rejects(tool.loadConfig('new-key','https://api.qnaigc.com',{hermesModel:'test/model'}),/Legacy Hermes.*Configuration is unchanged.*before loading/);
+    assert.equal(fs.readFileSync(file,'utf8'),original);assert.equal(stateStore.getFileStates('hermes').length,0);
+    await assert.rejects(tool.unloadConfig(),/No restoration record/);
+    assert.equal(fs.readFileSync(file,'utf8'),original);
+  }
+  fs.writeFileSync(file,'# manually recovered\nmodel: {provider: original}\n');
+  await tool.loadConfig('new-key','https://api.qnaigc.com',{hermesModel:'test/model'});
+  await tool.loadConfig('next-key','https://api.qnaigc.com',{hermesModel:'test/model'});
+  await tool.unloadConfig();assert.equal(fs.readFileSync(file,'utf8'),'# manually recovered\nmodel: {provider: original}\n');
+});
