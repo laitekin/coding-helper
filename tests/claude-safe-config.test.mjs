@@ -40,6 +40,25 @@ test('unload without a record preserves even Qiniu-owned-looking values', () => 
   reset(original, '{}'); assert.throws(() => tool.unloadConfig(), /No restoration record.*Configuration is unchanged/); assert.equal(read(settings), original);
 });
 
+for (const endpoint of ['https://api.qnaigc.com', 'https://api.modelink.ai/v1', 'https://openai.qiniu.com/']) {
+  test('Claude refuses to snapshot unrecorded legacy credentials: ' + endpoint, async () => {
+    const original = JSON.stringify({env:{ANTHROPIC_BASE_URL:endpoint,ANTHROPIC_AUTH_TOKEN:'legacy-key'}});
+    const other = '{"hasCompletedOnboarding":true,"project":1}';
+    reset(original, other);
+    await assert.rejects(load(), /Legacy Claude credentials.*Configuration is unchanged/);
+    assert.equal(read(settings), original); assert.equal(read(onboarding), other);
+    assert.equal(stateStore.getState(tool.name,settings), undefined);
+    assert.equal(stateStore.getState(tool.name,onboarding), undefined);
+    write(settings, '{}'); await load(); tool.unloadConfig();
+    assert.equal(read(settings), '{}'); assert.equal(read(onboarding), other);
+  });
+}
+
+test('Claude preserves a pre-existing non-Qiniu provider through load and unload', async () => {
+  const original = '{"env":{"ANTHROPIC_BASE_URL":"https://example.com","ANTHROPIC_AUTH_TOKEN":"user-key"}}';
+  reset(original, '{}'); await load(); tool.unloadConfig(); assert.equal(read(settings), original);
+});
+
 for (const [a, b] of [['{broken','{}'], ['{}','{broken'], ['{"env":null}','{}'], ['{"env":[]}','{}']]) {
   test('invalid config causes no partial write: ' + a + ' / ' + b, async () => {
     reset(a, b); await assert.rejects(load()); assert.equal(read(settings), a); assert.equal(read(onboarding), b);

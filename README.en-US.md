@@ -230,7 +230,7 @@ When configuration is applied, these environment variables are set in `~/.claude
 
 > **Note:** The tool also sets `API_TIMEOUT_MS` (50 min, for long inference requests), disables non-essential traffic (telemetry not needed for third-party endpoints), and disables commit/PR attribution (inaccurate via proxy endpoints).
 
-Claude Code loading now backs up and validates both configuration files before writing. Unload restores recorded originals, preserves subsequent user edits, and leaves files without a load record untouched. Explicit model selection clears the saved /model override and ANTHROPIC_MODEL; unloading restores their original values. Invalid JSON, malformed env, and file symlinks block writes.
+Claude Code loading now backs up and validates both configuration files before writing. Unload restores recorded originals, preserves subsequent user edits, and reports an actionable error without changing existing files that have no load record. Loading also rejects unrecorded legacy Qiniu credentials so unloading cannot restore an old key as an original; remove those credentials manually or recover a known backup before retrying. Explicit model selection clears the saved /model override and ANTHROPIC_MODEL; unloading restores their original values. Invalid JSON, malformed env, and file symlinks block writes.
 
 ### 🔧 Codex Configuration
 
