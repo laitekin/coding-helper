@@ -6,7 +6,7 @@ import path from 'node:path';
 const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'adapter-kimi-code-')));
 process.env.HOME = process.env.USERPROFILE = home;
 delete process.env.KIMI_CODE_HOME; delete process.env.GROK_HOME;
-const { KimiCodeTool } = await import('../dist/lib/tools/kimi-code-tool.js');
+const { KimiCodeTool, getKimiInstallCommand } = await import('../dist/lib/tools/kimi-code-tool.js');
 const { marketModelService } = await import('../dist/lib/market-model-service.js');
 const { toolManager } = await import('../dist/lib/tool-manager.js');
 const { hasSavedToolModelConfig } = await import('../dist/lib/wizard/menus/tool-menu.js');
@@ -35,4 +35,26 @@ test('kimi-code restores bytes and refuses corrupt or changed config', async () 
   await tool.unloadConfig();
   files.forEach(file => fs.rmSync(file));
   await load(); await tool.unloadConfig(); files.forEach(file => assert.equal(fs.existsSync(file), false));
+});
+
+test('kimi installation and updates use the bundled runtime on every supported host', () => {
+  for (const platform of ['darwin', 'linux']) {
+    const command = getKimiInstallCommand(platform);
+    assert.match(command, /bash -o pipefail/);
+    assert.ok(command.includes('https://code.kimi.com/kimi-code/install.sh'));
+    assert.ok(!command.includes('npm install'));
+  }
+  const windows = getKimiInstallCommand('win32');
+  assert.match(windows, /^powershell -NoProfile/);
+  assert.ok(windows.includes("$ErrorActionPreference = 'Stop'"));
+  assert.ok(windows.includes('https://code.kimi.com/kimi-code/install.ps1'));
+  assert.equal(tool.installCommand, getKimiInstallCommand());
+  assert.equal(tool.updateCommand, tool.installCommand);
+});
+test('legacy Kimi guidance recommends the compatible install script without writing config', async () => {
+  tool.getVersion = () => '1.0.0';
+  try {
+    await assert.rejects(load(), error => error.message.includes(tool.installCommand));
+    files.forEach(file => assert.equal(fs.existsSync(file), false));
+  } finally { tool.getVersion = () => null; }
 });
