@@ -66,3 +66,26 @@ test('rollback removes a newly materialized empty file after a later write fails
   finally { fs.renameSync = rename; }
   f.forEach(file => assert.equal(fs.existsSync(file), false)); assert.equal(stateStore.getState('empty', f[0]), undefined);
 });
+
+test('reordered transactions retain originals and reject overlapping target sets', () => {
+  const f=pair();f.forEach((file,i)=>fs.writeFileSync(file,'original-'+i));
+  applyConfigEdits('order',edit([...f].reverse()));
+  applyConfigEdits('order',edit(f));
+  assert.throws(()=>applyConfigEdits('order',edit([f[1]])),/Invalid/);
+  restoreConfigEdits('order',[...f].reverse());
+  f.forEach((file,i)=>assert.equal(fs.readFileSync(file,'utf8'),'original-'+i));
+  applyConfigEdits('order',edit(f));fs.writeFileSync(f[1],'user');
+  assert.throws(()=>applyConfigEdits('order',edit([...f].reverse())),/changed/);
+});
+test('unreadable failed target does not prevent earlier rollback or discard journal',()=>{
+  const f=pair();f.forEach(file=>fs.writeFileSync(file,'old'));const rename=fs.renameSync;
+  fs.renameSync=(from,to)=>{if(to===f[1]){fs.rmSync(to);fs.mkdirSync(to);throw Error('target became directory');}return rename(from,to);};
+  try{assert.throws(()=>applyConfigEdits('unreadable',edit(f)),/rollback failed/);}finally{fs.renameSync=rename;}
+  assert.equal(fs.readFileSync(f[0],'utf8'),'old');assert.ok(stateStore.getState('unreadable',f[0]));
+});
+test('deleted preexisting file blocks unload and retains restoration state',()=>{
+  const f=pair();f.forEach(file=>fs.writeFileSync(file,'old'));applyConfigEdits('deleted',edit(f));fs.rmSync(f[1]);
+  assert.throws(()=>restoreConfigEdits('deleted',f),/changed/);assert.ok(stateStore.getState('deleted',f[0]));
+  assert.equal(fs.readFileSync(f[0],'utf8'),'0');fs.writeFileSync(f[1],'1');restoreConfigEdits('deleted',f);
+  f.forEach(file=>assert.equal(fs.readFileSync(file,'utf8'),'old'));
+});
