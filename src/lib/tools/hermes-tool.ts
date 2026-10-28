@@ -48,12 +48,17 @@ export class HermesTool implements ITool {
     return parseYamlObject(readHermesConfig());
   }
 
-  clearModelConfig(): void { restoreConfigEdits(this.name, [HERMES_CONFIG_FILE]); }
+  clearModelConfig(): void {
+    if (!restoreConfigEdits(this.name, [HERMES_CONFIG_FILE]) && fs.existsSync(HERMES_CONFIG_FILE)) {
+      throw new Error('No restoration record for Hermes. Configuration is unchanged; remove legacy credentials manually or recover a known backup.');
+    }
+  }
 
   async loadConfig(apiKey: string, baseUrl: string, models: ModelConfig): Promise<void> {
     if (!models.hermesModel) throw new Error(t('hermes_model_not_configured'));
     applyConfigEdits(this.name, [{ file: HERMES_CONFIG_FILE,
       build: (content) => buildHermesConfig(content ?? '', baseUrl, apiKey, models.hermesModel!) }]);
+    applyHermesConfigPermissions(HERMES_DIR, HERMES_CONFIG_FILE);
   }
 
   async unloadConfig(): Promise<void> { this.clearModelConfig(); }

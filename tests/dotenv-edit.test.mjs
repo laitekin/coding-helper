@@ -11,3 +11,11 @@ test('target-looking lines inside other multiline values are never edited', () =
     assert.throws(() => setDotenvValue(content, 'QINIU_API_KEY', 'new-key'), /multiline/);
   }
 });
+
+test('dotenv extended keys and escaped quotes cannot hide multiline assignments',()=>{
+  for(const content of ["OTHER-KEY='line\nQINIU_API_KEY=old\nend'\n",'OTHER.KEY="line\nQINIU_API_KEY=old\nend"\n',"OTHER='escaped\\'line\nQINIU_API_KEY=old\nend'\n",'OTHER-KEY: "line\nQINIU_API_KEY=old\nend"\n'])assert.throws(()=>setDotenvValue(content,'QINIU_API_KEY','new'),/multiline/);
+});
+test('CR-only dotenv is refused while CRLF preserves unrelated assignments',()=>{
+  assert.throws(()=>setDotenvValue('QINIU_API_KEY=old\rOTHER=keep\r','QINIU_API_KEY','new'),/CR-only/);
+  assert.equal(setDotenvValue('QINIU_API_KEY=old\r\nOTHER=keep\r\n','QINIU_API_KEY','new'),'QINIU_API_KEY=new\r\nOTHER=keep\r\n');
+});

@@ -58,13 +58,13 @@ test('unload preserves unrelated edits and external file deletion', () => {
   const changed = JSON.parse(read(file)); changed.keep = false; changed.extra = 1;
   fs.writeFileSync(file, JSON.stringify(changed)); unloadModelsJson('demo', file);
   assert.deepEqual(JSON.parse(read(file)), { keep: false, extra: 1 });
-  loadModelsJson('demo', file, [qiniu()]); fs.rmSync(file); unloadModelsJson('demo', file);
+  loadModelsJson('demo', file, [qiniu()]); fs.rmSync(file); assert.throws(() => unloadModelsJson('demo', file), /original file was deleted/); assert.ok(stateStore.getState('demo', file));
   assert.equal(fs.existsSync(file), false);
 });
 
 test('unmanaged Qiniu configuration is untouched', () => {
   const file = fixture(JSON.stringify({ models: [qiniu()] }));
-  const before = read(file); unloadModelsJson('demo', file); assert.equal(read(file), before);
+  const before = read(file); assert.throws(() => unloadModelsJson('demo', file), /No restoration record/); assert.equal(read(file), before);
 });
 
 test('managed field edits block reload and unload, preserving file and state', () => {
@@ -97,7 +97,7 @@ test('write failure rolls back state; last-moment edit and symlink remain intact
   fs.copyFileSync = (source, ...args) => { const result = copy(source, ...args); if (source === file) fs.writeFileSync(file, '{"keep":2}'); return result; };
   try { assert.throws(() => loadModelsJson('demo', file, [qiniu()]), /changed before writing/); }
   finally { fs.copyFileSync = copy; }
-  assert.equal(read(file), '{"keep":2}'); assert.equal(stateStore.getState('demo', file), undefined);
+  assert.equal(read(file), '{"keep":2}'); assert.ok(stateStore.getState('demo', file).pending);
   const link = file + '.link'; fs.symlinkSync(file, link);
   assert.throws(() => loadModelsJson('demo', link, [qiniu()]), /symbolic link/);
   assert.equal(fs.lstatSync(link).isSymbolicLink(), true);
@@ -140,4 +140,15 @@ test('model catalog post-rename failure keeps a recoverable journal', () => {
   fs.renameSync = (from, to) => { const result = rename(from, to); if (to === file && once) { once = false; throw Error('after rename'); } return result; };
   try { assert.throws(() => loadModelsJson('journal', file, [qiniu()]), /after rename/); } finally { fs.renameSync = rename; }
   unloadModelsJson('journal', file); assert.equal(read(file), '{}');
+});
+
+test('semantically identical catalogs still restore original formatting',()=>{
+  const original='{\r\n "models" : [{"id":"model-a","vendor":"Qiniu","apiKey":"test-key"}],\r\n "availableModels": ["model-a"]\r\n}\r\n';
+  const file=fixture(original);loadModelsJson('format',file,[qiniu()]);assert.notEqual(read(file),original);unloadModelsJson('format',file);assert.equal(read(file),original);
+});
+test('ambiguous post-rename content retains original and pending journal',()=>{
+  const file=fixture('{"original":true}');const rename=fs.renameSync;let once=true;
+  fs.renameSync=(from,to)=>{const result=rename(from,to);if(to===file&&once){once=false;fs.writeFileSync(file,'{"external":true}');throw Error('post rename edit');}return result;};
+  try{assert.throws(()=>loadModelsJson('ambiguous',file,[qiniu()]),/post rename edit/);}finally{fs.renameSync=rename;}
+  assert.equal(read(file),'{"external":true}');const saved=stateStore.getState('ambiguous',file);assert.equal(saved.priors.content,'{"original":true}');assert.ok(saved.pending);assert.throws(()=>unloadModelsJson('ambiguous',file),/journal retained/);
 });
