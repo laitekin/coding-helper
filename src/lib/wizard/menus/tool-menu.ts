@@ -33,7 +33,7 @@ export async function showToolMenu(tool: ITool): Promise<void> {
   let fetchPromise: Promise<string | null> | null = null;
 
   if (tool.npmPackageName) {
-    fetchPromise = fetchLatestVersion(tool.npmPackageName);
+    fetchPromise = fetchLatestVersion(tool.npmPackageName, tool.npmVersionMajor);
     fetchPromise
       .then(v => {
         latestVersion = v;
@@ -113,7 +113,7 @@ export async function showToolMenu(tool: ITool): Promise<void> {
         await updateTool(tool);
         // 更新后重新获取最新版本信息
         if (tool.npmPackageName) {
-          fetchPromise = fetchLatestVersion(tool.npmPackageName);
+          fetchPromise = fetchLatestVersion(tool.npmPackageName, tool.npmVersionMajor);
           fetchCompleted = false;
           latestVersion = await fetchPromise;
           fetchCompleted = true;
@@ -173,6 +173,8 @@ export function hasSavedToolModelConfig(
       return !!models.codeBuddyModels?.length;
     case 'workbuddy':
       return !!models.workbuddyModels?.length;
+    case 'opencode':
+      return !!(models.toolModels?.[tool.name] ?? models.defaultModel);
     case 'hermes':
       return !!models.hermesModel;
     default:
@@ -340,12 +342,18 @@ export async function updateTool(tool: ITool): Promise<void> {
   }
 
   const currentVersion = tool.getVersion();
+  try { tool.validateUpdate?.(); }
+  catch (error) {
+    uiRenderer.renderError(error instanceof Error ? error.message : t('error_unknown'));
+    await promptHelper.pressEnter();
+    return;
+  }
 
   // 获取最新版本（仅 npm 包支持）
   let latest: string | null = null;
   if (tool.npmPackageName) {
     logger.info(t('update_checking'));
-    latest = await fetchLatestVersion(tool.npmPackageName);
+    latest = await fetchLatestVersion(tool.npmPackageName, tool.npmVersionMajor);
   }
 
   // 已是最新版本，跳过更新
