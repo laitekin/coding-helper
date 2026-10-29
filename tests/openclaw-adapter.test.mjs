@@ -148,3 +148,20 @@ for(const selection of [null, 42, []]) {
   await assert.rejects(load(),/Invalid OpenClaw model/);assert.equal(read(files[0]),original);
  });
 }
+
+for (const allow of [undefined, [], ['other/model'], ['qiniu/*'], ['qiniu/test/*'], ['qiniu/test/model']]) {
+ test('OpenClaw preserves policy and allows selected model: '+JSON.stringify(allow), async()=>{
+  const models={'other/model':{alias:'Other'},'qiniu/test/model':{alias:'Keep',params:{temperature:0.2}},'qiniu/old':{alias:'Old'}};
+  const original=JSON.stringify({agents:{defaults:{models,modelPolicy:{...(allow===undefined?{}:{allow})}}}});
+  write(files[0],original);await load();await load();const defaults=tool.getConfig().agents.defaults;
+  const expected=allow?.length===1 && allow[0]==='other/model'?[...allow,'qiniu/test/model']:allow;
+  assert.deepEqual(defaults.modelPolicy.allow,expected);assert.deepEqual(defaults.models,models);
+  tool.unloadConfig();assert.equal(read(files[0]),original);
+ });
+}
+for (const policy of [null, {allow:'other/model'}, {allow:[42]}]) {
+ test('OpenClaw rejects malformed model policy '+JSON.stringify(policy),async()=>{
+  const original=JSON.stringify({agents:{defaults:{modelPolicy:policy}}});write(files[0],original);
+  await assert.rejects(load(),/Invalid OpenClaw/);assert.equal(read(files[0]),original);
+ });
+}
