@@ -2,6 +2,7 @@ import spawn from 'cross-spawn';
 import os from 'node:os';
 import fs from 'node:fs';
 import path from 'node:path';
+import { findCommand } from '../utils/find-command.js';
 import { t, i18n } from '../lib/i18n.js';
 import { configManager } from '../lib/config.js';
 import { toolManager } from '../lib/tool-manager.js';
@@ -30,7 +31,7 @@ export async function runCommand(toolName: string, args: string[]): Promise<void
       fs.writeFileSync(settings, JSON.stringify(tool.getLaunchSettings(apiKey, configManager.baseUrl, configManager.getModels())), {mode:0o600});
       passArgs = ['--settings', settings, ...passArgs];
     }
-    const child = spawn(tool.command, passArgs, { stdio: 'inherit', env: { ...process.env, ...variables }, shell: false });
+    const child = spawn(findCommand(tool.command, tool.searchPaths) ?? tool.command, passArgs, { stdio: 'inherit', env: { ...process.env, ...variables }, shell: false });
     // POSIX 前台子进程已由终端进程组收到 Ctrl-C，不能重复转发。
     const interrupt = () => { if (process.platform === 'win32') child.kill('SIGINT'); };
     const terminate = () => { child.kill('SIGTERM'); };
