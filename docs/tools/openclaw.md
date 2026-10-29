@@ -17,3 +17,7 @@ If a target file exists without a restoration record, unloading fails with recov
 设置 OPENCLAW_CONFIG_READONLY=1 或 OPENCLAW_NIX_MODE=1 时，装载和卸载都会报错，并保持配置及恢复记录不变；请修改外部配置源。读取配置仍然可用。
 
 With OPENCLAW_CONFIG_READONLY=1 or OPENCLAW_NIX_MODE=1, loading and unloading refuse to modify configuration or restoration records. Update the external configuration source. Reading configuration remains available.
+
+支持 JSON 与 JSON5（注释、单引号、非引号键、尾逗号）。装载会规范化文件格式，活动文件不保留注释；原始文本保存在备份和恢复记录中，卸载逐字节还原注释、格式和原值。损坏文件或非对象根值在写入前报错。
+
+JSON and JSON5 are supported, including comments, single quotes, unquoted keys and trailing commas. Loading normalizes formatting and removes comments from the active file; backups and restoration records retain the original text. Unloading restores original bytes, including comments, formatting and values. Invalid syntax or a non-object root is rejected before writing.
