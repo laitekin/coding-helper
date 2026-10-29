@@ -51,11 +51,16 @@ export function applyOpenClawConfig(
   model: string,
   limits?: { contextWindow: number; maxOutputTokens: number },
 ): Record<string, unknown> {
-  for (const key of ['models', 'models.providers', 'agents', 'agents.defaults', 'agents.defaults.model', 'agents.defaults.models']) {
+  for (const key of ['models', 'models.providers', 'agents', 'agents.defaults', 'agents.defaults.models']) {
     const value = getPath(config, key);
     if (value !== undefined && !isRecord(value)) throw new Error('Invalid OpenClaw object: ' + key);
   }
+  const priorModel = getPath(config, 'agents.defaults.model');
+  if (priorModel !== undefined && typeof priorModel !== 'string' && !isRecord(priorModel)) {
+    throw new Error('Invalid OpenClaw model: expected a string or object.');
+  }
   const next = structuredClone(config);
+  if (typeof priorModel === 'string') setPath(next, 'agents.defaults.model', {});
   const ref = `${PROVIDER_ID}/${model}`;
   setPath(next, `models.providers.${PROVIDER_ID}`, {
     baseUrl: openAIBaseUrl(baseUrl),

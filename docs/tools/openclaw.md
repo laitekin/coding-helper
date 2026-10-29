@@ -21,3 +21,7 @@ With OPENCLAW_CONFIG_READONLY=1 or OPENCLAW_NIX_MODE=1, loading and unloading re
 支持 JSON 与 JSON5（注释、单引号、非引号键、尾逗号）。装载会规范化文件格式，活动文件不保留注释；原始文本保存在备份和恢复记录中，卸载逐字节还原注释、格式和原值。损坏文件或非对象根值在写入前报错。
 
 JSON and JSON5 are supported, including comments, single quotes, unquoted keys and trailing commas. Loading normalizes formatting and removes comments from the active file; backups and restoration records retain the original text. Unloading restores original bytes, including comments, formatting and values. Invalid syntax or a non-object root is rejected before writing.
+
+现有 model 支持字符串简写和对象形式；装载时将简写转换为 primary 对象，对象的 fallbacks 保留，卸载恢复原始形式。
+
+Existing model selections may use a string shorthand or an object. Loading upgrades shorthand to a primary object and preserves existing object fallbacks; unloading restores the original representation.
