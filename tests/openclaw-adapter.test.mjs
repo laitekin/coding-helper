@@ -132,3 +132,19 @@ for (const invalid of ['{ foo: }', '[]', 'null', '', '// comment only']) {
   assert.deepEqual(stateStore.getState(tool.name,file), prior);
  });
 }
+
+for (const selection of ['openai/gpt-4.1', { primary: 'openai/gpt-4.1', fallbacks: ['anthropic/claude-sonnet-4'] }]) {
+ test('OpenClaw accepts and restores model selection ' + JSON.stringify(selection), async () => {
+  const original = JSON.stringify({agents:{defaults:{model:selection}}});
+  const file=files[0];write(file,original);await load();await load('next-key');
+  const selected=tool.getConfig().agents.defaults.model;assert.equal(selected.primary,'qiniu/test/model');
+  if (typeof selection==='object') assert.deepEqual(selected.fallbacks,selection.fallbacks);
+  tool.unloadConfig();assert.equal(read(file),original);
+ });
+}
+for(const selection of [null, 42, []]) {
+ test('OpenClaw rejects invalid model selection '+JSON.stringify(selection), async()=>{
+  const original=JSON.stringify({agents:{defaults:{model:selection}}});write(files[0],original);
+  await assert.rejects(load(),/Invalid OpenClaw model/);assert.equal(read(files[0]),original);
+ });
+}
