@@ -2,6 +2,7 @@ import spawn from 'cross-spawn';
 import os from 'node:os';
 import fs from 'node:fs';
 import path from 'node:path';
+import { findCommand } from '../utils/find-command.js';
 import { t, i18n } from '../lib/i18n.js';
 import { configManager } from '../lib/config.js';
 import { toolManager } from '../lib/tool-manager.js';
@@ -31,7 +32,7 @@ export async function runCommand(toolName: string, args: string[]): Promise<void
       fs.writeFileSync(settings, JSON.stringify(tool.getLaunchSettings(apiKey, configManager.baseUrl, configManager.getModels())), {mode:0o600});
       passArgs = ['--settings', settings, ...passArgs];
     }
-    const executable = tool.command;
+    const executable = findCommand(tool.command, tool.searchPaths) ?? tool.command;
     const environment = { ...process.env, ...variables };
     if (process.platform !== 'win32' && process.stdin.isTTY && process.stdout.isTTY) {
       const { launchPty } = await import('../utils/launch-pty.js');
