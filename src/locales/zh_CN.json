@@ -189,7 +189,6 @@
   "auth_unknown_tool": "未知工具: {{tool}}",
   "kimi_legacy_cli": "检测到旧版 kimi-cli {{version}}（读取 ~/.kimi），请改装新版 Kimi Code：{{command}}",
   "minimax_provider_add_failed": "mcode provider add 失败：{{error}}",
-  "openclaw_json5_unsupported": "{{file}} 含注释或尾逗号（JSON5），无法安全改写。请先删掉注释和尾逗号，或手动添加七牛 provider",
   "run_unsupported": "{{tool}} 不支持启动器模式",
   "run_supported_tools": "支持的工具：{{tools}}",
   "setup_reason_launch_only": "无配置文件，请用 coding-helper run 启动"

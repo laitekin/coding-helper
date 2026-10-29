@@ -176,7 +176,6 @@
   "auth_unknown_tool": "Unknown tool: {{tool}}",
   "kimi_legacy_cli": "Found the legacy kimi-cli {{version}} (reads ~/.kimi). Install the new Kimi Code instead: {{command}}",
   "minimax_provider_add_failed": "mcode provider add failed: {{error}}",
-  "openclaw_json5_unsupported": "{{file}} contains comments or trailing commas (JSON5) and cannot be rewritten safely. Remove them first, or add the Qiniu provider by hand",
   "run_unsupported": "{{tool}} does not support launcher mode",
   "run_supported_tools": "Supported tools: {{tools}}",
   "setup_reason_launch_only": "No config file; launch it with coding-helper run"

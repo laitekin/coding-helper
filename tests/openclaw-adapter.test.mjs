@@ -1,4 +1,5 @@
 import test from 'node:test';
+import JSON5 from 'json5';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -27,8 +28,8 @@ test('openclaw restores bytes and refuses corrupt or changed config', async () =
   await load(); await load('second-key');
   assert.equal(JSON.parse(read(files[0])).agents.defaults.model.primary, 'qiniu/test/model');
   await tool.unloadConfig(); files.forEach((file, i) => assert.equal(read(file), originals[i]));
-  write(files[0], "{ // comment\n\"custom\":true }");
-  await assert.rejects(load()); assert.equal(read(files[0]), "{ // comment\n\"custom\":true }");
+  write(files[0], "{ custom: }");
+  await assert.rejects(load()); assert.equal(read(files[0]), "{ custom: }");
   write(files[0], originals[0]); await load();
   const applied = read(files[0]); write(files[0], applied + ' ');
   await assert.rejects(load(), /changed/); assert.throws(() => tool.unloadConfig(), /changed/);
@@ -109,3 +110,25 @@ test('OpenClaw rechecks immutable mode after asynchronous metadata lookup', asyn
   try { await assert.rejects(load(), /externally managed and read-only/); assert.equal(read(file), originals[0]); }
   finally { delete process.env.OPENCLAW_CONFIG_READONLY; marketModelService.fetchModels = fetch; }
 });
+
+ test('OpenClaw loads JSON5 and restores comments and formatting byte-for-byte', async () => {
+  const original = "{\r\n // user's comment\r\n custom: 'keep', models: { providers: { other: { apiKey: 'user-key', }, }, },\r\n values: [0x10, .5, +1, Infinity, -Infinity, NaN,],\r\n}\r\n";
+  const file = files[0]; write(file, original);
+  assert.equal(tool.getConfig().custom, 'keep');
+  await load(); await load('next-key');
+  const applied = JSON5.parse(read(file));
+  assert.equal(applied.models.providers.qiniu.apiKey, 'next-key');
+  assert.deepEqual(applied.models.providers.other, { apiKey: 'user-key' });
+  assert.deepEqual(applied.values, [16, 0.5, 1, Infinity, -Infinity, NaN]);
+  assert.equal(tool.isConfigured(), true);
+  tool.unloadConfig(); assert.equal(read(file), original);
+ });
+
+for (const invalid of ['{ foo: }', '[]', 'null', '', '// comment only']) {
+ test('OpenClaw rejects invalid JSON5 or non-object without changing state: ' + invalid, async () => {
+  const { stateStore } = await import('../dist/lib/core/state-store.js');
+  const file = files[0]; write(file, invalid); const prior = stateStore.getState(tool.name,file);
+  await assert.rejects(load(), /Cannot parse/); assert.equal(read(file), invalid);
+  assert.deepEqual(stateStore.getState(tool.name,file), prior);
+ });
+}

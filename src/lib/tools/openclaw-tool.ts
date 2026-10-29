@@ -1,10 +1,10 @@
 import os from 'node:os';
 import path from 'node:path';
 import type { ModelConfig } from '../config.js';
-import { t } from '../i18n.js';
+import JSON5 from 'json5';
 import { isQiniuBaseUrl } from '../endpoints.js';
-import { readJsonObjectStrict, formatJsonLike } from '../core/safe-write.js';
-import { applyConfigEdits, parseConfigObject } from '../core/config-transaction.js';
+import { readTextFile, ConfigParseError, formatJsonLike } from '../core/safe-write.js';
+import { applyConfigEdits } from '../core/config-transaction.js';
 import { OpenAICompatTool, fetchModelLimits, getPath, isRecord, openAIBaseUrl, setPath } from './openai-compat-tool.js';
 const PROVIDER_ID = 'qiniu';
 const PRIMARY_PATH = 'agents.defaults.model.primary';
@@ -25,6 +25,22 @@ export function getOpenClawConfigFile(): string {
   if (state) return path.join(resolve(state), 'openclaw.json');
   if (process.env.OPENCLAW_PROFILE?.trim()) throw new Error('Set OPENCLAW_CONFIG_PATH or OPENCLAW_STATE_DIR for a named OpenClaw profile.');
   return path.join(resolve(home), '.openclaw', 'openclaw.json');
+}
+
+function parseOpenClawConfig(content: string | undefined, file: string): Record<string, unknown> {
+  if (content === undefined) return {};
+  try {
+    const value: unknown = JSON5.parse(content);
+    if (!isRecord(value)) throw new Error('top-level value is not an object');
+    return value;
+  } catch (error) { throw new ConfigParseError(file, error); }
+}
+
+function formatOpenClawConfig(content: string | undefined, config: Record<string, unknown>): string {
+  // Keep ordinary JSON output for JSON input; JSON5 input can contain non-finite numbers.
+  if (content === undefined) return formatJsonLike(content, config);
+  try { JSON.parse(content); return formatJsonLike(content, config); } catch { /* JSON5 input */ }
+  return JSON5.stringify(config, { space: 2, quote: '"' }) + (content.endsWith('\n') ? '\n' : '');
 }
 
 // 写入 models.providers.qiniu 并设为主模型；已有模型白名单时把七牛模型加入白名单
@@ -70,7 +86,8 @@ export class OpenClawTool extends OpenAICompatTool {
 
   getConfig(): Record<string, unknown> {
     try {
-      return readJsonObjectStrict(getOpenClawConfigFile());
+      const file = getOpenClawConfigFile();
+      return parseOpenClawConfig(readTextFile(file), file);
     } catch {
       return {};
     }
@@ -84,12 +101,10 @@ export class OpenClawTool extends OpenAICompatTool {
     assertConfigWritable();
     const model = this.resolveModel(models); const limits = await fetchModelLimits(baseUrl, apiKey, model);
     assertConfigWritable();
-    applyConfigEdits(this.name, [{ file: getOpenClawConfigFile(), build: content => {
-      let config: Record<string, unknown>;
-      try { config = parseConfigObject(content); }
-      catch { throw new Error(t('openclaw_json5_unsupported', { file: getOpenClawConfigFile() })); }
-      return formatJsonLike(content, applyOpenClawConfig(config, baseUrl, apiKey, model, limits));
-    } }]);
+    const file = getOpenClawConfigFile();
+    applyConfigEdits(this.name, [{ file, build: content =>
+      formatOpenClawConfig(content, applyOpenClawConfig(parseOpenClawConfig(content, file), baseUrl, apiKey, model, limits))
+    }]);
   }
   unloadConfig(): void { assertConfigWritable(); this.restoreManagedConfig([getOpenClawConfigFile()]); }
 }
