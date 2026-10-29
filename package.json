@@ -50,6 +50,7 @@
     "@inquirer/select": "^4.2.1",
     "chalk": "^5.3.0",
     "commander": "^12.1.0",
+    "cross-spawn": "7.0.6",
     "inquirer": "^9.2.12",
     "js-yaml": "^4.1.0",
     "json5": "2.2.3",
@@ -59,6 +60,7 @@
     "yaml": "2.8.1"
   },
   "devDependencies": {
+    "@types/cross-spawn": "6.0.6",
     "@types/inquirer": "^9.0.7",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^20.11.0",
