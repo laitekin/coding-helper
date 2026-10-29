@@ -51,13 +51,17 @@ export function applyOpenClawConfig(
   model: string,
   limits?: { contextWindow: number; maxOutputTokens: number },
 ): Record<string, unknown> {
-  for (const key of ['models', 'models.providers', 'agents', 'agents.defaults', 'agents.defaults.models']) {
+  for (const key of ['models', 'models.providers', 'agents', 'agents.defaults', 'agents.defaults.models', 'agents.defaults.modelPolicy']) {
     const value = getPath(config, key);
     if (value !== undefined && !isRecord(value)) throw new Error('Invalid OpenClaw object: ' + key);
   }
   const priorModel = getPath(config, 'agents.defaults.model');
   if (priorModel !== undefined && typeof priorModel !== 'string' && !isRecord(priorModel)) {
     throw new Error('Invalid OpenClaw model: expected a string or object.');
+  }
+  const policy = getPath(config, 'agents.defaults.modelPolicy.allow');
+  if (policy !== undefined && (!Array.isArray(policy) || policy.some(entry => typeof entry !== 'string'))) {
+    throw new Error('Invalid OpenClaw modelPolicy.allow: expected an array of strings.');
   }
   const next = structuredClone(config);
   if (typeof priorModel === 'string') setPath(next, 'agents.defaults.model', {});
@@ -75,8 +79,11 @@ export function applyOpenClawConfig(
   setPath(next, PRIMARY_PATH, ref);
   const allow = getPath(next, 'agents.defaults.models');
   if (isRecord(allow)) {
-    for (const key of Object.keys(allow)) if (key.startsWith(`${PROVIDER_ID}/`)) delete allow[key];
-    allow[ref] = {};
+    if (!Object.hasOwn(allow, ref)) allow[ref] = {};
+  }
+  if (Array.isArray(policy) && policy.length && !policy.some(entry =>
+    entry === ref || (entry.endsWith('*') && ref.startsWith(entry.slice(0, -1))))) {
+    setPath(next, 'agents.defaults.modelPolicy.allow', [...policy, ref]);
   }
   return next;
 }
