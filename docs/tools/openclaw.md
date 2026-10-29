@@ -25,3 +25,7 @@ JSON and JSON5 are supported, including comments, single quotes, unquoted keys a
 现有 model 支持字符串简写和对象形式；装载时将简写转换为 primary 对象，对象的 fallbacks 保留，卸载恢复原始形式。
 
 Existing model selections may use a string shorthand or an object. Loading upgrades shorthand to a primary object and preserves existing object fallbacks; unloading restores the original representation.
+
+若默认 modelPolicy.allow 非空且尚未允许所选模型，装载会追加该模型的精确引用，保留已有条目；不扩大到整个 provider。缺失或空允许列表保持不受限。已有匹配通配符不会重复追加。模型别名和参数保留，卸载还原原策略。仅管理默认配置；每个 agent 自己的策略覆盖默认策略，需用户单独调整。
+
+For a nonempty default modelPolicy.allow that does not permit the selected model, loading appends its exact reference while preserving existing entries. Missing/empty policies remain unrestricted and matching wildcards avoid duplicates. Model aliases and settings are preserved; unloading restores the original policy. Per-agent policies override defaults and must be managed separately.
