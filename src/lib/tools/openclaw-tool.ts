@@ -1,0 +1,122 @@
+import os from 'node:os';
+import path from 'node:path';
+import type { ModelConfig } from '../config.js';
+import JSON5 from 'json5';
+import { isQiniuBaseUrl } from '../endpoints.js';
+import { readTextFile, ConfigParseError, formatJsonLike } from '../core/safe-write.js';
+import { applyConfigEdits } from '../core/config-transaction.js';
+import { OpenAICompatTool, fetchModelLimits, getPath, isRecord, openAIBaseUrl, setPath } from './openai-compat-tool.js';
+const PROVIDER_ID = 'qiniu';
+const PRIMARY_PATH = 'agents.defaults.model.primary';
+
+function assertConfigWritable(): void {
+  const flag = ['OPENCLAW_CONFIG_READONLY', 'OPENCLAW_NIX_MODE'].find(key => process.env[key] === '1');
+  if (flag) throw new Error(flag + '=1: OpenClaw configuration is externally managed and read-only. Update the external configuration source; configuration and restoration records are unchanged.');
+}
+
+export function getOpenClawConfigFile(): string {
+  const userHome = os.homedir();
+  const expand = (value: string, home: string): string => path.resolve(value === '~' ? home : value.startsWith('~/') || value.startsWith('~\\') ? path.join(home, value.slice(2)) : value);
+  const home = expand(process.env.OPENCLAW_HOME?.trim() || userHome, userHome);
+  const resolve = (value: string): string => expand(value, home);
+  const explicit = process.env.OPENCLAW_CONFIG_PATH?.trim();
+  if (explicit) return resolve(explicit);
+  const state = process.env.OPENCLAW_STATE_DIR?.trim();
+  if (state) return path.join(resolve(state), 'openclaw.json');
+  if (process.env.OPENCLAW_PROFILE?.trim()) throw new Error('Set OPENCLAW_CONFIG_PATH or OPENCLAW_STATE_DIR for a named OpenClaw profile.');
+  return path.join(resolve(home), '.openclaw', 'openclaw.json');
+}
+
+function parseOpenClawConfig(content: string | undefined, file: string): Record<string, unknown> {
+  if (content === undefined) return {};
+  try {
+    const value: unknown = JSON5.parse(content);
+    if (!isRecord(value)) throw new Error('top-level value is not an object');
+    return value;
+  } catch (error) { throw new ConfigParseError(file, error); }
+}
+
+function formatOpenClawConfig(content: string | undefined, config: Record<string, unknown>): string {
+  // Keep ordinary JSON output for JSON input; JSON5 input can contain non-finite numbers.
+  if (content === undefined) return formatJsonLike(content, config);
+  try { JSON.parse(content); return formatJsonLike(content, config); } catch { /* JSON5 input */ }
+  return JSON5.stringify(config, { space: 2, quote: '"' }) + (content.endsWith('\n') ? '\n' : '');
+}
+
+// 写入 models.providers.qiniu 并设为主模型；已有模型白名单时把七牛模型加入白名单
+export function applyOpenClawConfig(
+  config: Record<string, unknown>,
+  baseUrl: string,
+  apiKey: string,
+  model: string,
+  limits?: { contextWindow: number; maxOutputTokens: number },
+): Record<string, unknown> {
+  for (const key of ['models', 'models.providers', 'agents', 'agents.defaults', 'agents.defaults.models', 'agents.defaults.modelPolicy']) {
+    const value = getPath(config, key);
+    if (value !== undefined && !isRecord(value)) throw new Error('Invalid OpenClaw object: ' + key);
+  }
+  const priorModel = getPath(config, 'agents.defaults.model');
+  if (priorModel !== undefined && typeof priorModel !== 'string' && !isRecord(priorModel)) {
+    throw new Error('Invalid OpenClaw model: expected a string or object.');
+  }
+  const policy = getPath(config, 'agents.defaults.modelPolicy.allow');
+  if (policy !== undefined && (!Array.isArray(policy) || policy.some(entry => typeof entry !== 'string'))) {
+    throw new Error('Invalid OpenClaw modelPolicy.allow: expected an array of strings.');
+  }
+  const next = structuredClone(config);
+  if (typeof priorModel === 'string') setPath(next, 'agents.defaults.model', {});
+  const ref = `${PROVIDER_ID}/${model}`;
+  setPath(next, `models.providers.${PROVIDER_ID}`, {
+    baseUrl: openAIBaseUrl(baseUrl),
+    apiKey,
+    api: 'openai-completions',
+    models: [{
+      id: model,
+      name: `Qiniu: ${model}`,
+      ...(limits ? { contextWindow: limits.contextWindow, maxTokens: limits.maxOutputTokens } : {}),
+    }],
+  });
+  setPath(next, PRIMARY_PATH, ref);
+  const allow = getPath(next, 'agents.defaults.models');
+  if (isRecord(allow)) {
+    if (!Object.hasOwn(allow, ref)) allow[ref] = {};
+  }
+  if (Array.isArray(policy) && policy.length && !policy.some(entry =>
+    entry === ref || (entry.endsWith('*') && ref.startsWith(entry.slice(0, -1))))) {
+    setPath(next, 'agents.defaults.modelPolicy.allow', [...policy, ref]);
+  }
+  return next;
+}
+
+export class OpenClawTool extends OpenAICompatTool {
+  name = 'openclaw';
+  displayName = 'OpenClaw';
+  command = 'openclaw';
+  installCommand = 'npm install -g openclaw';
+  updateCommand = 'openclaw update';
+  npmPackageName = 'openclaw';
+
+  getConfig(): Record<string, unknown> {
+    try {
+      const file = getOpenClawConfigFile();
+      return parseOpenClawConfig(readTextFile(file), file);
+    } catch {
+      return {};
+    }
+  }
+
+  isConfigured(): boolean {
+    return isQiniuBaseUrl(getPath(this.getConfig(), `models.providers.${PROVIDER_ID}.baseUrl`));
+  }
+
+  async loadConfig(apiKey: string, baseUrl: string, models: ModelConfig): Promise<void> {
+    assertConfigWritable();
+    const model = this.resolveModel(models); const limits = await fetchModelLimits(baseUrl, apiKey, model);
+    assertConfigWritable();
+    const file = getOpenClawConfigFile();
+    applyConfigEdits(this.name, [{ file, build: content =>
+      formatOpenClawConfig(content, applyOpenClawConfig(parseOpenClawConfig(content, file), baseUrl, apiKey, model, limits))
+    }]);
+  }
+  unloadConfig(): void { assertConfigWritable(); this.restoreManagedConfig([getOpenClawConfigFile()]); }
+}
