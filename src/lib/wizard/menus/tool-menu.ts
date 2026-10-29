@@ -1,3 +1,6 @@
+import { executeToolUpdate } from '../../../utils/update-command.js';
+import spawn from 'cross-spawn';
+import { findCommand } from '../../../utils/find-command.js';
 import { runCommand } from '../../../commands/run.js';
 import chalk from 'chalk';
 import select from '@inquirer/select';
@@ -322,9 +325,8 @@ export async function launchTool(tool: ITool): Promise<void> {
   }
 
   logger.info(t('tool_launching', { tool: tool.displayName }));
-  const { execSync } = await import('node:child_process');
   try {
-    execSync(tool.command, { stdio: 'inherit' });
+    spawn.sync(findCommand(tool.command, tool.searchPaths) ?? tool.command, [], { stdio: 'inherit' });
   } catch {
     // 用户退出工具时正常
   }
@@ -368,9 +370,8 @@ export async function updateTool(tool: ITool): Promise<void> {
   if (!confirmed) return;
 
   logger.info(t('tool_updating', { tool: tool.displayName }));
-  const { execSync } = await import('node:child_process');
   try {
-    execSync(tool.updateCommand ?? tool.installCommand, { stdio: 'inherit' });
+    executeToolUpdate(tool);
 
     // 更新后重新获取版本
     const newVersion = tool.getVersion();
