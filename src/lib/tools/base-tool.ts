@@ -16,6 +16,8 @@ export interface ITool {
 
   // 更新命令（可选，默认使用 installCommand）
   updateCommand?: string;
+  // 更新前校验客户端版本，避免跨大版本覆盖安装。
+  validateUpdate?(): void;
 
   // npm 包名（用于查询最新版本）
   npmPackageName?: string;

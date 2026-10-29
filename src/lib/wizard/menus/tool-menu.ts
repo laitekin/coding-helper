@@ -173,6 +173,8 @@ export function hasSavedToolModelConfig(
       return !!models.codeBuddyModels?.length;
     case 'workbuddy':
       return !!models.workbuddyModels?.length;
+    case 'opencode':
+      return !!(models.toolModels?.[tool.name] ?? models.defaultModel);
     case 'hermes':
       return !!models.hermesModel;
     default:
@@ -340,6 +342,12 @@ export async function updateTool(tool: ITool): Promise<void> {
   }
 
   const currentVersion = tool.getVersion();
+  try { tool.validateUpdate?.(); }
+  catch (error) {
+    uiRenderer.renderError(error instanceof Error ? error.message : t('error_unknown'));
+    await promptHelper.pressEnter();
+    return;
+  }
 
   // 获取最新版本（仅 npm 包支持）
   let latest: string | null = null;
