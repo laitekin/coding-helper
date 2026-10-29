@@ -1,4 +1,5 @@
-import { spawn } from 'node:child_process';
+import spawn from 'cross-spawn';
+import { findCommand } from '../utils/find-command.js';
 import { t, i18n } from '../lib/i18n.js';
 import { configManager } from '../lib/config.js';
 import { toolManager } from '../lib/tool-manager.js';
@@ -19,7 +20,7 @@ export async function runCommand(toolName: string, args: string[]): Promise<void
     const variables = tool.getLaunchEnv(apiKey, configManager.baseUrl, configManager.getModels());
     if (tool.isInstalled() === false) throw new Error(t('tool_not_installed', { tool: tool.displayName, command: tool.installCommand }));
     const passArgs = args[0] === '--' ? args.slice(1) : args;
-    const child = spawn(tool.command, passArgs, { stdio: 'inherit', env: { ...process.env, ...variables }, shell: false });
+    const child = spawn(findCommand(tool.command, tool.searchPaths) ?? tool.command, passArgs, { stdio: 'inherit', env: { ...process.env, ...variables }, shell: false });
     const interrupt = () => { child.kill('SIGINT'); };
     const terminate = () => { child.kill('SIGTERM'); };
     process.on('SIGINT', interrupt); process.on('SIGTERM', terminate);
