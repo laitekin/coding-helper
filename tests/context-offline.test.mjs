@@ -20,3 +20,21 @@ for(const [name,file,inspect] of cases)test(`${name} offline context cap never e
  const capped=inspect(fs.readFileSync(path.join(home,file),'utf8'));assert.equal(capped.context,16000);if('image' in before)assert.equal(capped.image,before.image);if(capped.output)assert.ok(capped.output<16000);
  await tool.unloadConfig();
 });
+
+test('small Droid caps leave half the context for input online and offline', async () => {
+ const tool=toolManager.get('droid');const models={toolModels:{droid:model}};
+ configManager.setContextWindow(4000,['droid']);
+ for(const unavailable of [false,true]) {
+  offline=unavailable;await tool.loadConfig('sk-test','https://api.qnaigc.com',models);
+  const entry=JSON.parse(fs.readFileSync(path.join(home,'.factory/settings.json'),'utf8')).customModels.find(v=>v.model===model);
+  assert.equal(entry.maxContextLimit,2000);assert.equal(entry.maxOutputTokens,2000);
+ }
+ await tool.unloadConfig();
+});
+for(const name of ['codebuddy','workbuddy'])test(`${name} caps both input and output budgets`,async()=>{
+ offline=false;configManager.setContextWindow(4000,[name]);
+ const tool=toolManager.get(name);
+ await tool.loadConfig('sk-test','https://api.qnaigc.com',{[name==='codebuddy'?'codeBuddyModels':'workbuddyModels']:[model]});
+ const caps=tool.getConfig().models.find(v=>v.id===model);
+ assert.equal(caps.maxInputTokens,4000);assert.equal(caps.maxOutputTokens,2000);await tool.unloadConfig();
+});
