@@ -1,3 +1,6 @@
+import { runProfileFlow } from '../flows/profile-flow.js';
+import { runContextFlow } from '../flows/context-flow.js';
+import { runToolSetupFlow } from '../flows/tool-setup-flow.js';
 import { t } from '../../i18n.js';
 import { promptHelper } from '../ui/prompt-helper.js';
 import { uiRenderer } from '../ui/ui-renderer.js';
@@ -17,6 +20,9 @@ type MainMenuAction =
   | 'endpoint'
   | 'apikey'
   | 'tools'
+  | 'setup'
+  | 'profiles'
+  | 'context'
   | 'clear_config'
   | 'update'
   | 'exit';
@@ -33,6 +39,9 @@ export async function showMainMenu(): Promise<void> {
       { name: `${theme.icon('◇')} ${t('menu_configure_endpoint')}`, value: 'endpoint' },
       { name: `${theme.icon('◈')} ${t('menu_configure_apikey')}`, value: 'apikey' },
       { name: `${theme.icon('▸')} ${t('menu_configure_tools')}`, value: 'tools' },
+      { name: t('menu_batch_setup'), value: 'setup' },
+      { name: t('profile_title'), value: 'profiles' },
+      { name: t('context_title'), value: 'context' },
       { name: `${theme.dimIcon('▪')} ${t('menu_clear_config')}`, value: 'clear_config' },
       { name: `${theme.dimIcon('△')} ${t('menu_update_helper')}`, value: 'update' },
       { name: `${theme.dimIcon('◁')} ${t('menu_exit')}`, value: 'exit' },
@@ -51,6 +60,9 @@ export async function showMainMenu(): Promise<void> {
       case 'tools':
         await showToolSelector();
         break;
+      case 'setup': await runToolSetupFlow(); break;
+      case 'profiles': await runProfileFlow(); break;
+      case 'context': await runContextFlow(); break;
       case 'clear_config':
         if (await handleClearConfig()) return;
         break;
@@ -75,6 +87,7 @@ async function showToolSelector(): Promise<void> {
     value: tool.name,
   }));
 
+  choices.push({ name: t('tool_back'), value: '__back__' });
   const toolName = await promptHelper.select<string>(t('menu_select_action'), choices);
   const tool = toolManager.get(toolName);
   if (tool) {

@@ -384,5 +384,9 @@
   "plan_validation_failed": "Model validation failed; no settings were written.",
   "plan_validation_cancelled": "Cancelled because another target failed validation.",
   "plan_write_failed": "Write failed; restoration records are retained.",
-  "helper_settings_failed": "Client written but helper settings could not be saved; use restore to recover."
+  "helper_settings_failed": "Client written but helper settings could not be saved; use restore to recover.",
+  "menu_batch_setup": "Configure multiple tools",
+  "profile_add": "Add profile",
+  "profile_use": "Use this profile",
+  "profile_remove": "Remove profile"
 }

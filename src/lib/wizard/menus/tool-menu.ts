@@ -4,7 +4,11 @@ import { findCommand } from '../../../utils/find-command.js';
 import { runCommand } from '../../../commands/run.js';
 import { LauncherShutdown } from '../../../utils/launcher-shutdown.js';
 import chalk from 'chalk';
-import select from '@inquirer/select';
+import { menuPrompt } from '../ui/prompts.js';
+import { editToolModels } from '../flows/model-slots-flow.js';
+import { confirmAndWrite } from '../ui/write-plan.js';
+import { planForTool } from '../flows/model-pick-flow.js';
+import { savedModelFor } from '../../core/model-mapping.js';
 import { t } from '../../i18n.js';
 import { configManager } from '../../config.js';
 import { promptHelper } from '../ui/prompt-helper.js';
@@ -17,6 +21,19 @@ import { applyTool, removeTool, hasSavedToolModelConfig } from '../../core/tool-
 export { hasSavedToolModelConfig } from '../../core/tool-service.js';
 
 // 工具菜单操作
+async function select<T>(config: { message: string; choices: { name: string; value: T }[] }, context?: { signal?: AbortSignal }): Promise<T> {
+  const result = await menuPrompt({ message: config.message, escape: true, items: config.choices.map(choice => ({ value: choice.value, label: choice.name })) }, context);
+  return result.action === 'escape' ? 'back' as T : result.value;
+}
+const PLANNED_TOOLS = ['claude-code', 'codex', 'codebuddy', 'workbuddy', 'hermes', 'opencode', 'qwen-code', 'kimi-code', 'grok', 'minimax-code', 'droid', 'openclaw'];
+async function configureWithPlan(tool: ITool, reuse = false): Promise<void> {
+  const main = savedModelFor(tool, configManager.getModels()) ?? tool.defaultModel;
+  const plan = reuse && main ? planForTool(tool, main) : await editToolModels(tool);
+  if (!plan) return;
+  const results = await confirmAndWrite(t('tool_menu_title', { tool: tool.displayName }), [plan], [], { edit: item => editToolModels(item.tool, item) });
+  if (results !== 'back') await promptHelper.pressEnter();
+}
+
 type ToolMenuAction =
   | 'models'
   | 'load'
@@ -28,7 +45,7 @@ type ToolMenuAction =
 
 // 工具配置菜单
 export async function showToolMenu(tool: ITool): Promise<void> {
-  if (!hasSavedToolModelConfig(tool, configManager.getModels())) {
+  if (!PLANNED_TOOLS.includes(tool.name) && !hasSavedToolModelConfig(tool, configManager.getModels())) {
     await runInitialToolSetup(tool);
   }
 
@@ -99,11 +116,13 @@ export async function showToolMenu(tool: ITool): Promise<void> {
 
     switch (action) {
       case 'models':
-        await tool.runModelConfigFlow();
+        if (PLANNED_TOOLS.includes(tool.name) && !tool.launchOnly) await configureWithPlan(tool);
+        else await tool.runModelConfigFlow();
         break;
 
       case 'load':
-        await loadConfig(tool);
+        if (PLANNED_TOOLS.includes(tool.name)) await configureWithPlan(tool, true);
+        else await loadConfig(tool);
         break;
 
       case 'unload':

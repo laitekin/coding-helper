@@ -384,5 +384,9 @@
   "plan_validation_failed": "模型兼容性校验失败，尚未写入。",
   "plan_validation_cancelled": "其他目标校验失败，已取消写入。",
   "plan_write_failed": "写入失败，已有恢复记录已保留。",
-  "helper_settings_failed": "客户端已写入，helper 设置保存失败；可使用 restore 还原。"
+  "helper_settings_failed": "客户端已写入，helper 设置保存失败；可使用 restore 还原。",
+  "menu_batch_setup": "批量配置工具",
+  "profile_add": "添加配置档",
+  "profile_use": "使用此配置档",
+  "profile_remove": "删除配置档"
 }

@@ -20,13 +20,13 @@ export class Wizard {
     );
 
     // 1. 选择语言
-    await runLanguageFlow();
+    if (!await runLanguageFlow()) return;
 
     // 2. 选择线路
-    await runEndpointSelectionFlow();
+    if (!await runEndpointSelectionFlow()) return;
 
     // 3. 输入 API Key
-    await runApiKeyFlow();
+    if (!await runApiKeyFlow()) return;
 
     // 4. 选择工具并引导配置（配置模型 → 装载配置 → 提示就绪）
     await runToolSetupFlow();
