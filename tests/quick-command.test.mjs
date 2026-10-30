@@ -224,3 +224,13 @@ test('context CLI is scoped to selected tools and only persists after success', 
     assert.equal(fs.readFileSync(r.helper, 'utf8'), r.before);
   }
 });
+
+test('invalid context returns a specific error with usable examples before writing files',async()=>{
+ for(const json of [true,false]){
+  const result=await runQuick(['opencode','sk-cn','--context','invalid',...(json?['--json']:[])]);
+  assert.equal(result.code,1);assert.equal(fs.readFileSync(result.helper,'utf8'),result.before);
+  assert.equal(fs.existsSync(path.join(result.home,'.config')),false);
+  if(json){const report=JSON.parse(result.stdout);assert.equal(report.error,'context_invalid');assert.deepEqual(report.suggestions,['96k','200000','auto']);}
+  else assert.match(result.stdout+result.stderr,/96k.*200000/);
+ }
+});
