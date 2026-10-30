@@ -48,10 +48,10 @@ export async function setupTool(tool: ITool): Promise<boolean> {
 
 // 初始化向导专用：选择工具 → 引导配置；取消或失败返回 false。
 export async function runToolSetupFlow(candidates?: ITool[]): Promise<boolean> {
-  const tools = (candidates ?? toolManager.getAll()).filter(tool => !tool.launchOnly);
+  const tools = candidates ?? toolManager.getAll();
   const targets = await selectTargets(t('setup_select_tools'), tools);
   if (!targets?.length) return false;
-  const previewable = targets.filter(tool => tool.supportsPreview === true);
+  const previewable = targets.filter(tool => !tool.launchOnly && tool.supportsPreview === true);
   if (previewable.length) while (true) {
     const picked = await pickModel({ tools: previewable });
     if (picked === 'back' || !('model' in picked)) return false;
@@ -59,9 +59,9 @@ export async function runToolSetupFlow(candidates?: ITool[]): Promise<boolean> {
     const results = await confirmAndWrite(t('menu_configure_tools'), plans, [], { edit: item => editToolModels(item.tool, item) });
     if (results !== 'back') { await promptHelper.pressEnter(); if (results.some(result => result.status === 'failed')) return false; break; }
   }
-  // 外部 writer 不参与安全预演，使用原有的单工具配置流程单独处理。
-  for (const tool of targets.filter(tool => tool.supportsPreview !== true)) {
-    uiRenderer.renderHint(t('setup_preview_fallback', { tool: tool.displayName }));
+  // 启动器只配置模型；外部 writer 使用原有的单工具配置流程单独处理。
+  for (const tool of targets.filter(tool => tool.launchOnly || tool.supportsPreview !== true)) {
+    if (!tool.launchOnly) uiRenderer.renderHint(t('setup_preview_fallback', { tool: tool.displayName }));
     if (!await setupTool(tool)) return false;
   }
   return true;
