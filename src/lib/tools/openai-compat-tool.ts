@@ -39,7 +39,7 @@ export function effectiveContextLimit(limits: ModelLimits, known: unknown): numb
 }
 export function effectiveOutputLimit(limits: ModelLimits, known: unknown, context: number): number {
   const inherited = limits.verified === false && typeof known === 'number' && Number.isFinite(known) && known > 0 ? known : limits.maxOutputTokens;
-  return limits.contextOverride ? Math.min(inherited, context - 1) : inherited;
+  return limits.contextOverride ? Math.min(inherited, Math.floor(context / 2)) : inherited;
 }
 
 export async function fetchModelLimits(baseUrl: string, apiKey: string, model: string, toolName?: string): Promise<ModelLimits> {
@@ -47,7 +47,7 @@ export async function fetchModelLimits(baseUrl: string, apiKey: string, model: s
   const cap = configManager.getContextWindow(toolName);
   if (cap === undefined) return limits;
   const contextWindow = capContextWindow(limits.contextWindow, toolName, cap);
-  return { ...limits, contextWindow, maxOutputTokens: Math.min(limits.maxOutputTokens, contextWindow - 1), contextOverride: true };
+  return { ...limits, contextWindow, maxOutputTokens: Math.min(limits.maxOutputTokens, Math.floor(contextWindow / 2)), contextOverride: true };
 }
 
 async function fetchUncappedModelLimits(baseUrl: string, apiKey: string, model: string): Promise<ModelLimits> {
