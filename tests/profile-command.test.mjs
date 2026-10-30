@@ -31,6 +31,9 @@ test('saving an explicitly selected active profile repairs legacy missing top-le
  fs.writeFileSync(configManager.configFile,text.replace(/^api_key:.*\n/m,''));configManager.reload();assert.equal(configManager.getApiKey(),undefined);
  configManager.saveSettings('work-key','china',{}, {toolNames:['opencode'],profile:'work'});
  configManager.reload();assert.equal(configManager.getConnection('opencode').apiKey,'work-key');assert.equal(configManager.getActiveProfile(),'work');
+ configManager.setEndpoint('custom','https://current.example/proxy');
+ configManager.saveSettings('home-key','international',{}, {toolNames:['copilot'],profile:'home',baseUrl:'https://api.modelink.ai'});
+ configManager.reload();assert.equal(configManager.baseUrl,'https://current.example/proxy');assert.equal(configManager.getConnection('copilot').apiKey,'home-key');
 });
 test('a revoked profile cannot be reused to resurrect its key',async t=>{
  prepare(t);configManager.revokeApiKey();const before=fs.readFileSync(configManager.configFile,'utf8');
