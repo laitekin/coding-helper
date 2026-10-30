@@ -83,10 +83,13 @@ export class GrokTool extends OpenAICompatTool {
     const summaryLimits = summary === model ? limits : await fetchModelLimits(baseUrl, apiKey, summary, this.name);
     applyConfigEdits(this.name, [{ file: getGrokConfigFile(), build: content => {
       const config = parse(content ?? '');
-      const previous = isRecord(config.model) && isRecord(config.model.qiniu) ? config.model.qiniu : undefined;
-      const known = previous?.model === model && typeof previous.context_window === 'number' && Number.isFinite(previous.context_window) && previous.context_window > 0 ? previous.context_window : undefined;
-      const previousSummary = isRecord(config.model) && isRecord(config.model['qiniu-summary']) ? config.model['qiniu-summary'] : undefined;
-      const summaryKnown = summary === model ? known : previousSummary?.model === summary ? previousSummary.context_window : undefined;
+      const entries: unknown[] = isRecord(config.model) ? [config.model.qiniu, config.model['qiniu-summary']] : [];
+      const knownLimit = (id: string): number | undefined => {
+        const limits = entries.filter(isRecord).filter(entry => entry.model === id && entry.base_url === openAIBaseUrl(baseUrl))
+          .map(entry => entry.context_window).filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0);
+        return limits.length ? Math.min(...limits) : undefined;
+      };
+      const known = knownLimit(model), summaryKnown = knownLimit(summary);
       return applyGrokConfig(content ?? '', baseUrl, apiKey, model, effectiveContextLimit(limits, known), { model: summary, contextWindow: effectiveContextLimit(summaryLimits, summaryKnown) });
     } }]);
   }

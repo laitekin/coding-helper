@@ -91,9 +91,10 @@ export class CodexTool implements ITool {
   async loadConfig(apiKey: string, baseUrl: string, models: ModelConfig): Promise<void> {
     const model = models.codexModel || this.defaultModel;
     const extra: CodexCatalogModel[] = [];
-    if (!GPT_MODELS.some(entry => entry.id === model)) {
-      const limits = await fetchModelLimits(baseUrl, apiKey, model, this.name);
-      extra.push({ id: model, context_length: limits.contextWindow, max_tokens: limits.maxOutputTokens, plain: true, images: limits.modalities?.input.includes('image') ?? false });
+    const slots = { review: slotModel(this.name, 'review', model, models), subagent: slotModel(this.name, 'subagent', model, models), memory: slotModel(this.name, 'memory', model, models) };
+    for (const id of new Set([model, ...Object.values(slots)])) if (!GPT_MODELS.some(entry => entry.id === id)) {
+      const limits = await fetchModelLimits(baseUrl, apiKey, id, this.name);
+      extra.push({ id, context_length: limits.contextWindow, max_tokens: limits.maxOutputTokens, plain: true, images: limits.modalities?.input.includes('image') ?? false });
     }
     const profiles = configManager.listProfiles().filter(profile => !!profile.apiKey);
     const generated = new Map(profiles.map(profile => [path.join(CODEX_DIR, codexProfileName(profile.name) + '.config.toml'), buildCodexProfileFile(profile.name, model, CODEX_CATALOG_FILE)]));
@@ -108,7 +109,7 @@ export class CodexTool implements ITool {
       if (!recorded.has(canonicalConfigPath(file)) && readTextFile(file) !== undefined) throw new Error('Codex profile file already exists. Choose another profile name.');
     }
     applyConfigEdits(this.name, [
-      { file: CODEX_CONFIG_FILE, build: content => mergeCodexProfiles(mergeCodexConfig(applyCodexSlots(content ?? '', { review: slotModel(this.name, 'review', model, models), subagent: slotModel(this.name, 'subagent', model, models), memory: slotModel(this.name, 'memory', model, models) }), baseUrl, model, CODEX_CATALOG_FILE), profiles, managedProviders) },
+      { file: CODEX_CONFIG_FILE, build: content => mergeCodexProfiles(mergeCodexConfig(applyCodexSlots(content ?? '', slots), baseUrl, model, CODEX_CATALOG_FILE), profiles, managedProviders) },
       { file: CODEX_AUTH_FILE, build: content => JSON.stringify({ ...parseConfigObject(content), auth_mode: 'apikey', OPENAI_API_KEY: apiKey }, null, 2) + '\n' },
       { file: CODEX_CATALOG_FILE, build: content => { if (content !== undefined) parseConfigObject(content); return buildCodexModelCatalog([...GPT_MODELS, ...extra].map(entry => ({ ...entry, context_length: capContextWindow(entry.context_length, this.name) }))); } },
       ...profileFiles.map(file => ({ file, build: (content: string | undefined) => {
