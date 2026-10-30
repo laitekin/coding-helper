@@ -9,6 +9,12 @@ import { renderToolResults } from '../ui/tool-results.js';
 export const CONTEXT_UNSUPPORTED_TOOLS = ['claude-code', 'hermes', 'copilot'];
 export function contextLabel(tokens?: number): string { return tokens ? formatContextSize(tokens) : t('context_auto'); }
 export async function runContextFlow(): Promise<void> {
+  const candidates = getSyncTargets(toolManager.getAll()).filter(tool => !CONTEXT_UNSUPPORTED_TOOLS.includes(tool.name));
+  if (!candidates.length) {
+    uiRenderer.renderHint(t('context_no_tools'));
+    await promptHelper.pressEnter();
+    return;
+  }
   let context: number | undefined;
   while (true) {
     const input = await promptHelper.input(t('context_custom_prompt'));
@@ -16,7 +22,6 @@ export async function runContextFlow(): Promise<void> {
     try { context = parseContextSize(input); break; }
     catch { uiRenderer.renderError(t('context_invalid', { value: input })); }
   }
-  const candidates = getSyncTargets(toolManager.getAll()).filter(tool => !CONTEXT_UNSUPPORTED_TOOLS.includes(tool.name));
   const names = await promptHelper.checkbox(t('targets_prompt'), candidates.map(tool => ({ name: tool.displayName, value: tool.name })));
   if (!names.length || !await promptHelper.confirm(t('context_targets_hint', { value: contextLabel(context) }), false)) return;
   const results = await configManager.withContextWindows(Object.fromEntries(names.map(name => [name, context ?? 0])), async () => {

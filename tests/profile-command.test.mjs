@@ -50,3 +50,20 @@ test('adding a profile without --use preserves an existing unnamed connection an
  assert.equal(configManager.getConnection('opencode').apiKey,'legacy-key');assert.equal(configManager.getToolProfile('copilot'),'home');
  await profileAddCommand('new','new-key',{use:true});assert.equal(configManager.getActiveProfile(),'new');assert.equal(configManager.getConnection().apiKey,'new-key');
 });
+
+test('quick @revoked rejects interactive and JSON requests before prompting or network access',async t=>{
+ prepare(t);configManager.revokeApiKey();const before=fs.readFileSync(configManager.configFile,'utf8');
+ const {quickCommand}=await import('../dist/commands/quick.js');
+ const {promptHelper}=await import('../dist/lib/wizard/ui/prompt-helper.js');
+ const {uiRenderer}=await import('../dist/lib/wizard/ui/ui-renderer.js');
+ const descriptors=[process.stdin,process.stdout].map(stream=>Object.getOwnPropertyDescriptor(stream,'isTTY'));
+ for(const stream of [process.stdin,process.stdout])Object.defineProperty(stream,'isTTY',{value:true,configurable:true});
+ t.after(()=>{[process.stdin,process.stdout].forEach((stream,i)=>{if(descriptors[i])Object.defineProperty(stream,'isTTY',descriptors[i]);else delete stream.isTTY;});});
+ t.mock.method(promptHelper,'password',async()=>assert.fail('revoked profile must not prompt for another key'));
+ t.mock.method(globalThis,'fetch',async()=>assert.fail('revoked profile must not send requests'));
+ t.mock.method(uiRenderer,'renderError',()=>{});
+ for(const json of [false,true]){
+  process.exitCode=0;await quickCommand('opencode',['@work'],{json});assert.equal(process.exitCode,1);
+  assert.equal(fs.readFileSync(configManager.configFile,'utf8'),before);assert.equal(fs.existsSync(path.join(home,'.config/opencode/opencode.json')),false);
+ }
+});
