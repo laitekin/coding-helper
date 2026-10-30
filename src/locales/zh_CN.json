@@ -388,5 +388,6 @@
   "menu_batch_setup": "批量配置工具",
   "profile_add": "添加配置档",
   "profile_use": "使用此配置档",
-  "profile_remove": "删除配置档"
+  "profile_remove": "删除配置档",
+  "header_tagline": "13 款编程助手，一个七牛"
 }

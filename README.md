@@ -461,3 +461,9 @@ Tool slots: Claude fallback/subagent; Codex review/subagent/memory; Droid spec s
 The confirmation page previews client writes in memory and shows model/context changes plus a file summary. Cancel leaves helper, client files and journals unchanged. All plan models validate against the captured connection before any writes; only successful clients save helper settings. File summaries contain paths, actions and line counts, never configuration bodies or credentials. Clients with external writers that cannot preview are rejected by this confirmation flow; their normal CLI configuration remains available.
 
 The main and tool menus now share arrow/Enter/Esc controls. Main-menu entries expose batch setup, profiles and context settings. Built-in persistent tools open the model/slot editor and confirmation plan; custom extensions retain their original configuration flow. API-key input cancels immediately on Esc. Version refresh still aborts and redraws the tool prompt without blocking navigation.
+
+The header renders a pixel QINIU logo and a matching tool character when the terminal supports it, with compact text for narrow terminals. Screenshots below come from an isolated HOME and fake credentials.
+
+![Main menu](docs/images/current-main.png)
+
+![Codex tool menu](docs/images/current-codex.png)

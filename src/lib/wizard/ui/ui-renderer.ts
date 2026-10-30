@@ -29,14 +29,14 @@ export const uiRenderer = {
   },
 
   // 渲染七牛 Logo
-  renderLogo(): void {
-    renderLogoArt();
+  renderLogo(toolName?: string): void {
+    renderLogoArt(toolName);
   },
 
   // 统一页面头部：清屏 + Logo + 配置面板（线路 + API Key）
-  renderHeader(): void {
+  renderHeader(toolName?: string): void {
     this.clearScreen();
-    this.renderLogo();
+    this.renderLogo(toolName);
 
     const endpointId = configManager.getEndpoint();
     const endpointDef = endpointId ? ENDPOINT_DEFINITIONS[endpointId] : undefined;
