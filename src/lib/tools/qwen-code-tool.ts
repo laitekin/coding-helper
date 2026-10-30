@@ -146,7 +146,13 @@ export class QwenCodeTool extends OpenAICompatTool {
       const files = this.configFiles();
       this.assertRecordedDirectory(files);
       applyConfigEdits(this.name, [
-        { file: files[0], build: content => formatJsonLike(content?.replace(/^\uFEFF/, ''), applyQwenSettings(parseQwenSettings(content), baseUrl, model, effectiveContextLimit(limits, getPath(parseQwenSettings(content), 'generationConfig.contextWindowSize')))) },
+        { file: files[0], build: content => {
+          const settings = parseQwenSettings(content);
+          const entries = getPath(settings, `modelProviders.${AUTH_TYPE}`);
+          const previous = Array.isArray(entries) ? entries.find(entry => isRecord(entry) && entry.id === model && entry.baseUrl === openAIBaseUrl(baseUrl) && entry.envKey === QWEN_ENV_KEY) : undefined;
+          const known = isRecord(previous) ? getPath(previous, 'generationConfig.contextWindowSize') : undefined;
+          return formatJsonLike(content?.replace(/^\uFEFF/, ''), applyQwenSettings(settings, baseUrl, model, effectiveContextLimit(limits, known)));
+        } },
         { file: files[1], build: content => setDotenvValue(content ?? '', QWEN_ENV_KEY, apiKey) },
       ]);
     });
