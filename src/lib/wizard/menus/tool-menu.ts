@@ -34,7 +34,8 @@ async function configureToolModelSlots(tool: ITool): Promise<void> {
     renderToolResults([result]);
     process.exitCode = exitCodeFor([result]);
     await promptHelper.pressEnter();
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && ['ExitPromptError', 'AbortPromptError'].includes(error.name)) throw error;
     uiRenderer.renderError(t('tool_config_load_failed', { tool: tool.displayName }));
     process.exitCode = 1;
     await promptHelper.pressEnter();
