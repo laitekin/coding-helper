@@ -453,3 +453,5 @@ Shared prompts distinguish Esc cancellation from empty input. Checkbox selection
 Model search matches vendor aliases, punctuation-free model IDs, context sizes such as 200k, and vision capability. Exact/prefix matches rank before recommendations and recent selections; unmatched input offers nearby model IDs.
 
 Model slots follow the main model unless explicitly overridden. Main-model changes retain slot overrides, and clearing one tool leaves other tools unchanged.
+
+The model picker uses searchable rows, vendor tabs, capability filters and recent models. It reloads the list for the selected connection and keeps selection in memory until confirmed. Esc clears search first, then returns.

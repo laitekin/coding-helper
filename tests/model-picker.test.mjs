@@ -1,0 +1,5 @@
+import assert from 'node:assert/strict'; import test from 'node:test'; import { runPrompt } from './helpers/prompt-pty.mjs';
+test('real PTY model picker search cancellation never saves helper settings', { skip: process.platform === 'win32' }, async () => {
+ const out = await runPrompt(`import fs from 'node:fs'; import { configManager } from './dist/lib/config.js'; import { marketModelService } from './dist/lib/market-model-service.js'; import { pickModel } from './dist/lib/wizard/flows/model-pick-flow.js'; configManager.getConnection = () => ({apiKey:'fake',baseUrl:'https://example.com',endpoint:'china'}); marketModelService.fetchModels=async()=>[{id:'z-ai/glm-5.2',name:'GLM',features:['工具调用'],model_constraints:{context_length:200000,max_tokens:8192},architecture:{function_calling:{supported:true}}}]; console.log('RESULT',JSON.stringify(await pickModel({tools:[],title:'PICK_READY'}))); console.log('SAVED',fs.existsSync(configManager.configFile));`, [['glm-5.2', 'zzzz'], ['zzzz', '\x1b'], ['glm-5.2', '\x1b']]);
+ assert.match(out, /RESULT.*"back"/); assert.match(out, /SAVED.*false/);
+});

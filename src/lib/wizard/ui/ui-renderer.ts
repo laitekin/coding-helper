@@ -7,6 +7,8 @@ import { configManager } from '../../config.js';
 import { ENDPOINT_DEFINITIONS } from '../../endpoints.js';
 import { t } from '../../i18n.js';
 
+export interface StepInfo { current: number; total: number; keys?: string[]; }
+
 // 配置面板条目
 export interface ConfigPanelItem {
   label: string;
@@ -16,6 +18,11 @@ export interface ConfigPanelItem {
 
 // 终端 UI 渲染器
 export const uiRenderer = {
+  renderPage(title: string, step?: StepInfo, subtitle?: string): void {
+    this.renderHeader();
+    this.renderTitle(step ? `${title} (${step.current}/${step.total})` : title);
+    if (subtitle) this.renderHint(subtitle);
+  },
   // 清屏 - 清除终端内容和滚动缓冲区
   clearScreen(): void {
     process.stdout.write('\x1Bc');
