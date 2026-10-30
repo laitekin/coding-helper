@@ -4,7 +4,7 @@ import { stringWidth, padEnd, truncate, visibleWidth } from '../../../utils/stri
 import { logger } from '../../../utils/logger.js';
 import { renderLogo as renderLogoArt } from './logo.js';
 import { theme } from './theme.js';
-import { configManager } from '../../config.js';
+import { configManager, type Connection } from '../../config.js';
 import { CUSTOM_ENDPOINT, ENDPOINT_DEFINITIONS } from '../../endpoints.js';
 import { t } from '../../i18n.js';
 
@@ -23,8 +23,8 @@ export function connectedToolNames(): string[] {
 
 // 终端 UI 渲染器
 export const uiRenderer = {
-  renderPage(title: string, step?: StepInfo, subtitle?: string): void {
-    this.renderHeader();
+  renderPage(title: string, step?: StepInfo, subtitle?: string, connection?: Connection): void {
+    this.renderHeader({ connection });
     this.renderTitle(step ? `${title} (${step.current}/${step.total})` : title);
     if (subtitle) this.renderHint(subtitle);
   },
@@ -39,21 +39,21 @@ export const uiRenderer = {
   },
 
   // 统一页面头部：清屏 + Logo + 配置面板（线路 + API Key）
-  renderHeader(options: { full?: boolean; crumb?: string } = {}): void {
+  renderHeader(options: { full?: boolean; crumb?: string; connection?: Connection } = {}): void {
     this.clearScreen();
     if (options.full) this.renderLogo();
     else logger.log(`  ${theme.brandBold('QINIU')} ${theme.heading('Coding Helper')}${options.crumb ? '  >  ' + options.crumb : ''}`);
-    this.renderStatusBar();
+    this.renderStatusBar(options.connection);
   },
-  renderStatusBar(): void {
-    const apiKey = configManager.getApiKey();
+  renderStatusBar(connection?: Connection): void {
+    const apiKey = connection ? connection.apiKey : configManager.getApiKey();
     const total = registeredTools().filter(tool => !tool.launchOnly).length;
     const parts = [
-      `${theme.success('●')} ${theme.subtle(this.endpointLabel())}`,
+      `${theme.success('●')} ${theme.subtle(this.endpointLabel(connection?.endpoint, connection?.baseUrl))}`,
       `${theme.subtle('Key')} ${apiKey ? theme.subtle(this.maskApiKey(apiKey)) : theme.warning(t('config_view_not_set'))}`,
       `${theme.subtle(t('status_applied'))} ${theme.brand(String(connectedToolNames().length))} / ${total}`,
     ];
-    const profile = configManager.getActiveProfile();
+    const profile = connection ? connection.profile : configManager.getActiveProfile();
     if (profile) parts.push(`${theme.subtle(t('profile_label'))} ${theme.brand(profile)}`);
     const columns = Math.max(12, process.stdout.columns || 100);
     const line = parts.join(theme.subtle('  ·  '));
