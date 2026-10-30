@@ -1,3 +1,4 @@
+import { parseContextSize } from '../lib/core/context.js';
 import { configManager, type ModelConfig } from '../lib/config.js';
 import { i18n, t } from '../lib/i18n.js';
 import { CUSTOM_ENDPOINT, DEFAULT_ENDPOINT, ENDPOINT_DEFINITIONS, getBaseUrl, otherEndpoint } from '../lib/endpoints.js';
@@ -15,7 +16,7 @@ import { uiRenderer } from '../lib/wizard/ui/ui-renderer.js';
 import { jsonToolResults, renderToolResults } from '../lib/wizard/ui/tool-results.js';
 import { withQuietLogs } from '../utils/logger.js';
 
-export interface QuickOptions { intl?: boolean; json?: boolean; dryRun?: boolean; save?: boolean; key?: string; model?: string; }
+export interface QuickOptions { intl?: boolean; json?: boolean; dryRun?: boolean; save?: boolean; key?: string; model?: string; context?: string; }
 
 class QuickError extends Error {
   constructor(public readonly code: string, public readonly suggestions: string[] = []) { super(code); }
@@ -39,6 +40,8 @@ export async function quickCommand(target: string, rest: string[], options: Quic
       if (key) picked = { key, source: 'prompt' };
     }
     if (!picked) throw new QuickError('key_missing');
+    const context = options.context === undefined ? undefined : parseContextSize(options.context) ?? 0;
+    if (context !== undefined && tools.some(tool => ['claude-code', 'hermes', 'copilot'].includes(tool.name))) throw new QuickError('context_unsupported');
     const apiKey = picked.key;
     let endpoint = options.intl ? 'international' : configManager.getEndpoint();
     if (endpoint !== CUSTOM_ENDPOINT && !Object.hasOwn(ENDPOINT_DEFINITIONS, endpoint)) endpoint = DEFAULT_ENDPOINT;
@@ -89,14 +92,16 @@ export async function quickCommand(target: string, rest: string[], options: Quic
       }
       return applied;
     };
-    const planned = options.dryRun ? await previewWrites(perform) : { value: await perform(), changes: [] };
+    const contexts = context === undefined ? {} : Object.fromEntries(tools.map(tool => [tool.name, context]));
+    const scopedPerform = () => configManager.withContextWindows(contexts, perform);
+    const planned = options.dryRun ? await previewWrites(scopedPerform) : { value: await scopedPerform(), changes: [] };
     results.push(...planned.value);
     results.sort((a, b) => tools.indexOf(a.tool) - tools.indexOf(b.tool));
     const successful = plans.filter(plan => results.some(result => result.tool === plan.tool && result.status === 'success'));
     let helperSaved = false, saveFailed = false;
     if (successful.length && !options.dryRun && options.save !== false) {
       try {
-        configManager.saveSettings(apiKey, endpoint, mergeModelConfigs(...successful.map(plan => plan.models)));
+        configManager.saveSettings(apiKey, endpoint, mergeModelConfigs(...successful.map(plan => plan.models)), { contexts: context === undefined ? undefined : Object.fromEntries(successful.map(plan => [plan.tool.name, context])) });
         modelService.clearCache(); marketModelService.clearCache(); helperSaved = true;
       } catch { saveFailed = true; }
     }

@@ -212,3 +212,15 @@ test('quick account checks use the resolved requested or saved model', async () 
     assert.deepEqual(preferredProbes.slice(before), ['vendor/chat']);
   }
 });
+
+test('context CLI is scoped to selected tools and only persists after success', async () => {
+  const result = await runQuick(['opencode', 'sk-cn', '--context', '64k', '--json']);
+  assert.equal(result.code, 0, result.stdout + result.stderr);
+  const config = JSON.parse(fs.readFileSync(path.join(result.home, '.config/opencode/opencode.json'), 'utf8'));
+  assert.equal(config.provider.qiniu.models['vendor/chat'].limit.context, 64000);
+  assert.match(fs.readFileSync(result.helper, 'utf8'), /opencode: 64000/);
+  for (const args of [['--model', 'missing'], ['--dry-run'], ['--context', 'invalid']]) {
+    const r = await runQuick(['opencode', 'sk-cn', '--context', '64k', '--json', ...args]);
+    assert.equal(fs.readFileSync(r.helper, 'utf8'), r.before);
+  }
+});
