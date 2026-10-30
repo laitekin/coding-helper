@@ -501,6 +501,22 @@ export function buildScenarios(tools) {
       },
     },
     {
+      name: 'context menu without configured targets',
+      args: ['enter'],
+      steps: [
+        { waitFor: ZH_LOCALE.menu_main_title, input: downToOption(MAIN_MENU_OPTIONS, ZH_LOCALE.menu_configure_language, ZH_LOCALE.context_title), expectSelected: ZH_LOCALE.context_title },
+        { input: '\r', waitAfter: ZH_LOCALE.context_no_tools },
+        { input: '\r', waitAfter: ZH_LOCALE.menu_main_title },
+        { input: downToOption(MAIN_MENU_OPTIONS, ZH_LOCALE.menu_configure_language, ZH_LOCALE.menu_exit), expectSelected: ZH_LOCALE.menu_exit },
+        { input: '\r', expectExit: true },
+      ],
+      analysis: {
+        repeatedRenderPattern: ZH_LOCALE.menu_select_action,
+        maxRepeatedRenders: 30,
+        expectedPatterns: [ZH_LOCALE.context_no_tools, ZH_LOCALE.menu_main_title],
+      },
+    },
+    {
       name: 'tool selector keyboard navigation',
       args: ['enter'],
       steps: toolSelectorSteps,
