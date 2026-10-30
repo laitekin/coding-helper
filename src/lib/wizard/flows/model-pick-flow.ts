@@ -162,7 +162,8 @@ export async function pickModel(options: PickOptions): Promise<PickResult> {
         const m = byId.get(item.value);
         if (!m) return undefined;
         const caps = capabilities(m);
-        return scoreModel({ id: m.id, context: caps.maxInputTokens, toolCall: caps.toolCall, vision: caps.images }, q, {
+        if (parseModelQuery(q).toolCall && 'capabilitiesUnknown' in m) return undefined;
+        return scoreModel({ id: m.id, name: m.name, reasoning: caps.reasoning, context: caps.maxInputTokens, toolCall: caps.toolCall, vision: caps.images }, q, {
           recommended: RECOMMENDED_MODELS.includes(m.id),
           recent: recent.includes(m.id),
         });
@@ -172,11 +173,11 @@ export async function pickModel(options: PickOptions): Promise<PickResult> {
       emptyText: (q) => t('model_search_none', { query: q }),
       suggest: (q) => {
         const parsed = parseModelQuery(q);
-        const candidates = usable.filter(m => { const caps = capabilities(m); return (!parsed.vision || caps.images) && (!parsed.minContext || caps.maxInputTokens >= parsed.minContext); });
+        const candidates = usable.filter(m => { const caps = capabilities(m); return (!parsed.vision || caps.images) && (!parsed.minContext || caps.maxInputTokens >= parsed.minContext) && (!parsed.toolCall || (!('capabilitiesUnknown' in m) && caps.toolCall)) && (!parsed.reasoning || caps.reasoning); });
         return closestModels(candidates.map(m => m.id), q).map(id => modelRow(byId.get(id)!, options));
       },
       // 像模型 ID 的输入才提供「使用自定义模型 ID」（中文厂商名、200k、看图 这类过滤词不算）
-      customLabel: (q) => /^[\w.\-/:]+$/.test(q.trim()) && !parseModelQuery(q).minContext && !parseModelQuery(q).vision
+      customLabel: (q) => /^[\w.\-/:]+$/.test(q.trim()) && !parseModelQuery(q).minContext && !parseModelQuery(q).vision && !parseModelQuery(q).toolCall && !parseModelQuery(q).reasoning
         ? t('model_custom_value', { value: resolveModelId(q, models.map((m) => m.id)) })
         : undefined,
     });
