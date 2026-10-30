@@ -6,6 +6,7 @@ const model='context/model';let offline=false;
 marketModelService.fetchModels=async()=>{if(offline)throw Error('offline');return [{id:model,features:['工具调用'],model_constraints:{context_length:32768,max_tokens:8192},architecture:{input_modalities:['text','image'],output_modalities:['text'],function_calling:{supported:true},reasoning:{supported:false}}}];};
 test.after(()=>fs.rmSync(home,{recursive:true,force:true}));
 const cases=[
+ ['qwen-code','.qwen/settings.json',text=>{const v=JSON.parse(text).modelProviders.openai.find(v=>v.id===model);return {context:v.generationConfig.contextWindowSize};}],
  ['opencode','.config/opencode/opencode.json',text=>{const v=JSON.parse(text).provider.qiniu.models[model];return {context:v.limit.context,output:v.limit.output,image:v.modalities.input.includes('image')};}],
  ['openclaw','.openclaw/openclaw.json',text=>{const v=JSON.parse(text).models.providers.qiniu.models.find(v=>v.id===model);return {context:v.contextWindow,output:v.maxTokens,image:v.input.includes('image')};}],
  ['droid','.factory/settings.json',text=>{const v=JSON.parse(text).customModels.find(v=>v.model===model);return {context:v.maxContextLimit+v.maxOutputTokens,output:v.maxOutputTokens,image:!v.noImageSupport};}],
