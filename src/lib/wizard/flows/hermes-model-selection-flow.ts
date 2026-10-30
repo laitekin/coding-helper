@@ -78,7 +78,7 @@ export function buildHermesModelChoices(
     ...models.map(m => ({
       name: `${m.name}${buildCapabilityTags(m)}`,
       value: m.id,
-      model: { id: m.id, context: getModelCapabilities(m).maxInputTokens, toolCall: getModelCapabilities(m).toolCall, vision: getModelCapabilities(m).images },
+      model: { id: m.id, context: getModelCapabilities(m).maxInputTokens, toolCall: getModelCapabilities(m).toolCall, vision: getModelCapabilities(m).images, reasoning: getModelCapabilities(m).reasoning },
     })),
     {
       name: t('model_manual_input'),

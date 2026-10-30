@@ -61,3 +61,8 @@ test('resolution preserves exact IDs and ambiguous names', () => {
  assert.equal(resolveModelId('model', ['b/model','a/model']), 'model');
  assert.equal(closestModels(IDS, 'moonshotai/kim-k3', 1)[0], 'moonshotai/kimi-k3');
 });
+
+test('visible names and tool/reasoning filters preserve capability and context constraints',()=>{
+ const models=[{id:'a/tool',name:'Friendly tool',context:256000,toolCall:true,vision:false,reasoning:true},{id:'a/plain',context:128000,toolCall:false,vision:false,reasoning:false}];
+ assert.deepEqual(matches('工具调用',models),['a/tool']);assert.deepEqual(matches('思考 200k',models),['a/tool']);assert.deepEqual(matches('thinking 1m',models),[]);assert.deepEqual(matches('Friendly',models),['a/tool']);
+});
