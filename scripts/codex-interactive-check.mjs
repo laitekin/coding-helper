@@ -31,6 +31,8 @@ export function analyzeTranscript(transcript, options = {}) {
     }
   }
 
+  if (/\^\[\[[0-9;]*[A-D]/.test(clean)) failures.push('Terminal transcript contains echoed arrow-key escape sequences.');
+
   const pattern = options.repeatedRenderPattern;
   const count = pattern ? clean.split(pattern).length - 1 : 0;
   const maxRepeatedRenders = options.maxRepeatedRenders ?? Number.POSITIVE_INFINITY;
