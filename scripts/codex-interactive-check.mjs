@@ -434,6 +434,13 @@ export function buildScenarios(tools) {
       {input:'\u001b[A',expectSelected:ZH_LOCALE.menu_setup_tools},
       {input:'\u001b',expectExit:true},
     ],analysis:{repeatedRenderPattern:ZH_LOCALE.menu_select_action,maxRepeatedRenders:20,expectedPatterns:[ZH_LOCALE.menu_setup_tools,ZH_LOCALE.menu_my_tools,ZH_LOCALE.menu_account]}},
+    {name:'context menu without configured targets',args:['enter'],steps:[
+      {waitFor:ZH_LOCALE.menu_setup_tools,input:'\u001b[B'.repeat(5)+'\r',waitAfter:ZH_LOCALE.menu_context},
+      {input:'\r',waitAfter:ZH_LOCALE.context_no_tools},
+      {input:'\r',waitAfter:ZH_LOCALE.menu_context},
+      {input:'\u001b',waitAfter:ZH_LOCALE.menu_setup_tools},
+      {input:'\u001b',expectExit:true},
+    ],analysis:{repeatedRenderPattern:ZH_LOCALE.menu_select_action,maxRepeatedRenders:30,expectedPatterns:[ZH_LOCALE.context_no_tools,ZH_LOCALE.menu_more]}},
     {name:'tool selector keyboard navigation',args:['enter'],steps,analysis:{repeatedRenderPattern:ZH_LOCALE.menu_select_action,maxRepeatedRenders:20+tools.length*3,expectedPatterns:tools.map(tool=>tool.displayName)}},
     ...tools.map(tool=>createToolMenuScenario(tool)),
   ];

@@ -8,7 +8,7 @@ interface Entry { file: string; original: string | null; applied: string; before
 const record = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
 
 // 父目录解析别名，文件自身的链接仍拒绝；同一配置只有一份还原记录
-function canonical(file: string): string {
+export function canonicalConfigPath(file: string): string {
   const dir = (value: string): string => {
     try { return fs.realpathSync(value); }
     catch (err) {
@@ -50,7 +50,7 @@ function write(file: string, value: string | undefined, expected: string | undef
 export function applyConfigEdits(tool: string, edits: ConfigEdit[], options: { extend?: boolean } = {}): void {
   stateStore.withLock(() => {
     if (!edits.length) throw new Error('Configuration transaction requires files.');
-    const files = edits.map(edit => canonical(edit.file));
+    const files = edits.map(edit => canonicalConfigPath(edit.file));
     if (new Set(files).size !== files.length) throw new Error('Duplicate configuration target.');
     files.forEach(assertNotSymlink);
     const { key, saved: previous } = transaction(tool, files);
@@ -94,7 +94,7 @@ export function applyConfigEdits(tool: string, edits: ConfigEdit[], options: { e
 export function restoreConfigEdits(tool: string, targets: string[]): boolean {
   return stateStore.withLock(() => {
     if (!targets.length) return false;
-    const files = targets.map(canonical);
+    const files = targets.map(canonicalConfigPath);
     const { key, saved } = transaction(tool, files);
     const old = entries(saved, files);
     if (!old) return false;
