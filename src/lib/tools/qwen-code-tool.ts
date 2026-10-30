@@ -134,7 +134,7 @@ export class QwenCodeTool extends OpenAICompatTool {
   }
 
   isConfigured(): boolean {
-    const entries = getPath(this.getConfig(), `modelProviders.${AUTH_TYPE}`);
+    const entries = getPath(parseQwenSettings(readTextFile(this.settingsFile())), `modelProviders.${AUTH_TYPE}`);
     return Array.isArray(entries) && entries.some(isQiniuEntry);
   }
 
