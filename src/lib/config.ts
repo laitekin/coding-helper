@@ -190,9 +190,12 @@ class ConfigManager {
     const next: Config = { ...this.config, ...models, api_key: apiKey, endpoint };
     if (models.claudeCode) next.claudeCode = { ...this.config.claudeCode, ...models.claudeCode };
     if (models.toolModels) next.toolModels = { ...this.config.toolModels, ...models.toolModels };
+    if (endpoint === CUSTOM_ENDPOINT) next.base_url = getBaseUrl(endpoint, next.base_url);
+    else delete next.base_url;
     this.ensureDir();
     atomicWriteFile(CONFIG_FILE, yaml.dump(next, { lineWidth: -1 }));
     this.config = next;
+    registerCustomBaseUrls(next.base_url ? [next.base_url] : []);
   }
 
   // 旧全局值只作兜底；显式 auto 用 0 遮蔽旧值，不影响其他工具。
