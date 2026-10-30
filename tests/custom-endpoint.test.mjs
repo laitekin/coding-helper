@@ -1,0 +1,25 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import test from 'node:test';
+process.env.HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'custom-endpoint-'));
+const { configManager } = await import('../dist/lib/config.js');
+const { normalizeCustomBaseUrl, getBaseUrl, isQiniuBaseUrl, registerCustomBaseUrls } = await import('../dist/lib/endpoints.js');
+test.after(() => fs.rmSync(process.env.HOME, { recursive: true, force: true }));
+test('custom endpoint validates and normalizes URLs without falling back', () => {
+  assert.equal(normalizeCustomBaseUrl(' https://gateway.example.com/proxy/// '), 'https://gateway.example.com/proxy');
+  for (const url of ['file:///tmp/x', 'https://u:p@gateway.example.com', 'https://example.com/?key=x', 'https://example.com/#x', 'invalid']) assert.throws(() => normalizeCustomBaseUrl(url));
+  assert.throws(() => getBaseUrl('custom'));
+  configManager.setEndpoint('custom', 'https://gateway.example.com/proxy/');
+  assert.equal(configManager.baseUrl, 'https://gateway.example.com/proxy');
+  configManager.reload();
+  assert.equal(configManager.baseUrl, 'https://gateway.example.com/proxy');
+  assert.equal(isQiniuBaseUrl('https://gateway.example.com/proxy/v1'), true);
+  for (const url of ['https://gateway.example.com.evil/proxy', 'https://gateway.example.com/proxy2/v1', 'https://u:p@gateway.example.com/proxy/v1']) assert.equal(isQiniuBaseUrl(url), false);
+  const before = fs.readFileSync(configManager.configFile, 'utf8');
+  assert.throws(() => configManager.setEndpoint('custom', 'invalid'));
+  assert.equal(fs.readFileSync(configManager.configFile, 'utf8'), before);
+  registerCustomBaseUrls([]);
+  assert.equal(isQiniuBaseUrl('https://gateway.example.com/proxy/v1'), false);
+});
