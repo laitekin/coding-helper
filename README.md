@@ -449,3 +449,4 @@ Codex 0.134+ profiles use `~/.codex/qn-<name>.config.toml` and `codex --profile 
 The shared terminal menu supports arrows, Enter, Esc, searchable rows, vendor tabs and async details. Letter shortcuts are not used for menu actions. Narrow terminals hide the value column.
 
 Shared prompts distinguish Esc cancellation from empty input. Checkbox selection and masked secret entry are available for the new menu flows; secrets are never echoed in full.
+When model metadata is offline, context caps only narrow already verified client limits and retain known modality metadata. A 64k cap cannot expand a client limit already known to be 32k.
