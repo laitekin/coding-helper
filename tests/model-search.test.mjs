@@ -55,3 +55,9 @@ test('no match: closest models and vendor prefix completion', () => {
   assert.equal(resolveModelId('unknown-1', IDS), 'unknown-1');
 });
 
+test('resolution preserves exact IDs and ambiguous names', () => {
+ assert.equal(resolveModelId('model', ['a/model','model']), 'model');
+ assert.equal(resolveModelId('model', ['a/model','b/model']), 'model');
+ assert.equal(resolveModelId('model', ['b/model','a/model']), 'model');
+ assert.equal(closestModels(IDS, 'moonshotai/kim-k3', 1)[0], 'moonshotai/kimi-k3');
+});

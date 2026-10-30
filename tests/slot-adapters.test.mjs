@@ -1,0 +1,20 @@
+import assert from 'node:assert/strict'; import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path'; import test from 'node:test'; import { parse } from 'smol-toml'; import yaml from 'js-yaml';
+import { isolateHome } from './helpers/isolated-home.mjs'; import { runPrompt } from './helpers/prompt-pty.mjs';
+const home = fs.mkdtempSync(path.join(os.tmpdir(), 'tool-model-slots-')); isolateHome(home);
+const { toolManager } = await import('../dist/lib/tool-manager.js');
+const oldFetch = globalThis.fetch;
+globalThis.fetch = async () => new Response(JSON.stringify({status:true,data:['main','own','eye'].map(id=>({id,features:['工具调用'],model_constraints:{context_length:128000,max_tokens:8192},architecture:{function_calling:{supported:true},input_modalities:['text','image']}}))}));
+test.after(() => { globalThis.fetch=oldFetch; fs.rmSync(home,{recursive:true,force:true}); });
+const cases = [
+ ['claude-code','.claude/settings.json', '{"model":"old","env":{"ANTHROPIC_DEFAULT_HAIKU_MODEL":"old-fallback","ANTHROPIC_SMALL_FAST_MODEL":"old-fast","ANTHROPIC_DEFAULT_FABLE_MODEL":"old-fable"}}\n', {claudeCode:{sonnetModel:'main',opusModel:'main',haikuModel:'main',subagentModel:'main'}}, {fallback:'own',subagent:'eye'}, text => {const v=JSON.parse(text); assert.equal(v.env.ANTHROPIC_DEFAULT_HAIKU_MODEL,'own');assert.equal(v.env.CLAUDE_CODE_SUBAGENT_MODEL,'eye');assert.equal(v.env.ANTHROPIC_SMALL_FAST_MODEL,'own');assert.equal(v.env.ANTHROPIC_DEFAULT_FABLE_MODEL,'main');}],
+ ['codex','.codex/config.toml','model = "old"\nreview_model = "old-review"\n', {codexModel:'openai/gpt-6-astra'}, {review:'own',subagent:'eye',memory:'own'}, text=>{const v=parse(text); assert.equal(v.review_model,'own');assert.equal(v.agents.default_subagent_model,'eye');assert.equal(v.memories.extract_model,'own');}],
+ ['droid','.factory/settings.json','{"customModels":[{"model":"mine","displayName":"Mine","baseUrl":"https://foreign"}],"sessionDefaultSettings":{"model":"old","autonomyMode":"safe"}}\n',{toolModels:{droid:'main'}},{spec:'own'},text=>{const v=JSON.parse(text);assert.equal(v.customModels[0].model,'mine');assert.equal(v.sessionDefaultSettings.model,'custom:Qiniu:-main-1');assert.equal(v.sessionDefaultSettings.specModeModel,'custom:Qiniu:-own-2');assert.equal(v.sessionDefaultSettings.autonomyMode,'safe');}],
+ ['grok','.grok/config.toml','[ui]\ntheme = "dark"\n',{toolModels:{grok:'main'}},{summary:'own'},text=>{const v=parse(text);assert.equal(v.models.session_summary,'qiniu-summary');assert.equal(v.model['qiniu-summary'].model,'own');assert.equal(v.ui.theme,'dark');}],
+ ['hermes','.hermes/config.yaml','model:\n  default: old\n  provider: local\nauxiliary:\n  vision:\n    model: old-eye\n    provider: local\n    other: keep\n',{hermesModel:'main'},{vision:'eye'},text=>{const v=yaml.load(text);assert.equal(v.auxiliary.vision.model,'eye');assert.equal(v.auxiliary.vision.other,'keep');}],
+];
+for (const [name,relative,original,models,slots,check] of cases) test(`${name} writes slots and restores all original bytes`, async () => {
+ const file=path.join(home,relative); fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,original);
+ const tool=toolManager.get(name); await tool.loadConfig('sk-test','https://api.qnaigc.com',{...models,slotModels:{[name]:slots}});check(fs.readFileSync(file,'utf8')); if(name==='claude-code'){const env=tool.getLaunchEnv('sk-test','https://api.qnaigc.com',{...models,slotModels:{[name]:slots}});assert.equal(env.ANTHROPIC_SMALL_FAST_MODEL,'own');assert.equal(env.ANTHROPIC_DEFAULT_FABLE_MODEL,'main');} const first=fs.readFileSync(file,'utf8'); await tool.loadConfig('sk-test','https://api.qnaigc.com',{...models,slotModels:{[name]:slots}}); assert.equal(fs.readFileSync(file,'utf8'),first);
+ if(name==='hermes'){await tool.loadConfig('sk-test','https://api.qnaigc.com',{...models,slotModels:{hermes:{}}});assert.equal(yaml.load(fs.readFileSync(file,'utf8')).auxiliary.vision.model,'old-eye');}
+ await tool.unloadConfig(); assert.equal(fs.readFileSync(file,'utf8'),original);
+});

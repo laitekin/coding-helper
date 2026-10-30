@@ -6,7 +6,7 @@ import {
   getModelCapabilities,
   type MarketModelInfo,
 } from '../../market-model-service.js';
-import { promptHelper } from '../ui/prompt-helper.js';
+import { promptHelper, type ModelChoice } from '../ui/prompt-helper.js';
 import { uiRenderer } from '../ui/ui-renderer.js';
 
 export const HERMES_MANUAL_MODEL_VALUE = '__manual_model__';
@@ -73,11 +73,12 @@ export async function runHermesModelSelectionFlow(): Promise<string | null> {
 
 export function buildHermesModelChoices(
   models: MarketModelInfo[],
-): { name: string; value: string }[] {
+): ModelChoice[] {
   return [
     ...models.map(m => ({
       name: `${m.name}${buildCapabilityTags(m)}`,
       value: m.id,
+      model: { id: m.id, context: getModelCapabilities(m).maxInputTokens, toolCall: getModelCapabilities(m).toolCall, vision: getModelCapabilities(m).images },
     })),
     {
       name: t('model_manual_input'),

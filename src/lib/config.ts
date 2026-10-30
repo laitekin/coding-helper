@@ -415,7 +415,7 @@ function mergeSlotSettings(previous: ModelConfig['slotModels'], update: ModelCon
   if (update === undefined) return undefined;
   const next = { ...previous };
   for (const [tool, slots] of Object.entries(update)) {
-    if (Object.keys(slots).length) next[tool] = { ...slots };
+    if (Object.keys(slots).length) next[tool] = { ...next[tool], ...slots };
     else delete next[tool];
   }
   return Object.keys(next).length ? next : undefined;
