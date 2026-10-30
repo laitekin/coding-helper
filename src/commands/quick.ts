@@ -34,14 +34,18 @@ export async function quickCommand(target: string, rest: string[], options: Quic
         return tool;
       }))];
     if (!tools.length) throw new QuickError('no_installed_tools');
+    let context: number | undefined;
+    if (options.context !== undefined) {
+      try { context = parseContextSize(options.context) ?? 0; }
+      catch { throw new QuickError('context_invalid', ['96k', '200000', 'auto']); }
+    }
+    if (context !== undefined && tools.some(tool => ['claude-code', 'hermes', 'copilot'].includes(tool.name))) throw new QuickError('context_unsupported');
     let picked = pickApiKey(args, process.env, configManager.getApiKey());
     if (!picked && !options.json && process.stdin.isTTY && process.stdout.isTTY) {
       const key = (await promptHelper.password(t('apikey_prompt'))).trim();
       if (key) picked = { key, source: 'prompt' };
     }
     if (!picked) throw new QuickError('key_missing');
-    const context = options.context === undefined ? undefined : parseContextSize(options.context) ?? 0;
-    if (context !== undefined && tools.some(tool => ['claude-code', 'hermes', 'copilot'].includes(tool.name))) throw new QuickError('context_unsupported');
     const apiKey = picked.key;
     let endpoint = options.intl ? 'international' : configManager.getEndpoint();
     if (endpoint !== CUSTOM_ENDPOINT && !Object.hasOwn(ENDPOINT_DEFINITIONS, endpoint)) endpoint = DEFAULT_ENDPOINT;
@@ -121,7 +125,7 @@ export async function quickCommand(target: string, rest: string[], options: Quic
   } catch (error) {
     const code = error instanceof QuickError ? error.code : 'quick_configuration_failed';
     if (options.json) console.log(JSON.stringify({ error: code, ...(error instanceof QuickError && error.suggestions.length ? { suggestions: error.suggestions } : {}), exitCode: 1 }));
-    else { if (!initialized) i18n.init('en_US'); uiRenderer.renderError(`${t('quick_failed')} (${code})`); }
+    else { if (!initialized) i18n.init('en_US'); uiRenderer.renderError(code === 'context_invalid' ? t('context_invalid', { value: options.context ?? '' }) : `${t('quick_failed')} (${code})`); }
     process.exitCode = 1;
   }
 }
