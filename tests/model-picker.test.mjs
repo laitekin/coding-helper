@@ -26,3 +26,7 @@ test('model picker supports reasoning capability search with current metadata',{
  const source=pickerHead+`marketModelService.fetchModels=async()=>[{id:'a/brain',name:'Reasoner',features:['工具调用','深度思考'],model_constraints:{context_length:200000}},{id:'a/text',name:'Text',features:['工具调用']}];console.log('RESULT',JSON.stringify(await pickModel({tools:[]})));`;
  const out=await runPrompt(source,[['←→','思考'],['思考','\r']]);assert.match(out,/RESULT.*"model":"a\/brain"/);
 });
+
+for(const [input,expected] of [['qwen/foo','qwen/foo'],['qwen/','qwen/foobar']])test('picker distinguishes explicit ID from namespace search: '+input,{skip:process.platform==='win32'},async()=>{
+ const source=pickerHead+`marketModelService.fetchModels=async()=>[{id:'qwen/foobar',name:'FooBar',features:['工具调用']}];console.log('RESULT',JSON.stringify(await pickModel({tools:[]})));`;const out=await runPrompt(source,[['←→',input],[input,'\r']]);assert.ok(out.includes('"model":"'+expected+'"'),out);
+});
