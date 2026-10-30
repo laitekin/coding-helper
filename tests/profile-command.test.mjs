@@ -1,0 +1,38 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import test from 'node:test';
+import {isolateHome} from './helpers/isolated-home.mjs';
+const home=fs.mkdtempSync(path.join(os.tmpdir(),'profile-command-'));isolateHome(home);
+const {configManager}=await import('../dist/lib/config.js');
+const {toolManager}=await import('../dist/lib/tool-manager.js');
+const {profileUseCommand,profileAddCommand}=await import('../dist/commands/profile.js');
+test.after(()=>{process.exitCode=undefined;fs.rmSync(home,{recursive:true,force:true});});
+function prepare(t){
+ configManager.clearConfig();configManager.saveProfile('work','work-key','china');configManager.saveProfile('home','home-key','international');configManager.useProfile('work');
+ t.mock.method(console,'log',()=>{});t.mock.method(console,'error',()=>{});process.exitCode=0;
+}
+test('launch-only assignments save the selected connection and missing models fail explicitly',async t=>{
+ prepare(t);await profileUseCommand('home','copilot');
+ assert.equal(configManager.getConnection('copilot').apiKey,'home-key');assert.equal(process.exitCode,0);
+ await profileUseCommand('home','opencode');assert.equal(process.exitCode,1);assert.equal(configManager.getToolProfile('opencode'),undefined);
+ process.exitCode=0;await profileUseCommand('home','copilot,opencode');assert.equal(process.exitCode,2);
+});
+test('explicit empty selectors and empty custom URLs fail before changing state or requesting credentials',async t=>{
+ prepare(t);configManager.setToolProfile('copilot','home');
+ const before=fs.readFileSync(configManager.configFile,'utf8');
+ t.mock.method(globalThis,'fetch',async()=>assert.fail('must not send a credential'));
+ for(const tools of ['', ' ', ',']){await profileUseCommand('home',tools);assert.equal(process.exitCode,1);assert.equal(fs.readFileSync(configManager.configFile,'utf8'),before);}
+ for(const baseUrl of ['', ' ']){await profileAddCommand('bad','secret',{baseUrl});assert.equal(process.exitCode,1);assert.equal(fs.readFileSync(configManager.configFile,'utf8'),before);}
+});
+test('saving an explicitly selected active profile repairs legacy missing top-level credentials',t=>{
+ prepare(t);const text=fs.readFileSync(configManager.configFile,'utf8');
+ fs.writeFileSync(configManager.configFile,text.replace(/^api_key:.*\n/m,''));configManager.reload();assert.equal(configManager.getApiKey(),undefined);
+ configManager.saveSettings('work-key','china',{}, {toolNames:['opencode'],profile:'work'});
+ configManager.reload();assert.equal(configManager.getConnection('opencode').apiKey,'work-key');assert.equal(configManager.getActiveProfile(),'work');
+});
+test('a revoked profile cannot be reused to resurrect its key',async t=>{
+ prepare(t);configManager.revokeApiKey();const before=fs.readFileSync(configManager.configFile,'utf8');
+ await profileUseCommand('work','copilot');assert.equal(process.exitCode,1);assert.equal(fs.readFileSync(configManager.configFile,'utf8'),before);
+});
