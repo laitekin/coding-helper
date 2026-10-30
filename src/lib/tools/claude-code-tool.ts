@@ -35,6 +35,12 @@ const CLAUDE_ENV_KEYS = [
   'CLAUDE_CODE_ATTRIBUTION_HEADER',
 ];
 
+
+const CLAUDE_SLOT_ALIAS_KEYS = ['ANTHROPIC_DEFAULT_FABLE_MODEL', 'ANTHROPIC_SMALL_FAST_MODEL',
+  'ANTHROPIC_DEFAULT_HAIKU_MODEL_DESCRIPTION', 'ANTHROPIC_DEFAULT_SONNET_MODEL_DESCRIPTION',
+  'ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION', 'ANTHROPIC_DEFAULT_FABLE_MODEL_DESCRIPTION'];
+const CLAUDE_LEGACY_ENV_KEYS = CLAUDE_ENV_KEYS.filter(key => !CLAUDE_SLOT_ALIAS_KEYS.includes(key));
+
 // Claude Code 配置文件路径
 const CLAUDE_SETTINGS_DIR = path.join(os.homedir(), '.claude');
 const CLAUDE_SETTINGS_FILE = path.join(CLAUDE_SETTINGS_DIR, 'settings.json');
@@ -205,11 +211,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 // 缺失字段不存入快照，从而与显式 null 区分
-function snapshot(config: Record<string, unknown>, settings: boolean, model: boolean): PriorValues {
+function snapshot(config: Record<string, unknown>, settings: boolean, model: boolean, keys = CLAUDE_ENV_KEYS): PriorValues {
   const result: PriorValues = {};
   if (settings && Object.hasOwn(config, 'env')) {
     if (!isRecord(config.env)) throw new Error('Invalid Claude env: expected an object.');
-    result.env = Object.fromEntries(CLAUDE_ENV_KEYS.filter(key => Object.hasOwn(config.env!, key)).map(key => [key, (config.env as PriorValues)[key]]));
+    result.env = Object.fromEntries(keys.filter(key => Object.hasOwn(config.env!, key)).map(key => [key, (config.env as PriorValues)[key]]));
   }
   for (const key of settings ? ['companyAnnouncements', 'attribution', ...(model ? ['model'] : [])] : ['hasCompletedOnboarding']) {
     if (Object.hasOwn(config, key)) result[key] = structuredClone(config[key]);
@@ -244,8 +250,21 @@ function checkedState(saved: ToolState | undefined, settings: boolean): ToolStat
   if (saved) {
     const original = originalConfig(saved);
     const model = saved.priors!.manageModel === true;
-    if (!isDeepStrictEqual(snapshot(original.value, settings, model), saved.priors!.snapshot) ||
-        !isDeepStrictEqual(snapshot(saved.applied!, settings, model), saved.applied)) {
+    const expected = snapshot(original.value, settings, model);
+    if (!isDeepStrictEqual(expected, saved.priors!.snapshot)) {
+      // 旧版本尚未管理别名字段：只接受与旧键集合完全一致的快照，并从原文件补齐原值。
+      if (!settings || !isDeepStrictEqual(snapshot(original.value, settings, model, CLAUDE_LEGACY_ENV_KEYS), saved.priors!.snapshot) ||
+          !isDeepStrictEqual(snapshot(saved.applied!, settings, model, CLAUDE_LEGACY_ENV_KEYS), saved.applied)) {
+        throw new Error('Claude restoration snapshot is inconsistent. Restore from backup before retrying.');
+      }
+      saved = structuredClone(saved);
+      saved.priors!.snapshot = expected;
+      const originalEnv = isRecord(original.value.env) ? original.value.env : {};
+      const appliedEnv = isRecord(saved.applied!.env) ? saved.applied!.env : {};
+      for (const key of CLAUDE_SLOT_ALIAS_KEYS) if (Object.hasOwn(originalEnv, key)) appliedEnv[key] = structuredClone(originalEnv[key]);
+      if (Object.hasOwn(original.value, 'env') || Object.hasOwn(saved.applied!, 'env')) saved.applied!.env = appliedEnv;
+    }
+    if (!isDeepStrictEqual(snapshot(saved.applied!, settings, model), saved.applied)) {
       throw new Error('Claude restoration snapshot is inconsistent. Restore from backup before retrying.');
     }
   }
