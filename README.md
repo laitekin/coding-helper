@@ -455,3 +455,4 @@ Model search matches vendor aliases, punctuation-free model IDs, context sizes s
 Model slots follow the main model unless explicitly overridden. Main-model changes retain slot overrides, and clearing one tool leaves other tools unchanged.
 
 The model picker uses searchable rows, vendor tabs, capability filters and recent models. It reloads the list for the selected connection and keeps selection in memory until confirmed. Esc clears search first, then returns.
+When model metadata is offline, context caps only narrow already verified client limits and retain known modality metadata. A 64k cap cannot expand a client limit already known to be 32k.
