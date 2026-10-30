@@ -18,6 +18,7 @@ test('profile selection, bindings and explicit connections resolve consistently'
  configManager.reload(); assert.equal(configManager.getActiveProfile(), 'work');
 });
 
+const {isQiniuBaseUrl}=await import('../dist/lib/endpoints.js');
 const {setupCommand}=await import('../dist/commands/setup.js');
 const {toolManager}=await import('../dist/lib/tool-manager.js');
 const {promptHelper}=await import('../dist/lib/wizard/ui/prompt-helper.js');
@@ -71,11 +72,23 @@ test('all credential-dependent model flows use the bound connection without a gl
  assert.equal(received.length,5);for(const connection of received)assert.deepEqual(connection,['https://models.example/proxy','bound-only']);
 });
 test('explicit quick-save clears successful bindings and active profile; revoke removes active stored key',()=>{
- configManager.clearConfig();configManager.saveProfile('work','old','china');configManager.saveProfile('home','bound','international');
+ configManager.clearConfig();configManager.saveProfile('work','old','china');configManager.saveProfile('home','bound','custom','https://bound.example');
  configManager.useProfile('work');configManager.setToolProfile('opencode','home');configManager.setToolProfile('grok','home');
  configManager.saveSettings('replacement','china',{}, {toolNames:['opencode']});
  assert.equal(configManager.getActiveProfile(),undefined);assert.equal(configManager.getConnection('opencode').apiKey,'replacement');assert.equal(configManager.getConnection('grok').apiKey,'bound');
+ assert.equal(isQiniuBaseUrl('https://bound.example/v1'),true);
  configManager.useProfile('work');configManager.revokeApiKey();configManager.reload();
  assert.equal(configManager.getApiKey(),undefined);assert.equal(configManager.getProfile('work').apiKey,'');
  configManager.useProfile('work');assert.equal(!!configManager.getConnection().apiKey,false);
+});
+
+test('tool configuration details display the bound key and endpoint together',async t=>{
+ configManager.clearConfig();configManager.setApiKey('global-key');configManager.setEndpoint('china');
+ configManager.saveProfile('bound','private-bound-key','custom','https://details.example/proxy');configManager.setToolProfile('details','bound');
+ for(const method of ['renderHeader','renderTitle'])t.mock.method(uiRenderer,method,()=>{});
+ const items=[];t.mock.method(uiRenderer,'renderConfigItem',(label,value)=>items.push([label,value]));t.mock.method(promptHelper,'pressEnter',async()=>{});
+ const {viewConfig}=await import('../dist/lib/wizard/menus/tool-menu.js');
+ await viewConfig({name:'details',displayName:'Details',renderModelConfigSummary(){},isInstalled:()=>false,getVersion:()=>null});
+ assert.equal(items[0][1],'https://details.example/proxy');assert.equal(items[1][1],uiRenderer.maskApiKey('private-bound-key'));
+ assert.equal(JSON.stringify(items).includes('private-bound-key'),false);
 });
