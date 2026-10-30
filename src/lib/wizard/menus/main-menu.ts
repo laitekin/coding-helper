@@ -225,5 +225,11 @@ async function showToolSelector(): Promise<void> {
 
 async function runSwitchModelFlow(): Promise<void> {
   const connected = connectedToolNames();
+  if (!connected.length) {
+    uiRenderer.renderPage(t('menu_switch_model'));
+    uiRenderer.renderHint(t('menu_switch_model_none'));
+    await promptHelper.pressEnter();
+    return;
+  }
   await runToolSetupFlow(toolManager.getAll().filter(tool => connected.includes(tool.name)));
 }

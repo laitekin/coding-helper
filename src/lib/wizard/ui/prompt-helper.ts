@@ -1,3 +1,4 @@
+import { pickModel, type PickOptions, type PickResult } from '../flows/model-pick-flow.js';
 import { t } from '../../i18n.js';
 import { menuPrompt, checkPrompt, secretPrompt, textPrompt, continuePrompt } from './prompts.js';
 
@@ -7,6 +8,7 @@ export interface ModelChoice { name: string; value: string; description?: string
 const SKIP_VALUE = '__skip__';
 
 export const promptHelper = {
+  async pickModel(options: PickOptions): Promise<PickResult> { return pickModel(options); },
   async select<T extends string>(message: string, choices: { name: string; value: T }[]): Promise<T> {
     const back = choices.find(choice => ['back', 'exit', '__back__'].includes(choice.value));
     const result = await menuPrompt({ message, escape: !!back, items: choices.map(choice => ({ value: choice.value, label: choice.name })) });

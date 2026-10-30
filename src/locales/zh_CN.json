@@ -417,5 +417,6 @@
   "account_profile_hint": "当前 {{name}} · 共 {{count}} 个",
   "account_profile_desc": "多个 Key 或线路时使用；可让某个工具单独绑定一个配置档",
   "result_back_to_menu": "按回车返回",
-  "header_tagline": "13 款编程助手，一个七牛"
+  "header_tagline": "13 款编程助手，一个七牛",
+  "setup_preview_fallback": "{{tool}} 不支持安全预演，将单独进入原配置流程。"
 }

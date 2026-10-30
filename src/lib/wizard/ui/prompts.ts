@@ -206,6 +206,7 @@ const menuView = createPrompt(<T,>(config: MenuConfig<T>, done: (result: MenuRes
       const customText = config.customLabel?.(query);
       const custom: MenuItem<typeof CUSTOM>[] = customText ? [{ value: CUSTOM, label: customText }] : [];
       const suggested = scored.length ? [] : config.suggest?.(query) ?? [];
+      if (!scored.length && custom.length) return [...custom, ...(suggested.length ? [{ separator: '' }, ...suggested] : [])];
       return [...scored, ...suggested, ...(custom.length ? [{ separator: '' }, ...custom] : [])];
     }
     const current = config.tabs?.[tab];
