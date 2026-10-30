@@ -1,13 +1,14 @@
 import ora from 'ora';
 import { t } from '../../i18n.js';
 import { configManager } from '../../config.js';
+import { savedModelFor } from '../../core/model-mapping.js';
 import { slotOverrides, toolSlots } from '../../core/model-slots.js';
 import type { ITool } from '../../tools/base-tool.js';
 import { uiRenderer } from '../ui/ui-renderer.js';
 import { menuPrompt, type MenuEntry } from '../ui/prompts.js';
 import type { PlanItem } from '../../core/write-plan.js';
 import { theme } from '../ui/theme.js';
-import { currentMainModel, pickModel, planForTool } from './model-pick-flow.js';
+import { pickModel, planForTool } from './model-pick-flow.js';
 
 const MAIN = '__main__';
 const SAVE = '__save__';
@@ -15,9 +16,10 @@ const SAVE = '__save__';
 // 一个工具的模型页：主模型 + 各槽位（默认跟随主模型）；回车或 → 打开选模型，最后一行「保存」。
 // 返回新的写入计划；Esc 返回 undefined
 export async function editToolModels(tool: ITool, from?: PlanItem): Promise<PlanItem | undefined> {
-  let main = from?.main ?? currentMainModel(tool) ?? tool.defaultModel;
+  const saved = configManager.getModels();
+  let main = from?.main ?? savedModelFor(tool, saved) ?? tool.defaultModel;
   const original = main;
-  const overrides = { ...(from?.overrides ?? slotOverrides(tool.name)) };
+  const overrides = { ...(from?.overrides ?? slotOverrides(tool.name, saved)) };
   const slots = toolSlots(tool.name);
   const originalOverrides = { ...overrides };
   const title = t('slots_title', { tool: tool.displayName });
