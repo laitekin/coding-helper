@@ -15,7 +15,7 @@ const cases = [
 for (const [name,relative,original,models,slots,check] of cases) test(`${name} writes slots and restores all original bytes`, async () => {
  const file=path.join(home,relative); fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,original);
  const tool=toolManager.get(name); await tool.loadConfig('sk-test','https://api.qnaigc.com',{...models,slotModels:{[name]:slots}});check(fs.readFileSync(file,'utf8')); if(name==='claude-code'){const env=tool.getLaunchEnv('sk-test','https://api.qnaigc.com',{...models,slotModels:{[name]:slots}});assert.equal(env.ANTHROPIC_SMALL_FAST_MODEL,'own');assert.equal(env.ANTHROPIC_DEFAULT_FABLE_MODEL,'main');} const first=fs.readFileSync(file,'utf8'); await tool.loadConfig('sk-test','https://api.qnaigc.com',{...models,slotModels:{[name]:slots}}); assert.equal(fs.readFileSync(file,'utf8'),first);
- if(name==='hermes'){await tool.loadConfig('sk-test','https://api.qnaigc.com',{...models,slotModels:{hermes:{}}});assert.equal(yaml.load(fs.readFileSync(file,'utf8')).auxiliary.vision.model,'old-eye');assert.equal(yaml.load(fs.readFileSync(file,'utf8')).auxiliary.vision.api_mode,'codex_responses');}
+ if(name==='hermes'){await tool.loadConfig('sk-test','https://api.qnaigc.com',{...models,slotModels:{hermes:{}}});assert.equal(yaml.load(fs.readFileSync(file,'utf8')).auxiliary.vision.model,'main');assert.equal(yaml.load(fs.readFileSync(file,'utf8')).auxiliary.vision.api_mode,undefined);}
  await tool.unloadConfig(); assert.equal(fs.readFileSync(file,'utf8'),original);
 });
 test('Codex catalog includes distinct custom slots with context caps',async()=>{
@@ -30,4 +30,10 @@ test('Grok retains known context when main and summary models swap offline',asyn
  marketModelService.fetchModels=async()=>['main','own'].map((id,i)=>({id,model_constraints:{context_length:[32768,65536][i]}}));
  const tool=toolManager.get('grok');
  try{await tool.loadConfig('sk-test','https://api.qnaigc.com',{toolModels:{grok:'main'},slotModels:{grok:{summary:'own'}}});marketModelService.fetchModels=async()=>{throw Error('offline')};await tool.loadConfig('sk-test','https://api.qnaigc.com',{toolModels:{grok:'own'},slotModels:{grok:{summary:'main'}}});const config=parse(fs.readFileSync(path.join(home,'.grok/config.toml'),'utf8'));assert.equal(config.model.qiniu.context_window,65536);assert.equal(config.model['qiniu-summary'].context_window,32768);await tool.unloadConfig();}finally{marketModelService.fetchModels=fetch;}
+});
+
+test('Hermes vision follows the main model without an override and after clearing one',async()=>{
+ const file=path.join(home,'.hermes/config.yaml');const original='model:\n  default: old\n  provider: local\nauxiliary:\n  vision:\n    provider: old-provider\n    model: old-eye\n    api_mode: codex_responses\n';fs.writeFileSync(file,original);const tool=toolManager.get('hermes');
+ for(const [main,overrides,expected] of [['main',undefined,'main'],['main2',{vision:'eye'},'eye'],['main2',{},'main2']]){await tool.loadConfig('sk-test','https://api.qnaigc.com',{hermesModel:main,slotModels:overrides?{hermes:overrides}:undefined});const vision=yaml.load(fs.readFileSync(file,'utf8')).auxiliary.vision;assert.equal(vision.model,expected);assert.equal(vision.provider,'custom');assert.equal(vision.base_url,'https://api.qnaigc.com/v1');assert.equal(vision.api_mode,undefined);}
+ await tool.unloadConfig();assert.equal(fs.readFileSync(file,'utf8'),original);
 });
