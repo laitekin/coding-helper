@@ -5,6 +5,7 @@ import { runCommand } from '../../../commands/run.js';
 import { LauncherShutdown } from '../../../utils/launcher-shutdown.js';
 import chalk from 'chalk';
 import { padEnd } from '../../../utils/string-width.js';
+import { safeToolFailureReason } from '../ui/tool-results.js';
 import { menuPrompt } from '../ui/prompts.js';
 import { editToolModels } from '../flows/model-slots-flow.js';
 import { confirmAndWrite } from '../ui/write-plan.js';
@@ -50,7 +51,7 @@ async function configureWithPlan(tool: ITool, reuse = false): Promise<void> {
     if (results !== 'back') await promptHelper.pressEnter();
   } catch (error) {
     if (error instanceof Error && ['ExitPromptError', 'AbortPromptError'].includes(error.name)) throw error;
-    uiRenderer.renderError(t('tool_config_load_failed', { tool: tool.displayName }));
+    uiRenderer.renderError(t(safeToolFailureReason(error instanceof Error ? error.message : undefined), { tool: tool.displayName }));
     process.exitCode = 1;
     await promptHelper.pressEnter();
   }
