@@ -12,12 +12,17 @@ test('picker retains manual entry when both catalogs are unavailable', {skip:pro
  const source=pickerHead+`marketModelService.fetchModels=modelService.fetchModels=async()=>{throw Error('offline')};console.log('RESULT',JSON.stringify(await pickModel({tools:[],title:'MANUAL_READY'})));`;
  const out=await runPrompt(source,[['←→','vendor/custom'],['vendor/custom','\r']]);assert.match(out,/RESULT.*"model":"vendor\/custom"/);
 });
-for(const query of ['vision','vision 1m']) test('picker preserves capability constraints for '+query,{skip:process.platform==='win32'},async()=>{
+for(const query of ['vision','vision 1m','thinking']) test('picker preserves capability constraints for '+query,{skip:process.platform==='win32'},async()=>{
  const source=pickerHead+`marketModelService.fetchModels=async()=>[{id:'a/text',name:'Text',features:['工具调用'],model_constraints:{context_length:200000}}];console.log('RESULT',JSON.stringify(await pickModel({tools:[],title:'CONSTRAINT_READY'})));`;
- const out=await runPrompt(source,[['←→',query],[query,'\x1b'],['a/text','\x1b']]);const searched=out.slice(out.indexOf('⌕ '+query));const search=searched.slice(0,searched.indexOf('? '));assert.doesNotMatch(search,/❯.*a\/text|自定义.*vision|custom.*vision/);assert.match(out,/RESULT.*"back"/);
+ const out=await runPrompt(source,[['←→',query],[query,'\x1b'],['a/text','\x1b']]);const searched=out.slice(out.indexOf('⌕ '+query));const search=searched.slice(0,searched.indexOf('? '));assert.doesNotMatch(search,/❯/);assert.match(out,/RESULT.*"back"/);
 });
 
 test('production generic model flow opens picker and remembers accepted selections',{skip:process.platform==='win32'},async()=>{
  const source=`import {configManager} from './dist/lib/config.js';import {marketModelService} from './dist/lib/market-model-service.js';import {runGenericModelSelectionFlow} from './dist/lib/wizard/flows/generic-model-selection-flow.js';configManager.setApiKey('fake');marketModelService.fetchModels=async()=>[{id:'vendor/model',name:'Model',features:['工具调用']}];console.log('RESULT',await runGenericModelSelectionFlow('opencode','PICK_PRODUCTION'));console.log('RECENT',JSON.stringify(configManager.getModels().recentModels));`;
  const out=await runPrompt(source,[['←→','\r']]);assert.match(out,/RESULT vendor\/model/);assert.match(out,/RECENT.*\["vendor\/model"\]/);
+});
+
+test('model picker supports reasoning capability search with current metadata',{skip:process.platform==='win32'},async()=>{
+ const source=pickerHead+`marketModelService.fetchModels=async()=>[{id:'a/brain',name:'Reasoner',features:['工具调用','深度思考'],model_constraints:{context_length:200000}},{id:'a/text',name:'Text',features:['工具调用']}];console.log('RESULT',JSON.stringify(await pickModel({tools:[]})));`;
+ const out=await runPrompt(source,[['←→','思考'],['思考','\r']]);assert.match(out,/RESULT.*"model":"a\/brain"/);
 });
