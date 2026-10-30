@@ -16,3 +16,8 @@ for(const query of ['vision','vision 1m']) test('picker preserves capability con
  const source=pickerHead+`marketModelService.fetchModels=async()=>[{id:'a/text',name:'Text',features:['工具调用'],model_constraints:{context_length:200000}}];console.log('RESULT',JSON.stringify(await pickModel({tools:[],title:'CONSTRAINT_READY'})));`;
  const out=await runPrompt(source,[['←→',query],[query,'\x1b'],['a/text','\x1b']]);const searched=out.slice(out.indexOf('⌕ '+query));const search=searched.slice(0,searched.indexOf('? '));assert.doesNotMatch(search,/❯.*a\/text|自定义.*vision|custom.*vision/);assert.match(out,/RESULT.*"back"/);
 });
+
+test('production generic model flow opens picker and remembers accepted selections',{skip:process.platform==='win32'},async()=>{
+ const source=`import {configManager} from './dist/lib/config.js';import {marketModelService} from './dist/lib/market-model-service.js';import {runGenericModelSelectionFlow} from './dist/lib/wizard/flows/generic-model-selection-flow.js';configManager.setApiKey('fake');marketModelService.fetchModels=async()=>[{id:'vendor/model',name:'Model',features:['工具调用']}];console.log('RESULT',await runGenericModelSelectionFlow('opencode','PICK_PRODUCTION'));console.log('RECENT',JSON.stringify(configManager.getModels().recentModels));`;
+ const out=await runPrompt(source,[['←→','\r']]);assert.match(out,/RESULT vendor\/model/);assert.match(out,/RECENT.*\["vendor\/model"\]/);
+});

@@ -1,22 +1,14 @@
-import ora from 'ora';
 import { t } from '../../i18n.js';
 import { configManager } from '../../config.js';
-import { modelService, type ModelInfo } from '../../model-service.js';
 import { promptHelper } from '../ui/prompt-helper.js';
 import { uiRenderer } from '../ui/ui-renderer.js';
 
 // 单个模型角色选择（搜索+自动补全）
-async function selectModel(
-  models: ModelInfo[],
-  promptKey: string,
-  currentValue?: string,
-): Promise<string | undefined> {
-  const choices = models.map((m) => ({
-    name: m.id + (currentValue === m.id ? ' (current)' : ''),
-    value: m.id,
-  }));
-
-  return promptHelper.searchSelect(t(promptKey), choices, true);
+async function selectModel(promptKey: string, currentValue?: string): Promise<string | undefined> {
+  const { toolManager } = await import('../../tool-manager.js');
+  const tool = toolManager.get('claude-code');
+  const picked = await promptHelper.pickModel({ tools: tool ? [tool] : [], connection: configManager.getConnection('claude-code'), title: t(promptKey), current: currentValue, allowSkip: true });
+  return picked !== 'back' && 'model' in picked ? picked.model : undefined;
 }
 
 // 模型选择流程 (Haiku → Sonnet → Opus → Subagent)
@@ -51,35 +43,14 @@ export async function runModelSelectionFlow(): Promise<boolean> {
     return false;
   }
 
-  // 获取模型列表
-  const spinner = ora(t('model_fetching')).start();
-
-  let models: ModelInfo[];
-  try {
-    models = await modelService.fetchModels(baseUrl, apiKey);
-    spinner.succeed();
-  } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : t('error_unknown');
-    spinner.fail(t('model_fetch_failed', { error: msg }));
-    // 即使获取失败也允许手动输入
-    models = [];
-  }
-
-  if (models.length === 0) {
-    uiRenderer.renderWarning(t('model_no_models'));
-  }
-
-  // 清屏后重新绘制，避免 spinner 行残留
-  uiRenderer.renderHeader();
-
   const currentModels = configManager.getModels();
   const currentClaudeCode = currentModels.claudeCode || {};
 
   // 四步选择: Haiku → Sonnet → Opus → Subagent
-  const haikuModel = await selectModel(models, 'model_select_haiku', currentClaudeCode.haikuModel);
-  const sonnetModel = await selectModel(models, 'model_select_sonnet', currentClaudeCode.sonnetModel);
-  const opusModel = await selectModel(models, 'model_select_opus', currentClaudeCode.opusModel);
-  const subagentModel = await selectModel(models, 'model_select_subagent', currentClaudeCode.subagentModel);
+  const haikuModel = await selectModel('model_select_haiku', currentClaudeCode.haikuModel);
+  const sonnetModel = await selectModel('model_select_sonnet', currentClaudeCode.sonnetModel);
+  const opusModel = await selectModel('model_select_opus', currentClaudeCode.opusModel);
+  const subagentModel = await selectModel('model_select_subagent', currentClaudeCode.subagentModel);
 
   // 展示配置摘要面板，等待用户确认
   uiRenderer.renderHeader();
@@ -110,6 +81,8 @@ export async function runModelSelectionFlow(): Promise<boolean> {
     },
   });
 
+  const recent = sonnetModel ?? opusModel ?? haikuModel;
+  if (recent) configManager.rememberModel(recent);
   uiRenderer.renderSuccess(t('model_saved'));
   return true;
 }
