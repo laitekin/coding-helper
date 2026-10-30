@@ -460,3 +460,5 @@ Tool slots: Claude fallback/subagent; Codex review/subagent/memory; Droid spec s
 
 The confirmation page previews client writes in memory and shows model/context changes plus a file summary. Cancel leaves helper, client files and journals unchanged. All plan models validate against the captured connection before any writes; only successful clients save helper settings. File summaries contain paths, actions and line counts, never configuration bodies or credentials. Clients with external writers that cannot preview are rejected by this confirmation flow; their normal CLI configuration remains available.
 When model metadata is offline, context caps only narrow already verified client limits and retain known modality metadata. A 64k cap cannot expand a client limit already known to be 32k.
+
+Claude slot configuration also updates the legacy fast-model alias and the Fable entry in /model, including model descriptions. The launcher uses the same aliases, and unload restores the exact previous values.
