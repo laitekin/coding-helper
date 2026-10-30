@@ -2,7 +2,7 @@ import { stateStore } from '../core/state-store.js';
 import { findCommand, commandVersion } from '../../utils/find-command.js';
 import { parse } from 'smol-toml';
 import { readTextFile } from '../core/safe-write.js';
-import { applyConfigEdits, restoreConfigEdits, parseConfigObject } from '../core/config-transaction.js';
+import { applyConfigEdits, restoreConfigEdits, parseConfigObject, canonicalConfigPath } from '../core/config-transaction.js';
 import { validateToml, upsertTopLevelTomlKey, removeTopLevelTomlKey, removeTomlTable as removeSharedTomlTable } from '../core/toml-edit.js';
 import { capContextWindow, fetchModelLimits, isRecord } from './openai-compat-tool.js';
 import fs from 'node:fs';
@@ -94,17 +94,27 @@ export class CodexTool implements ITool {
       const limits = await fetchModelLimits(baseUrl, apiKey, model, this.name);
       extra.push({ id: model, context_length: limits.contextWindow, max_tokens: limits.maxOutputTokens, plain: true, images: limits.modalities?.input.includes('image') ?? false });
     }
-    const profiles = configManager.listProfiles();
+    const profiles = configManager.listProfiles().filter(profile => !!profile.apiKey);
     const generated = new Map(profiles.map(profile => [path.join(CODEX_DIR, codexProfileName(profile.name) + '.config.toml'), buildCodexProfileFile(profile.name, model, CODEX_CATALOG_FILE)]));
     const recordedFiles = codexTransactionFiles();
+    const recorded = new Set(recordedFiles.map(canonicalConfigPath));
+    const profileFiles = [...new Set([...recordedFiles.filter(file => file.endsWith('.config.toml')), ...generated.keys()])];
+    // macOS/Windows 上文件名可能不区分大小写；先拒绝冲突再启动事务。
+    if (new Set(profileFiles.map(file => path.basename(file).toLowerCase())).size !== profileFiles.length) throw new Error('Codex profile filenames conflict ignoring case.');
     for (const file of generated.keys()) {
-      if (!recordedFiles.includes(file) && readTextFile(file) !== undefined) throw new Error('Codex profile file already exists. Choose another profile name.');
+      if (!recorded.has(canonicalConfigPath(file)) && readTextFile(file) !== undefined) throw new Error('Codex profile file already exists. Choose another profile name.');
     }
     applyConfigEdits(this.name, [
       { file: CODEX_CONFIG_FILE, build: content => mergeCodexProfiles(mergeCodexConfig(content ?? '', baseUrl, model, CODEX_CATALOG_FILE), profiles) },
       { file: CODEX_AUTH_FILE, build: content => JSON.stringify({ ...parseConfigObject(content), auth_mode: 'apikey', OPENAI_API_KEY: apiKey }, null, 2) + '\n' },
       { file: CODEX_CATALOG_FILE, build: content => { if (content !== undefined) parseConfigObject(content); return buildCodexModelCatalog([...GPT_MODELS, ...extra].map(entry => ({ ...entry, context_length: capContextWindow(entry.context_length, this.name) }))); } },
-      ...[...new Set([...recordedFiles.filter(file => file.endsWith('.config.toml')), ...generated.keys()])].map(file => ({ file, build: () => generated.get(file) ?? '' })),
+      ...profileFiles.map(file => ({ file, build: (content: string | undefined) => {
+        // 用事务内快照确认新文件仍未被外部创建，禁止接管用户文件。
+        if (!recorded.has(canonicalConfigPath(file)) && content !== undefined) throw new Error('Codex profile file already exists. Choose another profile name.');
+        const next = generated.get(file) ?? content;
+        if (next === undefined) throw new Error('Recorded Codex profile file is missing. Restore before retrying.');
+        return next;
+      } })),
     ], { extend: true });
   }
 
@@ -397,14 +407,14 @@ export function mergeCodexProfiles(content: string, profiles: { name: string; ap
 }
 function codexTransactionFiles(): string[] {
   const base = [CODEX_CONFIG_FILE, CODEX_AUTH_FILE, CODEX_CATALOG_FILE];
-  let canonicalDir = CODEX_DIR;
-  try { canonicalDir = fs.realpathSync(CODEX_DIR); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+  const canonicalDir = path.dirname(canonicalConfigPath(CODEX_CONFIG_FILE));
+  const canonicalBase = new Set(base.map(canonicalConfigPath));
   for (const { state } of stateStore.getFileStates('codex')) {
     const entries = state.priors?.files;
     if (!Array.isArray(entries) || !entries.some(entry => isRecord(entry) && entry.file === path.join(canonicalDir, 'config.toml'))) continue;
     for (const entry of entries) {
       if (!isRecord(entry) || typeof entry.file !== 'string') throw new Error('Invalid Codex transaction');
-      if (base.some(file => path.relative(CODEX_DIR, file) === path.relative(canonicalDir, entry.file as string))) continue;
+      if (canonicalBase.has(entry.file)) continue;
       if (path.dirname(entry.file) !== canonicalDir || !/^qn-[A-Za-z0-9_-]{1,32}\.config\.toml$/.test(path.basename(entry.file))) throw new Error('Invalid Codex profile transaction target');
       const logical = path.join(CODEX_DIR, path.basename(entry.file));
       if (!base.includes(logical)) base.push(logical);
