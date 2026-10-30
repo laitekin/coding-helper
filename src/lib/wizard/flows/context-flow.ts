@@ -1,3 +1,4 @@
+import { confirmAndWrite, selectTargets } from '../ui/write-plan.js';
 import { configManager } from '../../config.js';
 import { parseContextSize, formatContextSize } from '../../core/context.js';
 import { applyTool, exitCodeFor, getSyncTargets } from '../../core/tool-service.js';
@@ -12,15 +13,7 @@ export async function runContextFlow(): Promise<void> {
   if (!input.trim()) return;
   const context = parseContextSize(input);
   const candidates = getSyncTargets(toolManager.getAll()).filter(tool => !CONTEXT_UNSUPPORTED_TOOLS.includes(tool.name));
-  const names = await promptHelper.checkbox(t('targets_prompt'), candidates.map(tool => ({ name: tool.displayName, value: tool.name })));
-  if (!names.length || !await promptHelper.confirm(t('context_targets_hint', { value: contextLabel(context) }), false)) return;
-  const results = await configManager.withContextWindows(Object.fromEntries(names.map(name => [name, context ?? 0])), async () => {
-    const results = [];
-    for (const tool of candidates.filter(tool => names.includes(tool.name))) results.push(await applyTool(tool));
-    return results;
-  });
-  const successful = results.filter(result => result.status === 'success').map(result => result.tool.name);
-  if (successful.length) configManager.setContextWindow(context, successful);
-  renderToolResults(results, configManager.getApiKey());
-  process.exitCode = exitCodeFor(results);
+  const targets = await selectTargets(t('targets_prompt'), candidates);
+  if (!targets?.length) return;
+  await confirmAndWrite(t('context_title'), targets.map(tool => ({ tool, context: context ?? null, changes: [{ label: t('plan_context'), before: contextLabel(configManager.getContextWindow(tool.name)), after: contextLabel(context) }] })));
 }

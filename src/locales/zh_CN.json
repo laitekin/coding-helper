@@ -379,5 +379,10 @@
   "slot_grok_summary": "会话摘要",
   "slot_grok_summary_hint": "会话标题与摘要（[models] session_summary）",
   "slot_hermes_vision": "看图（视觉）",
-  "slot_hermes_vision_hint": "看图片、截图时使用的模型（auxiliary.vision）；跟随主模型时由 Hermes 自动选择"
+  "slot_hermes_vision_hint": "看图片、截图时使用的模型（auxiliary.vision）；跟随主模型时由 Hermes 自动选择",
+  "plan_view_changes": "待写入文件摘要",
+  "plan_validation_failed": "模型兼容性校验失败，尚未写入。",
+  "plan_validation_cancelled": "其他目标校验失败，已取消写入。",
+  "plan_write_failed": "写入失败，已有恢复记录已保留。",
+  "helper_settings_failed": "客户端已写入，helper 设置保存失败；可使用 restore 还原。"
 }

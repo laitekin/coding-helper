@@ -379,5 +379,10 @@
   "slot_grok_summary": "Session summary",
   "slot_grok_summary_hint": "Session titles and summaries ([models] session_summary)",
   "slot_hermes_vision": "Vision",
-  "slot_hermes_vision_hint": "Model for images and screenshots (auxiliary.vision); Hermes picks automatically when following"
+  "slot_hermes_vision_hint": "Model for images and screenshots (auxiliary.vision); Hermes picks automatically when following",
+  "plan_view_changes": "Files to change",
+  "plan_validation_failed": "Model validation failed; no settings were written.",
+  "plan_validation_cancelled": "Cancelled because another target failed validation.",
+  "plan_write_failed": "Write failed; restoration records are retained.",
+  "helper_settings_failed": "Client written but helper settings could not be saved; use restore to recover."
 }

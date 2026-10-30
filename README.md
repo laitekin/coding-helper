@@ -457,3 +457,5 @@ Model slots follow the main model unless explicitly overridden. Main-model chang
 The model picker uses searchable rows, vendor tabs, capability filters and recent models. It reloads the list for the selected connection and keeps selection in memory until confirmed. Esc clears search first, then returns.
 
 Tool slots: Claude fallback/subagent; Codex review/subagent/memory; Droid spec session model; Grok summary; Hermes vision. Existing transactions restore original settings. Droid retains array indices of existing custom models. The slot editor prepares an in-memory plan; saving and entry points are connected by the following UI layers.
+
+The confirmation page previews client writes in memory and shows model/context changes plus a file summary. Cancel leaves helper, client files and journals unchanged. All plan models validate against the captured connection before any writes; only successful clients save helper settings. File summaries contain paths, actions and line counts, never configuration bodies or credentials. Clients with external writers that cannot preview are rejected by this confirmation flow; their normal CLI configuration remains available.

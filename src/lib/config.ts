@@ -259,6 +259,20 @@ class ConfigManager {
     return (own ?? this.config.context_window) || undefined;
   }
 
+  // 客户端成功后保存模型与上下文，不改连接或工具绑定。
+  saveToolSettings(models: ModelConfig, contexts: Record<string, number> = {}, recent?: string): void {
+    this.load();
+    const next: Config = { ...this.config, ...models };
+    if (models.toolModels) next.toolModels = { ...this.config.toolModels, ...models.toolModels };
+    if (models.claudeCode) next.claudeCode = { ...this.config.claudeCode, ...models.claudeCode };
+    if (models.slotModels) next.slotModels = mergeSlotSettings(this.config.slotModels, models.slotModels);
+    next.context_windows = { ...this.config.context_windows, ...contexts };
+    if (recent) next.recentModels = [recent, ...(this.config.recentModels ?? []).filter(model => model !== recent)].slice(0, 3);
+    this.ensureDir();
+    atomicWriteFile(CONFIG_FILE, yaml.dump(next, { lineWidth: -1 }));
+    this.config = next;
+  }
+
   rememberModel(model: string): void {
     this.setModels({ recentModels: [model, ...(this.getModels().recentModels ?? []).filter(value => value !== model)].slice(0, 3) });
   }

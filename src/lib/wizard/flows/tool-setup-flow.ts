@@ -1,3 +1,6 @@
+import { pickModel, planForTool } from './model-pick-flow.js';
+import { confirmAndWrite, selectTargets } from '../ui/write-plan.js';
+import { editToolModels } from './model-slots-flow.js';
 import { t } from '../../i18n.js';
 import { applyTool } from '../../core/tool-service.js';
 import { toolManager } from '../../tool-manager.js';
@@ -44,19 +47,14 @@ export async function setupTool(tool: ITool): Promise<void> {
 
 // 初始化向导专用：选择工具 → 引导配置
 export async function runToolSetupFlow(): Promise<void> {
-  const tools = toolManager.getAll();
-
-  uiRenderer.renderHeader();
-  uiRenderer.renderTitle(t('menu_configure_tools'));
-
-  const choices = tools.map((tool) => ({
-    name: tool.displayName,
-    value: tool.name,
-  }));
-
-  const toolName = await promptHelper.select<string>(t('menu_select_action'), choices);
-  const tool = toolManager.get(toolName);
-  if (!tool) return;
-
-  await setupTool(tool);
+  const tools = toolManager.getAll().filter(tool => !tool.launchOnly);
+  const targets = await selectTargets(t('setup_select_tools'), tools);
+  if (!targets?.length) return;
+  while (true) {
+    const picked = await pickModel({ tools: targets });
+    if (picked === 'back' || !('model' in picked)) return;
+    const plans = targets.map(tool => planForTool(tool, picked.model));
+    const results = await confirmAndWrite(t('menu_configure_tools'), plans, [], { edit: item => editToolModels(item.tool, item) });
+    if (results !== 'back') { await promptHelper.pressEnter(); return; }
+  }
 }
