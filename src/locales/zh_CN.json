@@ -379,5 +379,9 @@
   "slot_grok_summary": "会话摘要",
   "slot_grok_summary_hint": "会话标题与摘要（[models] session_summary）",
   "slot_hermes_vision": "看图（视觉）",
-  "slot_hermes_vision_hint": "看图片、截图时使用的模型（auxiliary.vision）；跟随主模型时由 Hermes 自动选择"
+  "slot_hermes_vision_hint": "看图片、截图时使用的模型（auxiliary.vision）；跟随主模型时由 Hermes 自动选择",
+  "claude_slot_desc_sonnet": "七牛 · 主模型",
+  "claude_slot_desc_opus": "七牛 · Opus 槽位",
+  "claude_slot_desc_haiku": "七牛 · 兜底模型",
+  "claude_slot_desc_fable": "七牛 · Fable 槽位（同 Opus）"
 }

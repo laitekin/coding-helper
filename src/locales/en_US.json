@@ -379,5 +379,9 @@
   "slot_grok_summary": "Session summary",
   "slot_grok_summary_hint": "Session titles and summaries ([models] session_summary)",
   "slot_hermes_vision": "Vision",
-  "slot_hermes_vision_hint": "Model for images and screenshots (auxiliary.vision); Hermes picks automatically when following"
+  "slot_hermes_vision_hint": "Model for images and screenshots (auxiliary.vision); Hermes picks automatically when following",
+  "claude_slot_desc_sonnet": "Qiniu · main model",
+  "claude_slot_desc_opus": "Qiniu · Opus slot",
+  "claude_slot_desc_haiku": "Qiniu · fallback model",
+  "claude_slot_desc_fable": "Qiniu · Fable slot (same as Opus)"
 }
