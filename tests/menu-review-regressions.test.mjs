@@ -10,6 +10,7 @@ for(const [name,field] of [['codebuddy','codeBuddyModels'],['workbuddy','workbud
 });
 test('profile names matching control words can be activated',async t=>{
  const {runProfileFlow}=await import('../dist/lib/wizard/flows/profile-flow.js');const {promptHelper}=await import('../dist/lib/wizard/ui/prompt-helper.js');
+ t.mock.method(promptHelper,'pressEnter',async()=>{});
  for(const name of ['back','__add__']){configManager.saveProfile(name,'fake','china');let step=0;const mock=t.mock.method(promptHelper,'select',async(_label,choices)=>{if(step++===0){assert.ok(choices.some(c=>c.value==='profile:'+name));return 'profile:'+name;}return 'use';});await runProfileFlow();assert.equal(configManager.getActiveProfile(),name);mock.mock.restore();}
 });
 test('unusable account diagnostics contain no unresolved template token',async()=>{
@@ -30,4 +31,14 @@ test('generic checkbox wrapper selects all unspecified preferences',{skip:proces
 test('switching models with no connected tools displays feedback until acknowledged',{skip:process.platform==='win32'},async()=>{
  const en=JSON.parse(fs.readFileSync(new URL('../src/locales/en_US.json',import.meta.url),'utf8'));
  const out=await runPrompt(`import {i18n} from './dist/lib/i18n.js';import {showMainMenu} from './dist/lib/wizard/menus/main-menu.js';i18n.init('en_US');await showMainMenu();console.log('RESULT done');`,[['Select action','\x1b[B\r'],[en.press_enter_to_continue,'\r'],['Select action','\x1b']]);assert.ok(out.includes(en.menu_switch_model_none));assert.match(out,/RESULT done/);
+});
+
+test('recoverable profile failures preserve the original session exit code after acknowledgement',async t=>{
+ const {runProfileFlow}=await import('../dist/lib/wizard/flows/profile-flow.js');const {promptHelper}=await import('../dist/lib/wizard/ui/prompt-helper.js');
+ configManager.saveProfile('recoverable','fake','china');let step=0,acknowledged=0;
+ t.mock.method(promptHelper,'select',async()=>step++%2===0?'profile:recoverable':'use');
+ t.mock.method(configManager,'useProfile',()=>{throw new Error('private detail');});
+ t.mock.method(console,'error',()=>{});
+ t.mock.method(promptHelper,'pressEnter',async()=>{assert.equal(process.exitCode,1);acknowledged++;});
+ const previous=process.exitCode;try {for(const code of [undefined,0,2]){process.exitCode=code;await runProfileFlow();assert.equal(process.exitCode,code);}assert.equal(acknowledged,3);}finally{process.exitCode=previous;}
 });
