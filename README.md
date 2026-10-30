@@ -471,3 +471,4 @@ When model metadata is offline, context caps only narrow already verified client
 
 The six-entry main menu follows the released fork v0.6.5: configure tools, switch models, my tools, account/endpoint, doctor, and more. Account settings contain profiles; more contains context, restore, language and maintenance. The upstream package keeps its own release version.
 Claude slot configuration also updates the legacy fast-model alias and the Fable entry in /model, including model descriptions. The launcher uses the same aliases, and unload restores the exact previous values.
+Batch setup captures each bound connection before account checks and uses it for writing. Per-tool account results omit credentials. Explicit --key-stdin overrides and unbinds only successful targets, preserving failed targets and other bindings.

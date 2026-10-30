@@ -1,3 +1,4 @@
+import { getRestoreTargets } from '../../core/tool-service.js';
 import { t, i18n } from '../../i18n.js';
 import { promptHelper } from '../ui/prompt-helper.js';
 import { uiRenderer, connectedToolNames } from '../ui/ui-renderer.js';
@@ -164,7 +165,7 @@ function currentModelHint(connected: string[], models: ModelConfig): string {
 // 还原：勾选要还原的工具（默认不勾）后确认
 async function restoreSelected(): Promise<void> {
   const connected = connectedToolNames();
-  const tools = toolManager.getAll().filter((tool) => connected.includes(tool.name));
+  const tools = getRestoreTargets(toolManager.getAll());
   uiRenderer.renderPage(t('menu_restore'), undefined, t('restore_subtitle'));
   if (tools.length === 0) {
     uiRenderer.renderHint(t('restore_nothing'));
