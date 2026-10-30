@@ -171,6 +171,8 @@ class ConfigManager {
   revokeApiKey(): void {
     this.load();
     delete this.config.api_key;
+    const active = this.getActiveProfile();
+    if (active) this.config.profiles![active].api_key = '';
     this.save();
   }
 
@@ -223,6 +225,7 @@ class ConfigManager {
     const next: Config = { ...this.config, ...models, api_key: apiKey, endpoint };
     if (models.claudeCode) next.claudeCode = { ...this.config.claudeCode, ...models.claudeCode };
     if (models.toolModels) next.toolModels = { ...this.config.toolModels, ...models.toolModels };
+    if (endpoint !== CUSTOM_ENDPOINT) delete next.base_url;
     if (settings.toolNames) {
       const bindings = { ...next.tool_profiles };
       for (const tool of settings.toolNames) {
