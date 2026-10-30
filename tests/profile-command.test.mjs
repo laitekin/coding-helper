@@ -36,3 +36,14 @@ test('a revoked profile cannot be reused to resurrect its key',async t=>{
  prepare(t);configManager.revokeApiKey();const before=fs.readFileSync(configManager.configFile,'utf8');
  await profileUseCommand('work','copilot');assert.equal(process.exitCode,1);assert.equal(fs.readFileSync(configManager.configFile,'utf8'),before);
 });
+
+test('adding a profile without --use preserves an existing unnamed connection and tool bindings',async t=>{
+ prepare(t);configManager.setToolProfile('copilot','home');
+ configManager.saveSettings('legacy-key','china',{}, {toolNames:['opencode']});
+ assert.equal(configManager.getActiveProfile(),undefined);
+ t.mock.method(globalThis,'fetch',async()=>new Response('{}'));
+ await profileAddCommand('new','new-key');
+ assert.equal(process.exitCode,0);assert.equal(configManager.getActiveProfile(),undefined);
+ assert.equal(configManager.getConnection('opencode').apiKey,'legacy-key');assert.equal(configManager.getToolProfile('copilot'),'home');
+ await profileAddCommand('new','new-key',{use:true});assert.equal(configManager.getActiveProfile(),'new');assert.equal(configManager.getConnection().apiKey,'new-key');
+});
