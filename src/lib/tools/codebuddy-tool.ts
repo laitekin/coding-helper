@@ -140,7 +140,7 @@ export class CodeBuddyTool implements ITool {
       url: `${baseUrl}/v1/chat/completions`,
       apiKey,
       maxInputTokens: capContextWindow(caps.maxInputTokens, this.name),
-      maxOutputTokens: caps.maxOutputTokens,
+      maxOutputTokens: configManager.getContextWindow(this.name) === undefined ? caps.maxOutputTokens : Math.min(caps.maxOutputTokens, Math.floor(capContextWindow(caps.maxInputTokens, this.name) / 2)),
       temperature: DEFAULT_TEMPERATURE,
       supportsToolCall: caps.toolCall,
       supportsImages: caps.images,
