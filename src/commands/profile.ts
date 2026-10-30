@@ -23,7 +23,7 @@ export function profileListCommand(options: { json?: boolean } = {}): void {
 export async function profileAddCommand(name: string, key: string | undefined, options: { intl?: boolean; baseUrl?: string; keyStdin?: boolean; use?: boolean } = {}): Promise<void> {
   try {
     i18n.init();
-    if (!isValidProfileName(name) || (options.intl && options.baseUrl)) throw new Error();
+    if (!isValidProfileName(name) || (options.intl && options.baseUrl !== undefined)) throw new Error();
     if (options.keyStdin) {
       if (key) throw new Error();
       const chunks: Buffer[] = []; let size = 0;
@@ -32,21 +32,22 @@ export async function profileAddCommand(name: string, key: string | undefined, o
     }
     const apiKey = (key ?? process.env.QINIU_API_KEY ?? '').trim();
     if (!apiKey || /\s/.test(apiKey)) throw new Error();
-    const endpoint = options.baseUrl ? CUSTOM_ENDPOINT : options.intl ? 'international' : 'china';
-    const baseUrl = options.baseUrl ? normalizeCustomBaseUrl(options.baseUrl) : getBaseUrl(endpoint);
+    const endpoint = options.baseUrl !== undefined ? CUSTOM_ENDPOINT : options.intl ? 'international' : 'china';
+    const baseUrl = options.baseUrl !== undefined ? normalizeCustomBaseUrl(options.baseUrl) : getBaseUrl(endpoint);
     const validation = await validateApiKey(apiKey, baseUrl);
     if (!validation.valid) throw new Error();
     configManager.saveProfile(name, apiKey, endpoint, baseUrl);
-    if (options.use || !configManager.getActiveProfile()) configManager.useProfile(name);
+    if (options.use) configManager.useProfile(name);
     clearCaches(); console.log(`Profile saved: ${name}`);
   } catch { fail(); }
 }
 export async function profileUseCommand(name: string, tools?: string, options: { sync?: boolean } = {}): Promise<void> {
   try {
-    i18n.init(); const profile = configManager.getProfile(name); if (!profile) throw new Error();
-    if (!tools) {
+    i18n.init(); const profile = configManager.getProfile(name); if (!profile?.apiKey) throw new Error();
+    if (tools === undefined) {
+      const targets = options.sync ? getSyncTargets(toolManager.getAll()) : [];
       configManager.useProfile(name); clearCaches();
-      if (options.sync) { const results = await syncConfiguredTools(getSyncTargets(toolManager.getAll())); renderToolResults(results, profile.apiKey); process.exitCode = exitCodeFor(results); }
+      if (options.sync) { const results = await syncConfiguredTools(targets); renderToolResults(results, profile.apiKey); process.exitCode = exitCodeFor(results); }
       else console.log(`Active profile: ${name}. Client settings unchanged; use --sync to update configured clients.`);
       return;
     }
@@ -54,7 +55,8 @@ export async function profileUseCommand(name: string, tools?: string, options: {
     const targets = [...new Set(names.map(value => { const tool = toolManager.get(value); if (!tool) throw new Error(); return tool; }))];
     const results = [];
     for (const tool of targets) {
-      const result = await applyTool(tool, { apiKey: profile.apiKey, baseUrl: profile.baseUrl }); results.push(result);
+      const result = tool.launchOnly ? { tool, status: 'success' as const } : await applyTool(tool, { apiKey: profile.apiKey, baseUrl: profile.baseUrl });
+      results.push(result.status === 'skipped' ? { ...result, status: 'failed' as const } : result);
       if (result.status === 'success') configManager.setToolProfile(tool.name, name);
     }
     renderToolResults(results, profile.apiKey); process.exitCode = exitCodeFor(results);

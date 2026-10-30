@@ -244,3 +244,13 @@ test('explicit quick key overrides a prior binding and unbinds only successful t
  const config = JSON.parse(fs.readFileSync(path.join(r.home, '.config/opencode/opencode.json'), 'utf8')); assert.equal(config.provider.qiniu.options.apiKey, 'sk-cn');
  const helper = fs.readFileSync(r.helper, 'utf8'); assert.doesNotMatch(helper, /opencode: home/); assert.match(helper, /grok: home/);
 });
+
+test('invalid context returns a specific error with usable examples before writing files',async()=>{
+ for(const json of [true,false]){
+  const result=await runQuick(['opencode','sk-cn','--context','invalid',...(json?['--json']:[])]);
+  assert.equal(result.code,1);assert.equal(fs.readFileSync(result.helper,'utf8'),result.before);
+  assert.equal(fs.existsSync(path.join(result.home,'.config')),false);
+  if(json){const report=JSON.parse(result.stdout);assert.equal(report.error,'context_invalid');assert.deepEqual(report.suggestions,['96k','200000','auto']);}
+  else assert.match(result.stdout+result.stderr,/96k.*200000/);
+ }
+});
