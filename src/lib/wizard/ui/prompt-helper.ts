@@ -38,7 +38,7 @@ export const promptHelper = {
     const modelOf = (value: string): SearchableModel => ({ ...(byId.get(value)?.model ?? { id: value, context: 0, toolCall: false, vision: false }), name: byId.get(value)?.name });
     const rows = items.map(item => ({ value: item.value, label: item.name, description: item.description }));
     const { value, action, query } = await menuPrompt({
-      message, escape: true, searchable: true, pageSize: 10,
+      message, escape: true, searchable: true, customFirst: true, pageSize: 10,
       items: [...(allowSkip ? [{ value: SKIP_VALUE, label: `⊘ ${t('model_skip_option')}` }] : []), ...rows],
       filter: (item, q) => controls.has(item.value)
         ? item.label.toLowerCase().includes(q.trim().toLowerCase()) ? 50 : undefined
