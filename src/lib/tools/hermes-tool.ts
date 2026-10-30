@@ -1,4 +1,4 @@
-import { slotOverrides } from '../core/model-slots.js';
+import { slotModel } from '../core/model-slots.js';
 import { stateStore } from '../core/state-store.js';
 import { isPreview, readTextFile } from '../core/safe-write.js';
 import { isQiniuBaseUrl } from '../endpoints.js';
@@ -66,7 +66,7 @@ export class HermesTool implements ITool {
           const recorded = stateStore.getState(this.name, canonical)?.priors?.files;
           const entry = Array.isArray(recorded) ? recorded.find(entry => isRecord(entry) && entry.file === canonical) : undefined;
           const original = isRecord(entry) ? typeof entry.original === 'string' ? entry.original : '' : undefined;
-          return applyHermesVision(next, slotOverrides(this.name, models).vision, baseUrl, apiKey, original);
+          return applyHermesVision(next, slotModel(this.name, 'vision', models.hermesModel!, models), baseUrl, apiKey, original);
         } }]);
     });
     applyHermesConfigPermissions(HERMES_DIR, HERMES_CONFIG_FILE);
