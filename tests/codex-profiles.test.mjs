@@ -52,3 +52,14 @@ test('a profile file created after preflight is protected by the transaction sna
  const tool=new CodexTool();await assert.rejects(tool.loadConfig('current','https://api.qnaigc.com',{}),/already exists/);
  assert.equal(fs.readFileSync(exported,'utf8'),original);assert.equal(fs.existsSync(file),false);assert.deepEqual(stateStore.getFileStates('codex'),[]);
 });
+
+test('a matching provider display name does not grant ownership of user credentials',async()=>{
+ reset();configManager.saveProfile('work','helper-key','china');
+ fs.mkdirSync(path.dirname(file),{recursive:true});
+ const original='[model_providers.qnaigc-work]\nname = "Qiniu (work)"\nbase_url = "https://user.example/v1"\nexperimental_bearer_token = "user-key"\nwire_api = "responses"\n';
+ fs.writeFileSync(file,original);const tool=new CodexTool();
+ await assert.rejects(tool.loadConfig('current','https://api.qnaigc.com',{}),/conflicts with an existing provider/);
+ assert.equal(fs.readFileSync(file,'utf8'),original);assert.equal(fs.existsSync(path.join(home,'.codex/auth.json')),false);
+ assert.deepEqual(stateStore.getFileStates('codex'),[]);
+ assert.throws(()=>mergeCodexProfiles(original,[{name:'work',apiKey:'replacement',baseUrl:'https://api.qnaigc.com'}]),/conflicts/);
+});

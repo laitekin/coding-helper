@@ -98,6 +98,8 @@ export class CodexTool implements ITool {
     const generated = new Map(profiles.map(profile => [path.join(CODEX_DIR, codexProfileName(profile.name) + '.config.toml'), buildCodexProfileFile(profile.name, model, CODEX_CATALOG_FILE)]));
     const recordedFiles = codexTransactionFiles();
     const recorded = new Set(recordedFiles.map(canonicalConfigPath));
+    // 只有事务记录中的配置档文件能证明同名 provider 由 helper 管理。
+    const managedProviders = new Set(recordedFiles.filter(file => file.endsWith('.config.toml')).map(file => codexProviderName(path.basename(file).slice(3, -'.config.toml'.length))));
     const profileFiles = [...new Set([...recordedFiles.filter(file => file.endsWith('.config.toml')), ...generated.keys()])];
     // macOS/Windows 上文件名可能不区分大小写；先拒绝冲突再启动事务。
     if (new Set(profileFiles.map(file => path.basename(file).toLowerCase())).size !== profileFiles.length) throw new Error('Codex profile filenames conflict ignoring case.');
@@ -105,7 +107,7 @@ export class CodexTool implements ITool {
       if (!recorded.has(canonicalConfigPath(file)) && readTextFile(file) !== undefined) throw new Error('Codex profile file already exists. Choose another profile name.');
     }
     applyConfigEdits(this.name, [
-      { file: CODEX_CONFIG_FILE, build: content => mergeCodexProfiles(mergeCodexConfig(content ?? '', baseUrl, model, CODEX_CATALOG_FILE), profiles) },
+      { file: CODEX_CONFIG_FILE, build: content => mergeCodexProfiles(mergeCodexConfig(content ?? '', baseUrl, model, CODEX_CATALOG_FILE), profiles, managedProviders) },
       { file: CODEX_AUTH_FILE, build: content => JSON.stringify({ ...parseConfigObject(content), auth_mode: 'apikey', OPENAI_API_KEY: apiKey }, null, 2) + '\n' },
       { file: CODEX_CATALOG_FILE, build: content => { if (content !== undefined) parseConfigObject(content); return buildCodexModelCatalog([...GPT_MODELS, ...extra].map(entry => ({ ...entry, context_length: capContextWindow(entry.context_length, this.name) }))); } },
       ...profileFiles.map(file => ({ file, build: (content: string | undefined) => {
@@ -391,7 +393,7 @@ export function codexProviderName(name: string): string { return 'qnaigc-' + cod
 export function buildCodexProfileFile(name: string, model: string, catalogPath?: string): string {
   return 'model_provider = ' + JSON.stringify(codexProviderName(name)) + '\nmodel = ' + JSON.stringify(model) + '\n' + (catalogPath ? 'model_catalog_json = ' + JSON.stringify(catalogPath) + '\n' : '');
 }
-export function mergeCodexProfiles(content: string, profiles: { name: string; apiKey: string; baseUrl: string }[]): string {
+export function mergeCodexProfiles(content: string, profiles: { name: string; apiKey: string; baseUrl: string }[], managedProviders: ReadonlySet<string> = new Set()): string {
   validateToml(content);
   let next = content;
   const parsed = parse(content);
@@ -399,7 +401,7 @@ export function mergeCodexProfiles(content: string, profiles: { name: string; ap
   for (const profile of profiles) {
     const id = codexProviderName(profile.name);
     const entry = existing[id];
-    if (entry && (!isRecord(entry) || entry.name !== 'Qiniu (' + profile.name + ')')) throw new Error('Codex profile provider name conflicts with an existing provider.');
+    if (Object.hasOwn(existing, id) && (!managedProviders.has(id) || !isRecord(entry) || entry.name !== 'Qiniu (' + profile.name + ')')) throw new Error('Codex profile provider name conflicts with an existing provider.');
     next = removeSharedTomlTable(next, 'model_providers.' + id);
     next += '\n[model_providers.' + id + ']\nname = ' + JSON.stringify('Qiniu (' + profile.name + ')') + '\nbase_url = ' + JSON.stringify(profile.baseUrl.replace(/\/+$/, '') + '/bypass/openai/v1') + '\nexperimental_bearer_token = ' + JSON.stringify(profile.apiKey) + '\nwire_api = "responses"\n';
   }
