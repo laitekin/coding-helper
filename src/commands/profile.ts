@@ -37,7 +37,7 @@ export async function profileAddCommand(name: string, key: string | undefined, o
     const validation = await validateApiKey(apiKey, baseUrl);
     if (!validation.valid) throw new Error();
     configManager.saveProfile(name, apiKey, endpoint, baseUrl);
-    if (options.use || !configManager.getActiveProfile()) configManager.useProfile(name);
+    if (options.use) configManager.useProfile(name);
     clearCaches(); console.log(`Profile saved: ${name}`);
   } catch { fail(); }
 }
