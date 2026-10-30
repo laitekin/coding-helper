@@ -467,3 +467,4 @@ The header renders a pixel QINIU logo and a matching tool character when the ter
 ![Main menu](docs/images/current-main.png)
 
 ![Codex tool menu](docs/images/current-codex.png)
+When model metadata is offline, context caps only narrow already verified client limits and retain known modality metadata. A 64k cap cannot expand a client limit already known to be 32k.

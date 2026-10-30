@@ -5,7 +5,7 @@ import { isQiniuBaseUrl } from '../endpoints.js';
 import { readTextFile, formatJsonLike } from '../core/safe-write.js';
 import { applyConfigEdits, parseConfigObject } from '../core/config-transaction.js';
 import { stateStore } from '../core/state-store.js';
-import { OpenAICompatTool, fetchModelLimits, getPath, isRecord, openAIBaseUrl, setPath } from './openai-compat-tool.js';
+import { OpenAICompatTool, fetchModelLimits, effectiveContextLimit, getPath, isRecord, openAIBaseUrl, setPath } from './openai-compat-tool.js';
 import { setDotenvValue, readDotenvValue } from '../core/dotenv-edit.js';
 // Key 只写进 ~/.qwen/.env，settings.json 里用 envKey 引用，不存明文
 export const QWEN_ENV_KEY = 'QINIU_API_KEY';
@@ -146,7 +146,7 @@ export class QwenCodeTool extends OpenAICompatTool {
       const files = this.configFiles();
       this.assertRecordedDirectory(files);
       applyConfigEdits(this.name, [
-        { file: files[0], build: content => formatJsonLike(content?.replace(/^\uFEFF/, ''), applyQwenSettings(parseQwenSettings(content), baseUrl, model, limits.contextWindow)) },
+        { file: files[0], build: content => formatJsonLike(content?.replace(/^\uFEFF/, ''), applyQwenSettings(parseQwenSettings(content), baseUrl, model, effectiveContextLimit(limits, getPath(parseQwenSettings(content), 'generationConfig.contextWindowSize')))) },
         { file: files[1], build: content => setDotenvValue(content ?? '', QWEN_ENV_KEY, apiKey) },
       ]);
     });
