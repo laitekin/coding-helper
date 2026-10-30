@@ -32,7 +32,7 @@ export const promptHelper = {
     allowSkip = false,
   ): Promise<string | undefined> {
     const byId = new Map(items.map(item => [item.value, item]));
-    const modelOf = (value: string): SearchableModel => byId.get(value)?.model ?? { id: value, context: 0, toolCall: true, vision: false };
+    const modelOf = (value: string): SearchableModel => ({ ...(byId.get(value)?.model ?? { id: value, context: 0, toolCall: false, vision: false }), name: byId.get(value)?.name });
     const rows = items.map(item => ({ value: item.value, label: item.name, description: item.description }));
     const { value, action, query } = await menuPrompt({
       message, escape: true, searchable: true, pageSize: 10,
@@ -40,13 +40,13 @@ export const promptHelper = {
       filter: (item, q) => item.value.startsWith('__') ? undefined : scoreModel(modelOf(item.value), q, { recommended: RECOMMENDED_MODELS.includes(item.value) }),
       suggest: q => {
         const parsed = parseModelQuery(q);
-        const candidates = items.filter(item => !item.value.startsWith('__') && scoreModel(modelOf(item.value), [parsed.vision ? 'vision' : '', parsed.minContext ? `${parsed.minContext / 1000}k` : ''].join(' ')) !== undefined);
+        const candidates = items.filter(item => !item.value.startsWith('__') && scoreModel(modelOf(item.value), [parsed.toolCall ? 'tools' : '', parsed.reasoning ? 'thinking' : '', parsed.vision ? 'vision' : '', parsed.minContext ? `${parsed.minContext / 1000}k` : ''].join(' ')) !== undefined);
         return closestModels(candidates.map(item => item.value), q).map(id => rows.find(row => row.value === id)!);
       },
       highlight: q => parseModelQuery(q).words.join(''),
       customLabel: q => {
         const parsed = parseModelQuery(q);
-        return /^[\w.\-/:]+$/.test(q.trim()) && !parsed.minContext && !parsed.vision && !byId.has(q.trim())
+        return /^[\w.\-/:]+$/.test(q.trim()) && !parsed.minContext && !parsed.vision && !parsed.toolCall && !parsed.reasoning && !byId.has(q.trim())
           ? t('model_custom_value', { value: resolveModelId(q, items.map(item => item.value)) }) : undefined;
       },
     });

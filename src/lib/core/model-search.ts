@@ -2,6 +2,8 @@
 
 export interface SearchableModel {
   id: string;
+  name?: string;
+  reasoning?: boolean;
   context: number;
   toolCall: boolean;
   vision: boolean;
@@ -24,6 +26,8 @@ export const VENDORS: Vendor[] = [
   { id: 'openai', label: 'OpenAI', aliases: ['openai', 'gpt'], match: /openai|gpt/ },
 ];
 
+const TOOL_WORDS = ['工具', '工具调用', 'tool', 'tools', 'toolcall', 'tool_call'];
+const REASONING_WORDS = ['思考', '深度思考', '推理', 'thinking', 'reasoning'];
 const VISION_WORDS = ['看图', '图片', '图像', '视觉', '多模态', 'vision', 'image', 'vl'];
 
 export function vendorOf(id: string): string | undefined {
@@ -43,6 +47,8 @@ function shortName(id: string): string {
 interface ParsedQuery {
   words: string[];
   minContext?: number;
+  toolCall?: boolean;
+  reasoning?: boolean;
   vision: boolean;
 }
 
@@ -58,6 +64,8 @@ export function parseModelQuery(query: string): ParsedQuery {
       parsed.vision = true;
       continue;
     }
+    if (TOOL_WORDS.includes(raw)) { parsed.toolCall = true; continue; }
+    if (REASONING_WORDS.includes(raw)) { parsed.reasoning = true; continue; }
     parsed.words.push(raw);
   }
   return parsed;
@@ -92,9 +100,11 @@ export function scoreModel(
   const parsed = parseModelQuery(query);
   if (parsed.minContext && model.context < parsed.minContext) return undefined;
   if (parsed.vision && !model.vision) return undefined;
+  if (parsed.toolCall && !model.toolCall) return undefined;
+  if (parsed.reasoning && !model.reasoning) return undefined;
   let worst = 0;
   for (const word of parsed.words) {
-    const score = wordScore(word, model.id);
+    const score = wordScore(word, model.id) ?? (normalizeModelText(model.name ?? '').includes(normalizeModelText(word)) ? 1 : undefined);
     if (score === undefined) return undefined;
     worst = Math.max(worst, score);
   }
