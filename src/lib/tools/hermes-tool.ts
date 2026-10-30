@@ -145,7 +145,7 @@ export function applyHermesVision(content: string, vision: string | undefined, b
   const auxiliary = isRecord(before) && isRecord(before.auxiliary) ? before.auxiliary : undefined;
   const prior = auxiliary && isRecord(auxiliary.vision) ? auxiliary.vision : {};
   const values: Record<string, unknown> = vision ? { provider: 'custom', model: vision, base_url: baseUrl.replace(/\/+$/, '') + '/v1', api_key: apiKey } : prior;
-  for (const key of ['provider', 'model', 'base_url', 'api_key']) {
+  for (const key of ['provider', 'model', 'base_url', 'api_key', 'api_mode']) {
     if (values[key] === undefined) deleteYamlValue(doc, ['auxiliary', 'vision', key]);
     else setYamlValue(doc, ['auxiliary', 'vision', key], values[key]);
   }
