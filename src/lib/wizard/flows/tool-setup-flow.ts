@@ -8,22 +8,22 @@ import { promptHelper } from '../ui/prompt-helper.js';
 import { uiRenderer } from '../ui/ui-renderer.js';
 import type { ITool } from '../../tools/base-tool.js';
 
-export async function setupTool(tool: ITool): Promise<void> {
+export async function setupTool(tool: ITool): Promise<boolean> {
   // 用户取消模型配置时跳过后续装载与就绪提示，避免误报"配置成功"
   const completed = await tool.runModelConfigFlow();
-  if (!completed) return;
+  if (!completed) return false;
   if (tool.launchOnly) {
     uiRenderer.renderHeader();
     uiRenderer.renderSuccess(t('tool_setup_ready', { tool: tool.displayName }));
     uiRenderer.renderHint(t('setup_reason_launch_only'));
     await promptHelper.pressEnter();
-    return;
+    return true;
   }
 
   if (tool.name === 'codex') {
     uiRenderer.renderHeader();
     const confirmed = await promptHelper.confirm(t('tool_config_load_confirm', { tool: tool.displayName }));
-    if (!confirmed) return;
+    if (!confirmed) return false;
   }
   try {
     const result = await applyTool(tool);
@@ -38,29 +38,31 @@ export async function setupTool(tool: ITool): Promise<void> {
     );
     for (const note of tool.getLoadConfigNotes?.() ?? []) uiRenderer.renderHint(note);
     await promptHelper.pressEnter();
-    return;
+    return false;
   }
 
   uiRenderer.renderSuccess(t('tool_setup_ready', { tool: tool.displayName }));
   await promptHelper.pressEnter();
+  return true;
 }
 
-// 初始化向导专用：选择工具 → 引导配置
-export async function runToolSetupFlow(candidates?: ITool[]): Promise<void> {
+// 初始化向导专用：选择工具 → 引导配置；取消或失败返回 false。
+export async function runToolSetupFlow(candidates?: ITool[]): Promise<boolean> {
   const tools = (candidates ?? toolManager.getAll()).filter(tool => !tool.launchOnly);
   const targets = await selectTargets(t('setup_select_tools'), tools);
-  if (!targets?.length) return;
+  if (!targets?.length) return false;
   const previewable = targets.filter(tool => tool.supportsPreview === true);
   if (previewable.length) while (true) {
     const picked = await pickModel({ tools: previewable });
-    if (picked === 'back' || !('model' in picked)) return;
+    if (picked === 'back' || !('model' in picked)) return false;
     const plans = previewable.map(tool => planForTool(tool, picked.model));
     const results = await confirmAndWrite(t('menu_configure_tools'), plans, [], { edit: item => editToolModels(item.tool, item) });
-    if (results !== 'back') { await promptHelper.pressEnter(); break; }
+    if (results !== 'back') { await promptHelper.pressEnter(); if (results.some(result => result.status === 'failed')) return false; break; }
   }
   // 外部 writer 不参与安全预演，使用原有的单工具配置流程单独处理。
   for (const tool of targets.filter(tool => tool.supportsPreview !== true)) {
     uiRenderer.renderHint(t('setup_preview_fallback', { tool: tool.displayName }));
-    await setupTool(tool);
+    if (!await setupTool(tool)) return false;
   }
+  return true;
 }
