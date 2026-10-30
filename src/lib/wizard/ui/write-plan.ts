@@ -8,7 +8,7 @@ import { t } from '../../i18n.js';
 import { withQuietLogs } from '../../../utils/logger.js';
 import { uiRenderer, type StepInfo } from './ui-renderer.js';
 import { checkPrompt, menuPrompt } from './prompts.js';
-import { renderToolResults } from './tool-results.js';
+import { renderToolResults, safeToolFailureReason } from './tool-results.js';
 
 export async function selectTargets(message: string, tools: ITool[], options: { preselect?: string[]; detail?: (tool: ITool) => string; allowEmpty?: boolean; nextLabel?: string } = {}): Promise<ITool[] | undefined> {
   if (!tools.length) return [];
@@ -37,7 +37,7 @@ async function apply(items: PlanItem[], persist: boolean): Promise<ToolResult[]>
   for (const item of items) {
     const context = item.context === undefined ? {} : { [item.tool.name]: item.context ?? 0 };
     const result = await configManager.withContextWindows(context, () => withQuietLogs(() => applyTool(item.tool, { apiKey: item.connection!.apiKey!, baseUrl: item.connection!.baseUrl, models: item.models ?? configManager.getModels() })));
-    if (result.status === 'failed' && result.reason !== 'setup_preview_unsupported') result.reason = 'plan_write_failed';
+    if (result.status === 'failed') result.reason = safeToolFailureReason(result.reason, 'plan_write_failed');
     if (persist && result.status === 'success') {
       try { configManager.saveToolSettings(item.models ?? {}, context, item.main); }
       catch { result.status = 'failed'; result.reason = 'helper_settings_failed'; }
