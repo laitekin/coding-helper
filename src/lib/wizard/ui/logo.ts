@@ -1,4 +1,5 @@
 import chalk from 'chalk';
+import { visibleWidth, truncate } from '../../../utils/string-width.js';
 import { logger } from '../../../utils/logger.js';
 import { GRADIENT } from './theme.js';
 import { VERSION } from '../../version.js';
@@ -21,17 +22,17 @@ const LOGO_GAP = 4;
 const PIXEL_MIN_COLUMNS = 2 + LOGO_WIDTH + LOGO_GAP + SPRITE_WIDTH + 4;
 
 function renderTagline(): void {
-  logger.log(
-    `  ${chalk.bold.hex('#E8F6FF')('Coding Helper')}  ${chalk.hex('#7D8B99')(`v${VERSION}`)}  ` +
-    `${chalk.hex('#7D8B99')('·')}  ${chalk.hex('#9FB0BF')(t('header_tagline'))}`,
-  );
+  const prefix = `  ${chalk.bold.hex('#E8F6FF')('Coding Helper')}  ${chalk.hex('#7D8B99')(`v${VERSION}`)}`;
+  const line = `${prefix}  ${chalk.hex('#7D8B99')('·')}  ${chalk.hex('#9FB0BF')(t('header_tagline'))}`;
+  const columns = process.stdout.columns || 80;
+  logger.log(visibleWidth(line) <= columns ? line : prefix);
 }
 
 // 渲染七牛 Logo：宽终端用像素字 + 小牛，否则用文字 Logo
 export function renderLogo(sprite = 'qiniu'): void {
   logger.newLine();
   if (process.stdout.columns && process.stdout.columns < 38) {
-    logger.log(`  QINIU Coding Helper v${VERSION}`);
+    logger.log(truncate(`  QINIU Coding Helper v${VERSION}`, process.stdout.columns));
     logger.newLine(); return;
   }
   if (pixelsSupported() && (process.stdout.columns || 0) >= PIXEL_MIN_COLUMNS) {

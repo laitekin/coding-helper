@@ -41,7 +41,7 @@ export const uiRenderer = {
   // 统一页面头部：清屏 + Logo + 配置面板（线路 + API Key）
   renderHeader(options: string | { full?: boolean; crumb?: string; connection?: Connection } = {}): void {
     const toolName = typeof options === 'string' ? options : undefined;
-    const header = typeof options === 'string' ? { full: true, crumb: undefined, connection: undefined } : options;
+    const header = typeof options === 'string' ? { full: (process.stdout.rows || 24) >= 30, crumb: toolName, connection: undefined } : options;
     this.clearScreen();
     if (header.full) this.renderLogo(toolName);
     else logger.log(`  ${theme.brandBold('QINIU')} ${theme.heading('Coding Helper')}${header.crumb ? '  >  ' + header.crumb : ''}`);
