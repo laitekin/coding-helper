@@ -15,4 +15,3 @@ export function formatContextSize(tokens: number): string {
   if (tokens >= 1000) return `${Math.round(tokens / 1000)}K`;
   return String(tokens);
 }
-
