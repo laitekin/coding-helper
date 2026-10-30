@@ -10,6 +10,7 @@ import { runProfileFlow } from '../flows/profile-flow.js';
 import { showToolMenu } from './tool-menu.js';
 import { toolManager } from '../../tool-manager.js';
 import { configManager, type ModelConfig } from '../../config.js';
+import { getRestoreTargets } from '../../core/tool-service.js';
 import { savedModelFor } from '../../core/model-mapping.js';
 import { logger } from '../../../utils/logger.js';
 import { runToolSetupFlow } from '../flows/tool-setup-flow.js';
@@ -115,13 +116,14 @@ async function showMoreMenu(): Promise<boolean> {
   while (true) {
     uiRenderer.renderPage(t('menu_more'));
     const connected = connectedToolNames();
+    const restorable = getRestoreTargets(toolManager.getAll());
     const { value, action } = await menuPrompt<MoreAction>({
       message: t('menu_select_action'),
       default: last,
       escape: true,
       items: [
         { value: 'context', label: t('menu_context'), hint: contextMenuHint(connected) },
-        { value: 'restore', label: t('menu_restore'), hint: connected.length ? t('menu_hint_restore', { count: String(connected.length) }) : '' },
+        { value: 'restore', label: t('menu_restore'), hint: restorable.length ? t('menu_hint_restore', { count: String(restorable.length) }) : '' },
         { value: 'language', label: t('menu_configure_language'), hint: i18n.getLocale() === 'zh_CN' ? '简体中文' : 'English' },
         { value: 'update', label: t('menu_update_helper') },
         { value: 'clear_config', label: t('menu_clear_config') },
@@ -163,8 +165,7 @@ function currentModelHint(connected: string[], models: ModelConfig): string {
 
 // 还原：勾选要还原的工具（默认不勾）后确认
 async function restoreSelected(): Promise<void> {
-  const connected = connectedToolNames();
-  const tools = toolManager.getAll().filter((tool) => connected.includes(tool.name));
+  const tools = getRestoreTargets(toolManager.getAll());
   uiRenderer.renderPage(t('menu_restore'), undefined, t('restore_subtitle'));
   if (tools.length === 0) {
     uiRenderer.renderHint(t('restore_nothing'));

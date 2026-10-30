@@ -25,10 +25,24 @@ async function select<T>(config: { message: string; choices: { name: string; val
   const result = await menuPrompt({ message: config.message, escape: true, items: config.choices.map(choice => ({ value: choice.value, label: choice.name })) }, context);
   return result.action === 'escape' ? 'back' as T : result.value;
 }
-const PLANNED_TOOLS = ['claude-code', 'codex', 'codebuddy', 'workbuddy', 'hermes', 'opencode', 'qwen-code', 'kimi-code', 'grok', 'minimax-code', 'droid', 'openclaw'];
+const PLANNED_TOOLS = ['claude-code', 'codex', 'codebuddy', 'workbuddy', 'hermes', 'opencode', 'qwen-code', 'kimi-code', 'grok', 'droid', 'openclaw'];
+// 重载保留该工具完整的已保存模型集合，避免将 Buddy 的多模型缩减为首项。
+export function reloadPlanForTool(tool: ITool) {
+  const saved = configManager.getModels();
+  const main = savedModelFor(tool, saved) ?? tool.defaultModel;
+  if (!main) return undefined;
+  const plan = planForTool(tool, main);
+  if (tool.name === 'claude-code' && saved.claudeCode) plan.models!.claudeCode = structuredClone(saved.claudeCode);
+  const field = tool.name === 'codebuddy' ? 'codeBuddyModels' : tool.name === 'workbuddy' ? 'workbuddyModels' : undefined;
+  const values = field ? saved[field] : undefined;
+  if (field && values?.length) {
+    plan.models![field] = [...values];
+    plan.changes[0] = { label: t('tool_configure_models'), before: values.join(', '), after: values.join(', '), note: t('plan_unchanged') };
+  }
+  return plan;
+}
 async function configureWithPlan(tool: ITool, reuse = false): Promise<void> {
-  const main = savedModelFor(tool, configManager.getModels()) ?? tool.defaultModel;
-  const plan = reuse && main ? planForTool(tool, main) : await editToolModels(tool);
+  const plan = (reuse ? reloadPlanForTool(tool) : undefined) ?? await editToolModels(tool);
   if (!plan) return;
   const results = await confirmAndWrite(t('tool_menu_title', { tool: tool.displayName }), [plan], [], { edit: item => editToolModels(item.tool, item) });
   if (results !== 'back') await promptHelper.pressEnter();

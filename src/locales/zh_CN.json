@@ -16,7 +16,7 @@
   "doctor_account": "账户可用性",
   "account_usable": "最小模型请求成功。",
   "account_unknown": "暂时无法判断账户可用性，请检查网络和模型状态。",
-  "account_unusable": "API Key 有效，但当前无法调用模型：{{error}}",
+  "account_unusable": "API Key 有效，但当前无法调用模型。",
   "account_billing_suspended": "API Key 有效，但七牛账户因欠费已暂停，模型调用会失败。请到七牛控制台充值后再使用",
   "restore_title": "还原客户端配置",
   "restore_nothing": "没有可自动还原的工具，可用 status 检查配置状态。",

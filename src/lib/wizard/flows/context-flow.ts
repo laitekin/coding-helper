@@ -24,7 +24,8 @@ export async function runContextFlow(): Promise<void> {
   }
   const targets = await selectTargets(t('targets_prompt'), candidates);
   if (!targets?.length) return;
-  await confirmAndWrite(t('context_title'), targets.map(tool => ({ tool, context: context ?? null, changes: [{ label: t('plan_context'), before: contextLabel(configManager.getContextWindow(tool.name)), after: contextLabel(context) }] })));
+  const result = await confirmAndWrite(t('context_title'), targets.map(tool => ({ tool, context: context ?? null, changes: [{ label: t('plan_context'), before: contextLabel(configManager.getContextWindow(tool.name)), after: contextLabel(context) }] })));
+  if (result !== 'back') await promptHelper.pressEnter();
 }
 
 export function contextMenuHint(connected: string[]): string {
