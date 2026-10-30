@@ -171,6 +171,8 @@ class ConfigManager {
   revokeApiKey(): void {
     this.load();
     delete this.config.api_key;
+    const active = this.getActiveProfile();
+    if (active) this.config.profiles![active].api_key = '';
     this.save();
   }
 
