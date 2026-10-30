@@ -36,6 +36,7 @@ export async function quickCommand(target: string, rest: string[], options: Quic
     if (!tools.length) throw new QuickError('no_installed_tools');
     const profile = args.profile ? configManager.getProfile(args.profile) : undefined;
     if (args.profile && !profile) throw new QuickError('profile_not_found');
+    if (profile && !profile.apiKey) throw new QuickError('key_missing');
     if (profile && (args.apiKey || process.env.QINIU_API_KEY || options.intl)) throw new QuickError('profile_connection_conflict');
     let picked = pickApiKey(args, profile ? {} : process.env, profile?.apiKey ?? configManager.getApiKey());
     if (!picked && !options.json && process.stdin.isTTY && process.stdout.isTTY) {
