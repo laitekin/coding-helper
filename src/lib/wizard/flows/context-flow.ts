@@ -17,3 +17,8 @@ export async function runContextFlow(): Promise<void> {
   if (!targets?.length) return;
   await confirmAndWrite(t('context_title'), targets.map(tool => ({ tool, context: context ?? null, changes: [{ label: t('plan_context'), before: contextLabel(configManager.getContextWindow(tool.name)), after: contextLabel(context) }] })));
 }
+
+export function contextMenuHint(connected: string[]): string {
+  const values = [...new Set(connected.filter(name => !CONTEXT_UNSUPPORTED_TOOLS.includes(name)).map(name => contextLabel(configManager.getContextWindow(name))))];
+  return values.length > 1 ? t('context_mixed') : values[0] ?? contextLabel();
+}

@@ -468,3 +468,5 @@ The header renders a pixel QINIU logo and a matching tool character when the ter
 
 ![Codex tool menu](docs/images/current-codex.png)
 When model metadata is offline, context caps only narrow already verified client limits and retain known modality metadata. A 64k cap cannot expand a client limit already known to be 32k.
+
+The six-entry main menu follows the released fork v0.6.5: configure tools, switch models, my tools, account/endpoint, doctor, and more. Account settings contain profiles; more contains context, restore, language and maintenance. The upstream package keeps its own release version.

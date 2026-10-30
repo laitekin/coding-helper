@@ -1,5 +1,6 @@
+import { registeredTools } from '../../tool-registry.js';
 import chalk from 'chalk';
-import { stringWidth, padEnd, truncate } from '../../../utils/string-width.js';
+import { stringWidth, padEnd, truncate, visibleWidth } from '../../../utils/string-width.js';
 import { logger } from '../../../utils/logger.js';
 import { renderLogo as renderLogoArt } from './logo.js';
 import { theme } from './theme.js';
@@ -14,6 +15,10 @@ export interface ConfigPanelItem {
   label: string;
   value: string;
   configured: boolean;
+}
+
+export function connectedToolNames(): string[] {
+  return registeredTools().filter(tool => { try { return !tool.launchOnly && tool.isConfigured?.(); } catch { return false; } }).map(tool => tool.name);
 }
 
 // 终端 UI 渲染器
@@ -34,25 +39,34 @@ export const uiRenderer = {
   },
 
   // 统一页面头部：清屏 + Logo + 配置面板（线路 + API Key）
-  renderHeader(toolName?: string): void {
+  renderHeader(options: string | { full?: boolean; crumb?: string } = {}): void {
+    const toolName = typeof options === 'string' ? options : undefined;
+    const header = typeof options === 'string' ? { full: true } : options;
     this.clearScreen();
-    this.renderLogo(toolName);
-
-    const endpointId = configManager.getEndpoint();
-    const endpointDef = endpointId ? ENDPOINT_DEFINITIONS[endpointId] : undefined;
-    const endpointDisplay = endpointId === CUSTOM_ENDPOINT ? configManager.baseUrl : endpointDef
-      ? t(endpointDef.i18nKey)
-      : t('config_view_not_set');
-
+    if (header.full) this.renderLogo(toolName);
+    else logger.log(`  ${theme.brandBold('QINIU')} ${theme.heading('Coding Helper')}${header.crumb ? '  >  ' + header.crumb : ''}`);
+    this.renderStatusBar();
+  },
+  renderStatusBar(): void {
     const apiKey = configManager.getApiKey();
-    const apiKeyDisplay = apiKey
-      ? this.maskApiKey(apiKey)
-      : t('config_view_not_set');
-
-    this.renderConfigPanel([
-      { label: t('config_view_endpoint'), value: endpointDisplay, configured: !!endpointDef || endpointId === CUSTOM_ENDPOINT },
-      { label: t('config_view_apikey'), value: apiKeyDisplay, configured: !!apiKey },
-    ]);
+    const total = registeredTools().filter(tool => !tool.launchOnly).length;
+    const parts = [
+      `${theme.success('●')} ${theme.subtle(this.endpointLabel())}`,
+      `${theme.subtle('Key')} ${apiKey ? theme.subtle(this.maskApiKey(apiKey)) : theme.warning(t('config_view_not_set'))}`,
+      `${theme.subtle(t('status_applied'))} ${theme.brand(String(connectedToolNames().length))} / ${total}`,
+    ];
+    const profile = configManager.getActiveProfile();
+    if (profile) parts.push(`${theme.subtle(t('profile_label'))} ${theme.brand(profile)}`);
+    const columns = Math.max(12, process.stdout.columns || 100);
+    const line = parts.join(theme.subtle('  ·  '));
+    if (visibleWidth(line) + 4 <= columns) logger.log(`  ${line}`);
+    else for (const part of parts) logger.log(`  ${part}`);
+    logger.log(`  ${theme.border('─'.repeat(Math.max(1, Math.min(columns - 4, 72))))}`);
+    logger.newLine();
+  },
+  endpointLabel(endpoint = configManager.getEndpoint(), baseUrl = configManager.baseUrl): string {
+    const definition = ENDPOINT_DEFINITIONS[endpoint];
+    return definition ? t(definition.i18nKey) : `${t('endpoint_custom')} ${baseUrl.replace(/^https?:\/\//, '')}`;
   },
 
   // 渲染欢迎界面
