@@ -10,3 +10,10 @@ for (const query of ['glm5', '智谱', '200k']) test('production searchSelect re
 for(const [query,id] of [['工具调用','z-ai/glm-5.2'],['思考','vendor/reasoner'],['Friendly','vendor/reasoner']])test('production search preserves visible name or capability: '+query,{skip:process.platform==='win32'},async()=>{
  const out=await runPrompt(head+`console.log('RESULT',JSON.stringify(await promptHelper.searchSelect('CAP_READY',items)));`,[['CAP_READY',query],[query,'\r']]);assert.ok(out.includes('"'+id+'"'),out);
 });
+
+for(const [language,query] of [['zh_CN','手动'],['en_US','manual']])test('manual entry remains searchable in '+language,{skip:process.platform==='win32'},async()=>{
+ const source=head+`const {i18n}=await import('./dist/lib/i18n.js');i18n.init('${language}');const choices=buildHermesModelChoices([]);console.log('RESULT',JSON.stringify(await promptHelper.searchSelect('MANUAL_READY',choices)));`;const out=await runPrompt(source,[['MANUAL_READY',query],[query,'\r']]);assert.match(out,/RESULT.*"__manual_model__"/);
+});
+test('skip option remains searchable without becoming a custom model ID',{skip:process.platform==='win32'},async()=>{
+ const out=await runPrompt(head+`const {i18n}=await import('./dist/lib/i18n.js');i18n.init('en_US');console.log('RESULT',JSON.stringify(await promptHelper.searchSelect('SKIP_READY',items,true))??'skip');`,[['SKIP_READY','skip'],['skip','\r']]);assert.match(out,/RESULT skip/);
+});

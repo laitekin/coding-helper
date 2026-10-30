@@ -6,10 +6,10 @@ import {
   getModelCapabilities,
   type MarketModelInfo,
 } from '../../market-model-service.js';
-import { promptHelper, type ModelChoice } from '../ui/prompt-helper.js';
+import { promptHelper, MANUAL_MODEL_VALUE, type ModelChoice } from '../ui/prompt-helper.js';
 import { uiRenderer } from '../ui/ui-renderer.js';
 
-export const HERMES_MANUAL_MODEL_VALUE = '__manual_model__';
+export const HERMES_MANUAL_MODEL_VALUE = MANUAL_MODEL_VALUE;
 
 // 让用户选择 Hermes Agent 的默认模型，返回选中的模型 ID
 export async function runHermesModelSelectionFlow(): Promise<string | null> {
