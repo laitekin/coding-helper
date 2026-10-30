@@ -226,7 +226,7 @@ class ConfigManager {
     const next: Config = { ...this.config, ...models, ...(savesCurrent ? { api_key: apiKey, endpoint } : {}) };
     if (models.claudeCode) next.claudeCode = { ...this.config.claudeCode, ...models.claudeCode };
     if (models.toolModels) next.toolModels = { ...this.config.toolModels, ...models.toolModels };
-    if (savesCurrent && endpoint === CUSTOM_ENDPOINT && settings.baseUrl) next.base_url = getBaseUrl(endpoint, settings.baseUrl);
+    if (savesCurrent && endpoint === CUSTOM_ENDPOINT) next.base_url = getBaseUrl(endpoint, settings.baseUrl ?? next.base_url);
     else if (savesCurrent && endpoint !== CUSTOM_ENDPOINT) delete next.base_url;
     if (settings.toolNames) {
       const bindings = { ...next.tool_profiles };

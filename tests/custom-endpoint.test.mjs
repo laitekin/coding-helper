@@ -68,3 +68,12 @@ test('header displays the saved custom URL as configured', t => {
   assert.equal(panel.mock.calls[0].arguments[0][0].value, configManager.baseUrl);
   assert.equal(panel.mock.calls[0].arguments[0][0].configured, true);
 });
+
+test('quick-save maintains custom URL persistence and refreshes endpoint recognition',()=>{
+ configManager.setEndpoint('custom','https://previous.example/proxy');
+ configManager.saveSettings('key','custom',{});configManager.reload();assert.equal(configManager.baseUrl,'https://previous.example/proxy');
+ configManager.saveSettings('key','international',{});
+ assert.equal(isQiniuBaseUrl('https://previous.example/proxy/v1'),false);
+ assert.doesNotMatch(fs.readFileSync(configManager.configFile,'utf8'),/base_url:/);
+ configManager.reload();assert.equal(isQiniuBaseUrl('https://previous.example/proxy/v1'),false);
+});

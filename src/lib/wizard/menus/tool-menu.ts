@@ -370,13 +370,13 @@ export async function updateTool(tool: ITool): Promise<void> {
 }
 
 // 查看当前配置
-async function viewConfig(tool: ITool): Promise<void> {
+export async function viewConfig(tool: ITool): Promise<void> {
   uiRenderer.renderHeader();
   uiRenderer.renderTitle(t('config_view_title'));
 
-  const apiKey = configManager.getConnection(tool.name).apiKey;
+  const { apiKey, baseUrl } = configManager.getConnection(tool.name);
   const notSet = t('config_view_not_set');
-  uiRenderer.renderConfigItem(t('config_view_endpoint'), configManager.baseUrl);
+  uiRenderer.renderConfigItem(t('config_view_endpoint'), baseUrl);
   uiRenderer.renderConfigItem(
     t('config_view_apikey'),
     apiKey ? uiRenderer.maskApiKey(apiKey) : chalk.dim(notSet),
