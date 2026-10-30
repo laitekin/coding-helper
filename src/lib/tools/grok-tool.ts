@@ -5,7 +5,7 @@ import { isQiniuBaseUrl } from '../endpoints.js';
 import type { ModelConfig } from '../config.js';
 import { readTextFile } from '../core/safe-write.js';
 import { applyConfigEdits } from '../core/config-transaction.js';
-import { OpenAICompatTool, fetchModelLimits, openAIBaseUrl, isRecord } from './openai-compat-tool.js';
+import { OpenAICompatTool, fetchModelLimits, effectiveContextLimit, openAIBaseUrl, isRecord } from './openai-compat-tool.js';
 import { escapeTomlString, normalizeToml, removeTomlTable, upsertTomlTableKey, validateToml } from '../core/toml-edit.js';
 const MODEL_ID = 'qiniu';
 const MODEL_TABLE = `model.${MODEL_ID}`;
@@ -76,7 +76,7 @@ export class GrokTool extends OpenAICompatTool {
       const config = parse(content ?? '');
       const previous = isRecord(config.model) && isRecord(config.model.qiniu) ? config.model.qiniu : undefined;
       const known = previous?.model === model && typeof previous.context_window === 'number' && Number.isFinite(previous.context_window) && previous.context_window > 0 ? previous.context_window : undefined;
-      return applyGrokConfig(content ?? '', baseUrl, apiKey, model, limits.verified === false && known !== undefined ? known : limits.contextWindow);
+      return applyGrokConfig(content ?? '', baseUrl, apiKey, model, effectiveContextLimit(limits, known));
     } }]);
   }
   unloadConfig(): void { this.restoreManagedConfig([getGrokConfigFile()]); }
