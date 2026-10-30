@@ -102,6 +102,7 @@ export function scoreModel(
   if (parsed.vision && !model.vision) return undefined;
   if (parsed.toolCall && !model.toolCall) return undefined;
   if (parsed.reasoning && !model.reasoning) return undefined;
+  if (model.id === query.trim()) return -1;
   let worst = 0;
   for (const word of parsed.words) {
     const score = wordScore(word, model.id) ?? (normalizeModelText(model.name ?? '').includes(normalizeModelText(word)) ? 1 : undefined);

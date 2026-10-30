@@ -66,3 +66,7 @@ test('visible names and tool/reasoning filters preserve capability and context c
  const models=[{id:'a/tool',name:'Friendly tool',context:256000,toolCall:true,vision:false,reasoning:true},{id:'a/plain',context:128000,toolCall:false,vision:false,reasoning:false}];
  assert.deepEqual(matches('工具调用',models),['a/tool']);assert.deepEqual(matches('思考 200k',models),['a/tool']);assert.deepEqual(matches('thinking 1m',models),[]);assert.deepEqual(matches('Friendly',models),['a/tool']);
 });
+
+test('exact model IDs outrank recommended models sharing their prefix',()=>{
+ assert.ok(scoreModel(model('openai/gpt-5'),'openai/gpt-5')<scoreModel(model('openai/gpt-5.4'),'openai/gpt-5',{recommended:true,recent:true}));
+});
