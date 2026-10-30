@@ -117,7 +117,8 @@ function editDistance(a: string, b: string): number {
 
 // 没有匹配时给出最相近的几个模型
 export function closestModels(ids: string[], query: string, count = 3): string[] {
-  const q = normalizeModelText(parseModelQuery(query).words.join(''));
+  const words = parseModelQuery(query).words.join('');
+  const q = normalizeModelText(words.includes('/') ? shortName(words) : words);
   if (!q) return ids.slice(0, count);
   return ids
     .map((id) => ({ id, d: editDistance(q, normalizeModelText(shortName(id)).slice(0, q.length + 2)) }))
@@ -129,7 +130,8 @@ export function closestModels(ids: string[], query: string, count = 3): string[]
 // 自定义模型 ID 缺厂商前缀时补全：glm-5.2 → z-ai/glm-5.2
 export function resolveModelId(input: string, ids: string[]): string {
   const value = input.trim();
-  if (value.includes('/')) return value;
+  if (ids.includes(value) || value.includes('/')) return value;
   const n = normalizeModelText(value);
-  return ids.find((id) => normalizeModelText(shortName(id)) === n) ?? value;
+  const matches = ids.filter((id) => normalizeModelText(shortName(id)) === n);
+  return matches.length === 1 ? matches[0] : value;
 }
