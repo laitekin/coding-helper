@@ -418,5 +418,6 @@
   "account_profile_desc": "For multiple keys or endpoints; a tool can be bound to its own profile",
   "result_back_to_menu": "Press Enter to go back",
   "header_tagline": "13 coding assistants, one Qiniu",
-  "setup_preview_fallback": "{{tool}} uses its individual configuration flow because safe preview is unavailable."
+  "setup_preview_fallback": "{{tool}} uses its individual configuration flow because safe preview is unavailable.",
+  "context_preview_fallback": "{{tools}} cannot be previewed. Confirm to apply this context setting through their normal configuration writers."
 }

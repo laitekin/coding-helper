@@ -29,7 +29,7 @@ export class Wizard {
     if (!await runApiKeyFlow()) return false;
 
     // 4. 选择工具并引导配置（配置模型 → 装载配置 → 提示就绪）
-    await runToolSetupFlow();
+    if (!await runToolSetupFlow()) return false;
 
     // 初始化完成
     uiRenderer.renderSuccess(t('init_complete'));
