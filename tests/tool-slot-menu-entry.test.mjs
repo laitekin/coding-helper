@@ -6,3 +6,7 @@ test('tool menu exposes slot editor and applies its complete plan',{skip:process
 test('slot entry handles unreadable client state without exposing parser details',{skip:process.platform==='win32'},async()=>{
  const out=await runPrompt(source+`tool.isConfigured=()=>{throw Error('SENSITIVE_SNAPSHOT')};await showToolMenu(tool);console.log('WRITTEN',!!written);console.log('EXIT',process.exitCode);process.exitCode=0;`,[['Select action','\r'],[/WRITE_ACK[\s\S]*?Select action/,'\x1b[B'.repeat(6)+'\r']]);assert.match(out,/WRITTEN false/);assert.match(out,/EXIT 1/);assert.doesNotMatch(out,/SENSITIVE_SNAPSHOT/);
 });
+
+test('slot editor keeps Ctrl+C cancellation available',{skip:process.platform==='win32'},async()=>{
+ const out=await runPrompt(source+`try{await showToolMenu(tool);}catch(error){console.log('CANCEL',error.name);}`, [['Select action','\r'],[/Code review[\s\S]*?Esc back/,'\x03']]);assert.match(out,/CANCEL ExitPromptError/);assert.doesNotMatch(out,/WRITE_ACK/);
+});
