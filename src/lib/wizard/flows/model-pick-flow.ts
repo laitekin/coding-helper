@@ -1,6 +1,7 @@
 import ora from 'ora';
+import { modelService } from '../../model-service.js';
 import { t } from '../../i18n.js';
-import { configManager, type ModelConfig } from '../../config.js';
+import { configManager, type ModelConfig, type Connection } from '../../config.js';
 import { marketModelService, getModelCapabilities, type MarketModelInfo } from '../../market-model-service.js';
 import { RECOMMENDED_MODELS } from '../../core/quick-args.js';
 import { formatContextSize } from '../../core/context.js';
@@ -10,6 +11,11 @@ import { uiRenderer, type StepInfo } from '../ui/ui-renderer.js';
 import { menuPrompt, type MenuEntry, type MenuItem } from '../ui/prompts.js';
 import { theme } from '../ui/theme.js';
 import { logger } from '../../../utils/logger.js';
+
+type PickerModel = MarketModelInfo | { id: string; name: string; capabilitiesUnknown: true };
+function capabilities(model: PickerModel) {
+  return 'capabilitiesUnknown' in model ? { toolCall: true, maxInputTokens: 0, maxOutputTokens: 0, images: false, reasoning: false } : getModelCapabilities(model);
+}
 
 const FOLLOW = '__follow__';
 const SHOW_ALL = '__show_all__';
@@ -30,8 +36,7 @@ export interface PickOptions {
 
 
 // 按当前工具连接获取模型列表，缓存由市场服务维护。
-async function loadModels(tool?: ITool): Promise<MarketModelInfo[] | undefined> {
-  const connection = configManager.getConnection(tool?.name);
+async function loadModels(connection: Connection): Promise<PickerModel[] | undefined> {
   const apiKey = connection.apiKey;
   if (!apiKey) {
     uiRenderer.renderError(t('apikey_not_set'));
@@ -39,29 +44,30 @@ async function loadModels(tool?: ITool): Promise<MarketModelInfo[] | undefined> 
   }
   const spinner = ora({ text: t('hermes_fetching_models'), indent: 2 }).start();
   try {
-    const models = await marketModelService.fetchModels(connection.baseUrl, apiKey);
-    spinner.stop();
-    return models;
-  } catch (error: unknown) {
-    spinner.fail(t('hermes_fetch_models_failed', { error: error instanceof Error ? error.message : t('error_unknown') }));
-    return undefined;
-  }
+    return await marketModelService.fetchModels(connection.baseUrl, apiKey);
+  } catch {
+    // 自定义网关可能只提供标准模型目录；元数据不可用时仍保留手动输入。
+    try {
+      return (await modelService.fetchModels(connection.baseUrl, apiKey)).map(model => ({ id: model.id, name: model.id, capabilitiesUnknown: true as const }));
+    } catch { return []; }
+  } finally { spinner.stop(); }
 }
 
 // 某个工具能否用这个模型：工具自己的预判优先，其次看是否支持工具调用
-function supports(tool: ITool, m: MarketModelInfo): boolean | undefined {
-  if (!getModelCapabilities(m).toolCall) return false;
+function supports(tool: ITool, m: PickerModel): boolean | undefined {
+  if ('capabilitiesUnknown' in m) return undefined;
+  if (!capabilities(m).toolCall) return false;
   return tool.checkModel ? undefined : true;
 }
 
 // 选中行下方：厂商 · 上下文 · 能力，以及每个工具能否使用
-function describe(m: MarketModelInfo, tools: ITool[]): string {
-  const caps = getModelCapabilities(m);
+function describe(m: PickerModel, tools: ITool[]): string {
+  const caps = capabilities(m);
   const vendor = VENDORS.find((v) => v.id === vendorOf(m.id))?.label ?? m.id.split('/')[0];
   const info = [
     vendor,
-    t('model_context', { size: formatContextSize(caps.maxInputTokens) }),
-    caps.toolCall ? t('model_tool_call_yes') : t('model_tool_call_no'),
+    t('model_context', { size: caps.maxInputTokens ? formatContextSize(caps.maxInputTokens) : '—' }),
+    'capabilitiesUnknown' in m ? t('model_check_later') : caps.toolCall ? t('model_tool_call_yes') : t('model_tool_call_no'),
     ...(caps.images ? [t('model_vision')] : []),
   ].join(' · ');
   const compat = tools.map((tool) => {
@@ -73,8 +79,8 @@ function describe(m: MarketModelInfo, tools: ITool[]): string {
   return [theme.subtle(info), compat].filter(Boolean).join('\n');
 }
 
-function modelRow(m: MarketModelInfo, options: PickOptions, extra: Partial<MenuItem<string>> = {}): MenuItem<string> {
-  const caps = getModelCapabilities(m);
+function modelRow(m: PickerModel, options: PickOptions, extra: Partial<MenuItem<string>> = {}): MenuItem<string> {
+  const caps = capabilities(m);
   const blocked = options.tools.filter((tool) => supports(tool, m) === false);
   const tags = [
     RECOMMENDED_MODELS.includes(m.id) ? theme.success(t('model_tag_recommended')) : '',
@@ -84,7 +90,7 @@ function modelRow(m: MarketModelInfo, options: PickOptions, extra: Partial<MenuI
   return {
     value: m.id,
     label: m.id,
-    hint: `${theme.subtle(formatContextSize(caps.maxInputTokens).padStart(5))}  ${tags}`,
+    hint: `${theme.subtle((caps.maxInputTokens ? formatContextSize(caps.maxInputTokens) : '—').padStart(5))}  ${tags}`,
     description: describe(m, options.tools),
     search: m.name,
     ...extra,
@@ -92,7 +98,7 @@ function modelRow(m: MarketModelInfo, options: PickOptions, extra: Partial<MenuI
 }
 
 // 推荐模型在前，其余按名称
-function sortModels(models: MarketModelInfo[]): MarketModelInfo[] {
+function sortModels(models: PickerModel[]): PickerModel[] {
   const rank = (id: string): number => {
     const i = RECOMMENDED_MODELS.indexOf(id);
     return i === -1 ? RECOMMENDED_MODELS.length : i;
@@ -103,15 +109,16 @@ function sortModels(models: MarketModelInfo[]): MarketModelInfo[] {
 // 选模型：直接打字搜索，←→ 切换厂商，默认只列支持工具调用的模型；Esc 返回上一步
 export async function pickModel(options: PickOptions): Promise<PickResult> {
   const title = options.title ?? t('model_pick_title');
-  uiRenderer.renderPage(title, options.step);
-  const models = await loadModels(options.tools[0]);
+  const connection = { ...configManager.getConnection(options.tools[0]?.name) };
+  uiRenderer.renderPage(title, options.step, undefined, connection);
+  const models = await loadModels(connection);
   if (!models) return 'back';
 
   let showAll = false;
   let last: string | undefined = options.current;
   while (true) {
-    uiRenderer.renderPage(title, options.step);
-    const usable = sortModels(models.filter((m) => showAll || getModelCapabilities(m).toolCall));
+    uiRenderer.renderPage(title, options.step, undefined, connection);
+    const usable = sortModels(models.filter((m) => showAll || capabilities(m).toolCall));
     const byId = new Map(models.map((m) => [m.id, m]));
     const recent = (configManager.getModels().recentModels ?? []).filter((id) => usable.some((m) => m.id === id));
     logger.log(`  ${theme.subtle(t('model_pick_summary', {
@@ -147,7 +154,7 @@ export async function pickModel(options: PickOptions): Promise<PickResult> {
       filter: (item, q) => {
         const m = byId.get(item.value);
         if (!m) return undefined;
-        const caps = getModelCapabilities(m);
+        const caps = capabilities(m);
         return scoreModel({ id: m.id, context: caps.maxInputTokens, toolCall: caps.toolCall, vision: caps.images }, q, {
           recommended: RECOMMENDED_MODELS.includes(m.id),
           recent: recent.includes(m.id),
@@ -156,9 +163,13 @@ export async function pickModel(options: PickOptions): Promise<PickResult> {
       placeholder: t('model_search_placeholder'),
       highlight: (q) => parseModelQuery(q).words.join(''),
       emptyText: (q) => t('model_search_none', { query: q }),
-      suggest: (q) => closestModels(usable.map((m) => m.id), q).map((id) => modelRow(byId.get(id)!, options)),
+      suggest: (q) => {
+        const parsed = parseModelQuery(q);
+        const candidates = usable.filter(m => { const caps = capabilities(m); return (!parsed.vision || caps.images) && (!parsed.minContext || caps.maxInputTokens >= parsed.minContext); });
+        return closestModels(candidates.map(m => m.id), q).map(id => modelRow(byId.get(id)!, options));
+      },
       // 像模型 ID 的输入才提供「使用自定义模型 ID」（中文厂商名、200k、看图 这类过滤词不算）
-      customLabel: (q) => /^[\w.\-/:]+$/.test(q.trim()) && !parseModelQuery(q).minContext
+      customLabel: (q) => /^[\w.\-/:]+$/.test(q.trim()) && !parseModelQuery(q).minContext && !parseModelQuery(q).vision
         ? t('model_custom_value', { value: resolveModelId(q, models.map((m) => m.id)) })
         : undefined,
     });

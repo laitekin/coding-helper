@@ -3,7 +3,7 @@ import { stringWidth, padEnd, truncate } from '../../../utils/string-width.js';
 import { logger } from '../../../utils/logger.js';
 import { renderLogo as renderLogoArt } from './logo.js';
 import { theme } from './theme.js';
-import { configManager } from '../../config.js';
+import { configManager, type Connection } from '../../config.js';
 import { ENDPOINT_DEFINITIONS } from '../../endpoints.js';
 import { t } from '../../i18n.js';
 
@@ -18,8 +18,8 @@ export interface ConfigPanelItem {
 
 // 终端 UI 渲染器
 export const uiRenderer = {
-  renderPage(title: string, step?: StepInfo, subtitle?: string): void {
-    this.renderHeader();
+  renderPage(title: string, step?: StepInfo, subtitle?: string, connection?: Connection): void {
+    this.renderHeader({ connection });
     this.renderTitle(step ? `${title} (${step.current}/${step.total})` : title);
     if (subtitle) this.renderHint(subtitle);
   },
@@ -34,17 +34,17 @@ export const uiRenderer = {
   },
 
   // 统一页面头部：清屏 + Logo + 配置面板（线路 + API Key）
-  renderHeader(): void {
+  renderHeader(options: { connection?: Connection } = {}): void {
     this.clearScreen();
     this.renderLogo();
 
-    const endpointId = configManager.getEndpoint();
+    const endpointId = options.connection?.endpoint ?? configManager.getEndpoint();
     const endpointDef = endpointId ? ENDPOINT_DEFINITIONS[endpointId] : undefined;
     const endpointDisplay = endpointDef
       ? t(endpointDef.i18nKey)
-      : t('config_view_not_set');
+      : options.connection?.baseUrl ?? t('config_view_not_set');
 
-    const apiKey = configManager.getApiKey();
+    const apiKey = options.connection ? options.connection.apiKey : configManager.getApiKey();
     const apiKeyDisplay = apiKey
       ? this.maskApiKey(apiKey)
       : t('config_view_not_set');
