@@ -299,5 +299,9 @@
   "ui_check_all": "全选",
   "ui_check_all_installed": "全选已安装",
   "ui_check_next": "继续",
-  "ui_check_empty": "请至少选择一项（空格勾选）"
+  "ui_check_empty": "请至少选择一项（空格勾选）",
+  "claude_slot_desc_sonnet": "七牛 · 主模型",
+  "claude_slot_desc_opus": "七牛 · Opus 槽位",
+  "claude_slot_desc_haiku": "七牛 · 兜底模型",
+  "claude_slot_desc_fable": "七牛 · Fable 槽位（同 Opus）"
 }

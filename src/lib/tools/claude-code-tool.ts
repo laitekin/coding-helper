@@ -4,7 +4,7 @@ import { isDeepStrictEqual } from 'node:util';
 import path from 'node:path';
 import os from 'node:os';
 import type { ITool } from './base-tool.js';
-import { configManager, type ModelConfig } from '../config.js';
+import { configManager, type ModelConfig, type ClaudeCodeConfig } from '../config.js';
 import { isQiniuBaseUrl } from '../endpoints.js';
 import { t } from '../i18n.js';
 import { assertNotSymlink, readTextFile, readJsonSnapshot, readJsonObjectStrict, safeWriteFile, writeJsonOrRemove, formatJsonLike } from '../core/safe-write.js';
@@ -23,6 +23,12 @@ const CLAUDE_ENV_KEYS = [
   'ANTHROPIC_DEFAULT_HAIKU_MODEL',
   'ANTHROPIC_DEFAULT_SONNET_MODEL',
   'ANTHROPIC_DEFAULT_OPUS_MODEL',
+  'ANTHROPIC_DEFAULT_FABLE_MODEL',
+  'ANTHROPIC_SMALL_FAST_MODEL',
+  'ANTHROPIC_DEFAULT_HAIKU_MODEL_DESCRIPTION',
+  'ANTHROPIC_DEFAULT_SONNET_MODEL_DESCRIPTION',
+  'ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION',
+  'ANTHROPIC_DEFAULT_FABLE_MODEL_DESCRIPTION',
   'CLAUDE_CODE_SUBAGENT_MODEL',
   'API_TIMEOUT_MS',
   'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC',
@@ -101,7 +107,7 @@ export class ClaudeCodeTool implements ITool {
   async loadConfig(apiKey: string, baseUrl: string, models: ModelConfig): Promise<void> {
     stateStore.withLock(() => {
       if (stateStore.getState(this.name)) throw new Error('Legacy Claude restoration state requires recovery from backup.');
-      const selected = models.claudeCode || {};
+      const selected = { ...models.claudeCode, ...(models.slotModels?.[this.name]?.fallback ? { haikuModel: models.slotModels[this.name].fallback } : {}), ...(models.slotModels?.[this.name]?.subagent ? { subagentModel: models.slotModels[this.name].subagent } : {}) };
       const clearSelection = !selected.useDefaultModels &&
         [selected.haikuModel, selected.sonnetModel, selected.opusModel, selected.subagentModel].some(Boolean);
       const plans: ConfigPlan[] = [];
@@ -140,6 +146,7 @@ export class ClaudeCodeTool implements ITool {
           if (selected.sonnetModel) env.ANTHROPIC_DEFAULT_SONNET_MODEL = selected.sonnetModel;
           if (selected.opusModel) env.ANTHROPIC_DEFAULT_OPUS_MODEL = selected.opusModel;
           if (selected.subagentModel) env.CLAUDE_CODE_SUBAGENT_MODEL = selected.subagentModel;
+          applyClaudeSlotAliases(env, selected);
           next.env = env;
           if (clearSelection) delete next.model;
           next.companyAnnouncements = [t('company_announcement')];
@@ -160,11 +167,12 @@ export class ClaudeCodeTool implements ITool {
     for (const key of ['CLAUDE_CODE_USE_BEDROCK','CLAUDE_CODE_USE_VERTEX','CLAUDE_CODE_USE_FOUNDRY','CLAUDE_CODE_USE_ANTHROPIC_AWS','CLAUDE_CODE_USE_MANTLE','ANTHROPIC_API_KEY']) env[key] = undefined;
     Object.assign(env, { ANTHROPIC_BASE_URL: baseUrl, ANTHROPIC_AUTH_TOKEN: apiKey, API_TIMEOUT_MS: API_TIMEOUT,
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1', CLAUDE_CODE_ATTRIBUTION_HEADER: '0' });
-    const selected = models.claudeCode || {};
+    const selected = { ...models.claudeCode, ...(models.slotModels?.[this.name]?.fallback ? { haikuModel: models.slotModels[this.name].fallback } : {}), ...(models.slotModels?.[this.name]?.subagent ? { subagentModel: models.slotModels[this.name].subagent } : {}) };
     if (selected.haikuModel) env.ANTHROPIC_DEFAULT_HAIKU_MODEL = selected.haikuModel;
     if (selected.sonnetModel) env.ANTHROPIC_DEFAULT_SONNET_MODEL = selected.sonnetModel;
     if (selected.opusModel) env.ANTHROPIC_DEFAULT_OPUS_MODEL = selected.opusModel;
     if (selected.subagentModel) env.CLAUDE_CODE_SUBAGENT_MODEL = selected.subagentModel;
+    applyClaudeSlotAliases(env, selected);
     return env;
   }
 
@@ -329,5 +337,19 @@ function commitConfigs(tool: string, plans: ConfigPlan[]): void {
     }
     if (failures.length) throw new AggregateError([error, ...failures], 'Claude configuration recovery failed. Restore from backup before retrying.');
     throw error;
+  }
+}
+
+// 同步旧快速模型入口与 /model 列表别名，卸载时仍按事务快照逐字段还原。
+function applyClaudeSlotAliases(env: Record<string, unknown>, selected: ClaudeCodeConfig): void {
+  if (selected.haikuModel) {
+    env.ANTHROPIC_SMALL_FAST_MODEL = selected.haikuModel;
+    env.ANTHROPIC_DEFAULT_HAIKU_MODEL_DESCRIPTION = t('claude_slot_desc_haiku');
+  }
+  if (selected.sonnetModel) env.ANTHROPIC_DEFAULT_SONNET_MODEL_DESCRIPTION = t('claude_slot_desc_sonnet');
+  if (selected.opusModel) {
+    env.ANTHROPIC_DEFAULT_FABLE_MODEL = selected.opusModel;
+    env.ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION = t('claude_slot_desc_opus');
+    env.ANTHROPIC_DEFAULT_FABLE_MODEL_DESCRIPTION = t('claude_slot_desc_fable');
   }
 }
