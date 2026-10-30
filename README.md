@@ -440,3 +440,5 @@ Quick configuration supports `opencode --context 64k` and `auto`. Validation fai
 
 Profiles store named connections and per-tool bindings. Reload, sync and launch resolve the bound connection. Explicit command connection objects take precedence over bindings. Switching the active profile clears per-tool bindings; removing a profile leaves client files untouched.
 When model metadata is offline, context caps only narrow already verified client limits and retain known modality metadata. A 64k cap cannot expand a client limit already known to be 32k.
+
+Batch setup captures each bound connection before account checks and uses it for writing. Per-tool account results omit credentials. Explicit --key-stdin overrides and unbinds only successful targets, preserving failed targets and other bindings.
