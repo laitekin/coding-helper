@@ -26,3 +26,8 @@ test('restore menu includes journal targets whose client is no longer configured
 test('generic checkbox wrapper selects all unspecified preferences',{skip:process.platform==='win32'},async()=>{
  const out=await runPrompt(`import {promptHelper} from './dist/lib/wizard/ui/prompt-helper.js';console.log('RESULT',JSON.stringify(await promptHelper.checkbox('CHECK_READY',[{name:'Alpha',value:'a'},{name:'Beta',value:'b'}])));`,[['CHECK_READY','\x1b[A'],['❯ ☐',' '],['❯ ☑','\x1b[C']]);assert.match(out,/RESULT.*\["a","b"\]/);
 });
+
+test('switching models with no connected tools displays feedback until acknowledged',{skip:process.platform==='win32'},async()=>{
+ const en=JSON.parse(fs.readFileSync(new URL('../src/locales/en_US.json',import.meta.url),'utf8'));
+ const out=await runPrompt(`import {i18n} from './dist/lib/i18n.js';import {showMainMenu} from './dist/lib/wizard/menus/main-menu.js';i18n.init('en_US');await showMainMenu();console.log('RESULT done');`,[['Select action','\x1b[B\r'],[en.press_enter_to_continue,'\r'],['Select action','\x1b']]);assert.ok(out.includes(en.menu_switch_model_none));assert.match(out,/RESULT done/);
+});

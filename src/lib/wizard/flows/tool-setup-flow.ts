@@ -50,11 +50,17 @@ export async function runToolSetupFlow(candidates?: ITool[]): Promise<void> {
   const tools = (candidates ?? toolManager.getAll()).filter(tool => !tool.launchOnly);
   const targets = await selectTargets(t('setup_select_tools'), tools);
   if (!targets?.length) return;
-  while (true) {
-    const picked = await pickModel({ tools: targets });
+  const previewable = targets.filter(tool => tool.supportsPreview === true);
+  if (previewable.length) while (true) {
+    const picked = await pickModel({ tools: previewable });
     if (picked === 'back' || !('model' in picked)) return;
-    const plans = targets.map(tool => planForTool(tool, picked.model));
+    const plans = previewable.map(tool => planForTool(tool, picked.model));
     const results = await confirmAndWrite(t('menu_configure_tools'), plans, [], { edit: item => editToolModels(item.tool, item) });
-    if (results !== 'back') { await promptHelper.pressEnter(); return; }
+    if (results !== 'back') { await promptHelper.pressEnter(); break; }
+  }
+  // 外部 writer 不参与安全预演，使用原有的单工具配置流程单独处理。
+  for (const tool of targets.filter(tool => tool.supportsPreview !== true)) {
+    uiRenderer.renderHint(t('setup_preview_fallback', { tool: tool.displayName }));
+    await setupTool(tool);
   }
 }

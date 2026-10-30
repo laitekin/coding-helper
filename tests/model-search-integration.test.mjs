@@ -6,3 +6,7 @@ for (const query of ['glm5', '智谱', '200k']) test('production searchSelect re
  const out = await runPrompt(head + `console.log('RESULT',JSON.stringify(await promptHelper.searchSelect('SEARCH_READY',items)));`, [['SEARCH_READY',query], [query,'\r']]);
  assert.match(out, /RESULT.*"z-ai\/glm-5.2"/);
 });
+
+test('unlisted custom model input is accepted rather than replaced by a suggestion',{skip:process.platform==='win32'},async()=>{
+ const out=await runPrompt(head+`console.log('RESULT',JSON.stringify(await promptHelper.searchSelect('CUSTOM_READY',items)));`,[['CUSTOM_READY','vendor/unlisted'],['vendor/unlisted','\r']]);assert.match(out,/RESULT.*"vendor\/unlisted"/);
+});
