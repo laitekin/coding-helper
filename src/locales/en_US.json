@@ -1,4 +1,6 @@
 {
+  "setup_preview_ready": "Planned configuration for {{tool}}; no files written.",
+  "setup_preview_unsupported": "This adapter requires an external writer and does not support a safe preview.",
   "quick_start": "Start the tool",
   "quick_failed": "Quick configuration failed. Check the tool name, key, model, account and existing configuration; use doctor for diagnostics.",
   "quick_model_incompatible": "The model did not produce a compatible Responses stream.",
