@@ -8,6 +8,7 @@ import { uiRenderer } from '../lib/wizard/ui/ui-renderer.js';
 import { runApiKeyFlow } from '../lib/wizard/flows/api-key-flow.js';
 import { promptHelper } from '../lib/wizard/ui/prompt-helper.js';
 import ora from 'ora';
+import { applyTool, exitCodeFor } from '../lib/core/tool-service.js';
 
 // 拼接已注册工具名称及别名，用于 auth reload 的提示文案
 function formatAvailableTools(): string {
@@ -61,7 +62,9 @@ export async function authCommand(tokenOrAction?: string): Promise<void> {
         const confirmed = await promptHelper.confirm(t('tool_config_load_confirm', { tool: tool.displayName }));
         if (!confirmed) return;
       }
-      await tool.loadConfig(apiKey, configManager.baseUrl, configManager.getModels());
+      const result = await applyTool(tool);
+      process.exitCode = exitCodeFor([result]);
+      if (result.status !== 'success') throw new Error(t(result.reason ?? 'tool_config_load_failed', { tool: tool.displayName }));
       uiRenderer.renderSuccess(t('tool_config_loaded', { tool: tool.displayName }));
       for (const note of tool.getLoadConfigNotes?.() ?? []) uiRenderer.renderHint(note);
     } catch (err: unknown) {
