@@ -71,7 +71,7 @@ export class GrokTool extends OpenAICompatTool {
 
   async loadConfig(apiKey: string, baseUrl: string, models: ModelConfig): Promise<void> {
     const model = this.resolveModel(models);
-    const limits = await fetchModelLimits(baseUrl, apiKey, model);
+    const limits = await fetchModelLimits(baseUrl, apiKey, model, this.name);
     applyConfigEdits(this.name, [{ file: getGrokConfigFile(), build: content => {
       const config = parse(content ?? '');
       const previous = isRecord(config.model) && isRecord(config.model.qiniu) ? config.model.qiniu : undefined;

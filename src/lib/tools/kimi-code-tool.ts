@@ -88,7 +88,7 @@ export class KimiCodeTool extends OpenAICompatTool {
     const model = this.resolveModel(models);
     const version = this.getVersion();
     if (version && Number(version.split('.')[0]) < 2) throw new Error(t('kimi_legacy_cli', { version, command: this.installCommand }));
-    const limits = await fetchModelLimits(baseUrl, apiKey, model);
+    const limits = await fetchModelLimits(baseUrl, apiKey, model, this.name);
     applyConfigEdits(this.name, [{ file: getKimiConfigFile(), build: content => {
       const next = applyKimiConfig(content ?? '', baseUrl, apiKey, model, limits.contextWindow, limits); validateToml(next); return next;
     } }]);

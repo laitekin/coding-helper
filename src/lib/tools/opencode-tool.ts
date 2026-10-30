@@ -234,7 +234,7 @@ export class OpenCodeTool extends OpenAICompatTool {
     const files = [path.join(path.dirname(file), 'config.json'), ...getOpenCodeConfigFiles()];
     const lowerFiles = files.slice(0, files.indexOf(file));
     const lower = lowerFiles.map((file) => ({ file, ...readJsonSnapshot(file) }));
-    const limits = await fetchModelLimits(baseUrl, apiKey, model);
+    const limits = await fetchModelLimits(baseUrl, apiKey, model, this.name);
     assertNotSymlink(file);
     const { value: config, content: current } = readJsonSnapshot(file);
     const unchanged = (): boolean => getOpenCodeConfigFile() === file && readTextFile(file) === before &&

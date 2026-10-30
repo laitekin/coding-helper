@@ -141,7 +141,7 @@ export class QwenCodeTool extends OpenAICompatTool {
 
   async loadConfig(apiKey: string, baseUrl: string, models: ModelConfig): Promise<void> {
     const model = this.resolveModel(models);
-    const limits = await fetchModelLimits(baseUrl, apiKey, model);
+    const limits = await fetchModelLimits(baseUrl, apiKey, model, this.name);
     stateStore.withLock(() => {
       const files = this.configFiles();
       this.assertRecordedDirectory(files);

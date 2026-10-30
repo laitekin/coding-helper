@@ -177,7 +177,7 @@ export class OpenClawTool extends OpenAICompatTool {
 
   async loadConfig(apiKey: string, baseUrl: string, models: ModelConfig): Promise<void> {
     assertConfigWritable();
-    const model = this.resolveModel(models); const limits = await fetchModelLimits(baseUrl, apiKey, model);
+    const model = this.resolveModel(models); const limits = await fetchModelLimits(baseUrl, apiKey, model, this.name);
     stateStore.withLock(() => {
       assertConfigWritable();
       const file = getOpenClawConfigFile();

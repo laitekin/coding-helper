@@ -1,3 +1,4 @@
+import { capContextWindow } from './openai-compat-tool.js';
 import { findCommand, commandVersion } from '../../utils/find-command.js';
 import path from 'node:path';
 import os from 'node:os';
@@ -138,7 +139,7 @@ export class CodeBuddyTool implements ITool {
       vendor: QINIU_VENDOR,
       url: `${baseUrl}/v1/chat/completions`,
       apiKey,
-      maxInputTokens: caps.maxInputTokens,
+      maxInputTokens: capContextWindow(caps.maxInputTokens, this.name),
       maxOutputTokens: caps.maxOutputTokens,
       temperature: DEFAULT_TEMPERATURE,
       supportsToolCall: caps.toolCall,
