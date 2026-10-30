@@ -19,6 +19,7 @@ export async function editToolModels(tool: ITool, from?: PlanItem): Promise<Plan
   const original = main;
   const overrides = { ...(from?.overrides ?? slotOverrides(tool.name)) };
   const slots = toolSlots(tool.name);
+  const originalOverrides = { ...overrides };
   const title = t('slots_title', { tool: tool.displayName });
   let last: string = main ? SAVE : MAIN;
 
@@ -60,18 +61,28 @@ export async function editToolModels(tool: ITool, from?: PlanItem): Promise<Plan
         last = MAIN;
         continue;
       }
-      // 主模型变了且工具需要检测（如 Codex），先确认能用
-      if (main !== original && tool.checkModel) {
-        const spinner = ora({ text: t('model_checking', { tool: tool.displayName, model: main }), indent: 2 }).start();
-        const reason = await tool.checkModel(main, { apiKey: configManager.getConnection(tool.name).apiKey ?? '', baseUrl: configManager.getConnection(tool.name).baseUrl });
+      // 主模型及改变过的有效槽位逐一验证；共享同一模型的槽位只探测一次。
+      const selectedMain = main;
+      const changed = [...new Set([
+        ...(selectedMain !== original ? [selectedMain] : []),
+        ...slots.filter(slot => (overrides[slot.id] || selectedMain) !== (originalOverrides[slot.id] || original)).map(slot => overrides[slot.id] || selectedMain),
+      ])];
+      let rejected = false;
+      const connection = configManager.getConnection(tool.name);
+      if (tool.checkModel) for (const model of changed) {
+        const spinner = ora({ text: t('model_checking', { tool: tool.displayName, model }), indent: 2 }).start();
+        let reason: string | undefined;
+        try { reason = await tool.checkModel(model, { apiKey: connection.apiKey ?? '', baseUrl: connection.baseUrl }); }
+        catch { reason = 'quick_model_incompatible'; }
         if (reason) {
-          spinner.fail(t(reason, { tool: tool.displayName, model: main }));
-          
-          last = MAIN;
-          continue;
+          spinner.fail(t(reason, { tool: tool.displayName, model }));
+          last = slots.find(slot => overrides[slot.id] === model)?.id ?? MAIN;
+          rejected = true;
+          break;
         }
-        spinner.succeed(t('model_compatible', { tool: tool.displayName, model: main }));
+        spinner.succeed(t('model_compatible', { tool: tool.displayName, model }));
       }
+      if (rejected) continue;
       return planForTool(tool, main, overrides);
     }
 
