@@ -122,3 +122,16 @@ test('all persistent adapters distinguish malformed files from an unconfigured c
     assert.deepEqual(detection.errors, ['configuration_detection_failed'], name);
   }
 });
+
+test('corrupt helper settings preserve the status JSON error contract', () => {
+  const file = path.join(home,'.coding-helper/config.yaml');
+  const before = fs.readFileSync(file,'utf8');
+  fs.writeFileSync(file,'api_key: [private-sentinel');
+  try {
+    const result = cli('status','--json');
+    assert.equal(result.code,1);
+    assert.deepEqual(JSON.parse(result.stdout),{error:'status_failed',exitCode:1});
+    assert.equal(result.stdout.includes('private-sentinel'),false);
+    assert.equal(fs.readFileSync(file,'utf8'),'api_key: [private-sentinel');
+  } finally { fs.writeFileSync(file,before); }
+});
