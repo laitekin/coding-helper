@@ -64,18 +64,21 @@ export async function confirmAndWrite(title: string, initial: PlanItem[], untouc
     uiRenderer.renderPage(title, options.step);
     // 预演失败仍允许调整计划；只有有效预演才能提交真实写入。
     if (invalid) renderToolResults(preview.value, undefined, true);
-    for (const item of items) for (const change of item.changes) uiRenderer.renderConfigItem(`${item.tool.displayName} · ${change.label}`, `${change.before ?? '—'} → ${change.after}${change.note ? ' · ' + change.note : ''}`);
+    for (const item of items) {
+      if (!item.changes.length) uiRenderer.renderHint(item.tool.displayName);
+      for (const change of item.changes) uiRenderer.renderConfigItem(`${item.tool.displayName} · ${change.label}`, `${change.before ?? '—'} → ${change.after}${change.note ? ' · ' + change.note : ''}`);
+    }
     if (untouched.length) uiRenderer.renderHint(t('plan_untouched', { tools: untouched.map(tool => tool.displayName).join(', ') }));
     const { value, action } = await menuPrompt({ message: t('plan_prompt'), escape: true, default: 'back', items: [
-      ...items.map(item => ({ value: item.tool.name, label: item.tool.displayName, hint: options.edit ? t('slots_done') : undefined })),
-      { separator: '' }, { value: 'write', label: t('plan_write', { count: String(items.length) }), disabled: invalid }, { value: 'files', label: t('plan_view_changes') }, { value: 'back', label: t('tool_back') },
+      ...(options.edit ? [...items.map(item => ({ value: 'tool:' + item.tool.name, label: item.tool.displayName, hint: t('slots_done') })), { separator: '' }] : []),
+      { value: 'write', label: t('plan_write', { count: String(items.length) }), disabled: invalid }, { value: 'files', label: t('plan_view_changes') }, { value: 'back', label: t('tool_back') },
     ] });
     if (action === 'escape' || value === 'back') return 'back';
     if (value === 'files') {
       for (const change of publicPlannedChanges(preview.changes)) console.log(JSON.stringify(change));
       await menuPrompt({ message: t('plan_view_changes'), escape: true, items: [{ value: 'back', label: t('tool_back') }] }); continue;
     }
-    const selected = items.find(item => item.tool.name === value);
+    const selected = items.find(item => 'tool:' + item.tool.name === value);
     if (selected) {
       const edited = await options.edit?.(selected); if (edited) items = items.map(item => item === selected ? { ...edited, connection: selected.connection } : item); continue;
     }
