@@ -374,6 +374,7 @@ const MAIN_MENU_OPTIONS = [
   ZH_LOCALE.menu_configure_tools,
   ZH_LOCALE.menu_clear_config,
   ZH_LOCALE.menu_update_helper,
+  ZH_LOCALE.context_title,
   ZH_LOCALE.menu_exit,
 ];
 const TOOL_MENU_OPTIONS = [

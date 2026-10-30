@@ -1,0 +1,20 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import test from 'node:test';
+import { isolateHome } from './helpers/isolated-home.mjs';
+const home=fs.mkdtempSync(path.join(os.tmpdir(),'context-menu-'));isolateHome(home);
+const {showMainMenu}=await import('../dist/lib/wizard/menus/main-menu.js');
+const {promptHelper}=await import('../dist/lib/wizard/ui/prompt-helper.js');
+const {uiRenderer}=await import('../dist/lib/wizard/ui/ui-renderer.js');
+test.after(()=>fs.rmSync(home,{recursive:true,force:true}));
+test('main menu reaches context flow and invalid input can be retried or cancelled',async t=>{
+ for(const method of ['renderHeader','renderTitle','renderError'])t.mock.method(uiRenderer,method,()=>{});
+ let selections=0;
+ t.mock.method(promptHelper,'select',async(_message,items)=>{assert.ok(items.some(v=>v.value==='context'));return selections++?'exit':'context';});
+ const inputs=['invalid',''];t.mock.method(promptHelper,'input',async()=>inputs.shift());
+ await showMainMenu();
+ assert.equal(uiRenderer.renderError.mock.calls.length,1);assert.equal(inputs.length,0);
+ assert.equal(fs.existsSync(path.join(home,'.coding-helper/config.yaml')),false);
+});

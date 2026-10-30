@@ -1,5 +1,6 @@
+import {isolateHome} from './helpers/isolated-home.mjs';
 import assert from 'node:assert/strict'; import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path'; import test from 'node:test';
-process.env.HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'profile-connections-'));
+const home=fs.mkdtempSync(path.join(os.tmpdir(), 'profile-connections-'));isolateHome(home);
 const { configManager } = await import('../dist/lib/config.js');
 const { applyTool } = await import('../dist/lib/core/tool-service.js');
 test.after(() => fs.rmSync(process.env.HOME, { recursive: true, force: true }));
@@ -15,4 +16,66 @@ test('profile selection, bindings and explicit connections resolve consistently'
  assert.throws(() => configManager.saveProfile('__proto__', 'bad', 'china'));
  configManager.removeProfile('home'); assert.equal(configManager.getToolProfile('demo'), undefined);
  configManager.reload(); assert.equal(configManager.getActiveProfile(), 'work');
+});
+
+const {setupCommand}=await import('../dist/commands/setup.js');
+const {toolManager}=await import('../dist/lib/tool-manager.js');
+const {promptHelper}=await import('../dist/lib/wizard/ui/prompt-helper.js');
+const {uiRenderer}=await import('../dist/lib/wizard/ui/ui-renderer.js');
+const {marketModelService}=await import('../dist/lib/market-model-service.js');
+const {modelService}=await import('../dist/lib/model-service.js');
+test('setup probes each resolved connection and writes using the same key and URL',async t=>{
+ configManager.clearConfig();
+ configManager.saveProfile('a','private-a','custom','https://a.example/proxy');
+ configManager.saveProfile('b','private-b','custom','https://b.example/proxy');
+ const received=[];
+ for(const name of ['a','b']) {
+  configManager.setToolProfile(`probe-${name}`,name);
+  toolManager.register({name:`probe-${name}`,displayName:name,loadConfig:async(key,url)=>received.push([key,url])});
+ }
+ const probes=[];t.mock.method(globalThis,'fetch',async(url,options)=>{
+  probes.push([url,options.headers.Authorization]);
+  return new Response(JSON.stringify(url.endsWith('/v1/models')?{data:[{id:'model'}]}:{choices:[]}));
+ });
+ const output=[];t.mock.method(console,'log',text=>output.push(text));
+ const previous=process.exitCode;t.after(()=>{process.exitCode=previous;});
+ await setupCommand({tools:'probe-a,probe-b',json:true});
+ assert.equal(process.exitCode,0);
+ assert.deepEqual(received,[['private-a','https://a.example/proxy'],['private-b','https://b.example/proxy']]);
+ assert.equal(probes.length,4);
+ for(const [url,key]of probes)assert.ok(key===`Bearer private-${new URL(url).hostname[0]}`);
+ const json=JSON.parse(output[0]);assert.equal(json.accounts.length,2);
+ assert.equal(output[0].includes('private-'),false);
+});
+test('bound adapter errors redact their resolved key before any renderer receives them',async()=>{
+ configManager.setToolProfile('fails','a');
+ const result=await applyTool({name:'fails',loadConfig:async key=>{throw Error(`bad YAML api_key: ${key}`);}});
+ assert.equal(result.status,'failed');assert.equal(result.reason,'bad YAML api_key: [REDACTED]');
+});
+test('all credential-dependent model flows use the bound connection without a global key',async t=>{
+ configManager.clearConfig();configManager.saveProfile('bound','bound-only','custom','https://models.example/proxy');
+ for(const name of ['opencode','hermes','codebuddy','workbuddy','claude-code'])configManager.setToolProfile(name,'bound');
+ for(const method of ['renderHeader','renderHint','renderSuccess','renderWarning'])t.mock.method(uiRenderer,method,()=>{});
+ t.mock.method(promptHelper,'confirm',async()=>true);
+ t.mock.method(promptHelper,'searchSelect',async()=> 'model');
+ t.mock.method(promptHelper,'checkbox',async()=> ['model']);
+ const received=[];
+ const fetch=async(url,key)=>{received.push([url,key]);return [{id:'model',name:'Model',features:[]}];};
+ t.mock.method(marketModelService,'fetchModels',fetch);t.mock.method(modelService,'fetchModels',fetch);
+ const {runGenericModelSelectionFlow}=await import('../dist/lib/wizard/flows/generic-model-selection-flow.js');
+ assert.equal(await runGenericModelSelectionFlow('opencode','OpenCode'),'model');
+ for(const [name,fn]of [['hermes','runHermesModelSelectionFlow'],['codebuddy','runCodeBuddyModelSelectionFlow'],['workbuddy','runWorkBuddyModelSelectionFlow']]){
+  const module=await import(`../dist/lib/wizard/flows/${name}-model-selection-flow.js`);assert.ok(await module[fn]());
+ }
+ const {runModelSelectionFlow}=await import('../dist/lib/wizard/flows/model-selection-flow.js');assert.equal(await runModelSelectionFlow(),true);
+ assert.equal(received.length,5);for(const connection of received)assert.deepEqual(connection,['https://models.example/proxy','bound-only']);
+});
+test('explicit quick-save clears successful bindings and active profile; revoke removes active stored key',()=>{
+ configManager.clearConfig();configManager.saveProfile('work','old','china');configManager.saveProfile('home','bound','international');
+ configManager.useProfile('work');configManager.setToolProfile('opencode','home');configManager.setToolProfile('grok','home');
+ configManager.saveSettings('replacement','china',{}, {toolNames:['opencode']});
+ assert.equal(configManager.getActiveProfile(),undefined);assert.equal(configManager.getConnection('opencode').apiKey,'replacement');assert.equal(configManager.getConnection('grok').apiKey,'bound');
+ configManager.useProfile('work');configManager.revokeApiKey();configManager.reload();
+ assert.equal(configManager.getApiKey(),undefined);assert.equal(configManager.getProfile('work').apiKey,'');
+ configManager.useProfile('work');assert.equal(!!configManager.getConnection().apiKey,false);
 });

@@ -27,7 +27,7 @@ let customBaseUrls: string[] = [];
 export function normalizeCustomBaseUrl(input: string): string {
   let parsed: URL;
   try { parsed = new URL(input.trim()); } catch { throw new Error('Invalid custom base URL'); }
-  if (!['https:', 'http:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash) throw new Error('Invalid custom base URL');
+  if (!['https:', 'http:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash || /[?#]/.test(input.trim())) throw new Error('Invalid custom base URL');
   return parsed.toString().replace(/\/+$/, '');
 }
 

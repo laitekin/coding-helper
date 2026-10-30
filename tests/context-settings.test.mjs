@@ -1,6 +1,8 @@
+import { isolateHome } from './helpers/isolated-home.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path'; import test from 'node:test';
-process.env.HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'context-settings-'));
+const home = fs.mkdtempSync(path.join(os.tmpdir(), 'context-settings-'));
+isolateHome(home);
 const { configManager } = await import('../dist/lib/config.js');
 const { parseContextSize, formatContextSize } = await import('../dist/lib/core/context.js');
 const { capContextWindow } = await import('../dist/lib/tools/openai-compat-tool.js');
