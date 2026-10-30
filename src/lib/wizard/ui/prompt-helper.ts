@@ -1,4 +1,5 @@
 import inquirer from 'inquirer';
+import { pickModel, type PickOptions, type PickResult } from '../flows/model-pick-flow.js';
 import { menuPrompt } from './prompts.js';
 import { scoreModel, closestModels, resolveModelId, parseModelQuery, type SearchableModel } from '../../core/model-search.js';
 import { RECOMMENDED_MODELS } from '../../core/quick-args.js';
@@ -12,6 +13,7 @@ const SKIP_VALUE = '__skip__';
 
 // inquirer 封装 - 统一交互式 prompt
 export const promptHelper = {
+  async pickModel(options: PickOptions): Promise<PickResult> { return pickModel(options); },
   // 单选列表
   async select<T extends string>(message: string, choices: { name: string; value: T }[]): Promise<T> {
     const { answer } = await inquirer.prompt([

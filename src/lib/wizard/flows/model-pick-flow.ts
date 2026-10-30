@@ -19,10 +19,13 @@ function capabilities(model: PickerModel) {
 
 const FOLLOW = '__follow__';
 const SHOW_ALL = '__show_all__';
+const SKIP = '__skip_model__';
 
 export type PickResult = { model: string } | { follow: true } | 'back';
 
 export interface PickOptions {
+  connection?: Connection;
+  allowSkip?: boolean;
   // 用来显示兼容性的工具
   tools: ITool[];
   title?: string;
@@ -109,7 +112,7 @@ function sortModels(models: PickerModel[]): PickerModel[] {
 // 选模型：直接打字搜索，←→ 切换厂商，默认只列支持工具调用的模型；Esc 返回上一步
 export async function pickModel(options: PickOptions): Promise<PickResult> {
   const title = options.title ?? t('model_pick_title');
-  const connection = { ...configManager.getConnection(options.tools[0]?.name) };
+  const connection = { ...(options.connection ?? configManager.getConnection(options.tools[0]?.name)) };
   uiRenderer.renderPage(title, options.step, undefined, connection);
   const models = await loadModels(connection);
   if (!models) return 'back';
@@ -129,6 +132,7 @@ export async function pickModel(options: PickOptions): Promise<PickResult> {
     logger.newLine();
 
     const items: MenuEntry<string>[] = [
+      ...(options.allowSkip ? [{ value: SKIP, label: t('model_skip_option') }, { separator: '' }] : []),
       ...(options.follow ? [{ value: FOLLOW, label: t('slot_follow_main'), hint: theme.subtle(options.follow) }, { separator: '' }] : []),
       ...(recent.length ? [
         { separator: theme.subtle(t('model_section_recent')) },
@@ -179,6 +183,7 @@ export async function pickModel(options: PickOptions): Promise<PickResult> {
       last = SHOW_ALL;
       continue;
     }
+    if (value === SKIP) return 'back';
     if (value === FOLLOW) return { follow: true };
     const model = action === 'custom' ? resolveModelId(query ?? '', models.map((m) => m.id)) : value;
     if (!model) continue;
