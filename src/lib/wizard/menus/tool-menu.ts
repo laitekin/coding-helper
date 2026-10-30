@@ -4,6 +4,7 @@ import { findCommand } from '../../../utils/find-command.js';
 import { runCommand } from '../../../commands/run.js';
 import { LauncherShutdown } from '../../../utils/launcher-shutdown.js';
 import chalk from 'chalk';
+import { padEnd } from '../../../utils/string-width.js';
 import { menuPrompt } from '../ui/prompts.js';
 import { editToolModels } from '../flows/model-slots-flow.js';
 import { confirmAndWrite } from '../ui/write-plan.js';
@@ -21,8 +22,8 @@ import { applyTool, removeTool, hasSavedToolModelConfig } from '../../core/tool-
 export { hasSavedToolModelConfig } from '../../core/tool-service.js';
 
 // 工具菜单操作
-async function select<T>(config: { message: string; choices: { name: string; value: T }[] }, context?: { signal?: AbortSignal }): Promise<T> {
-  const result = await menuPrompt({ message: config.message, escape: true, items: config.choices.map(choice => ({ value: choice.value, label: choice.name })) }, context);
+async function select<T>(config: { message: string; choices: { name: string; value: T }[]; statusText?: string; statusUpdate?: Promise<string> }, context?: { signal?: AbortSignal }): Promise<T> {
+  const result = await menuPrompt({ message: config.message, statusText: config.statusText, statusUpdate: config.statusUpdate, escape: true, items: config.choices.map(choice => ({ value: choice.value, label: choice.name })) }, context);
   return result.action === 'escape' ? 'back' as T : result.value;
 }
 const PLANNED_TOOLS = ['claude-code', 'codex', 'codebuddy', 'workbuddy', 'hermes', 'opencode', 'qwen-code', 'kimi-code', 'grok', 'droid', 'openclaw'];
@@ -84,30 +85,16 @@ export async function showToolMenu(tool: ITool): Promise<void> {
     uiRenderer.renderHeader();
     uiRenderer.renderTitle(t('tool_menu_title', { tool: tool.displayName }));
 
-    // 显示版本信息
     const installedVersion = tool.getVersion();
-    renderVersionInfo(
-      installedVersion,
-      latestVersion,
-      fetchCompleted,
-      tool.npmPackageName,
-      tool.isInstalled() === null,
-    );
-
-    // 如果最新版本还未获取到，设置 AbortController 以便版本到达后自动刷新
-    const controller = new AbortController();
-    if (fetchPromise && isLatestVersionFetchPending({ fetchPromise, fetchCompleted })) {
-      fetchPromise.then(() => {
-        if (!controller.signal.aborted) {
-          controller.abort();
-        }
-      });
-    }
-
-    let action: ToolMenuAction;
-    try {
-      action = await select<ToolMenuAction>({
-        message: t('menu_select_action'),
+    const isDesktop = tool.isInstalled() === null;
+    const statusText = formatVersionInfo(installedVersion, latestVersion, fetchCompleted, tool.npmPackageName, isDesktop);
+    // 在同一个 prompt 内更新版本信息，保持 readline 和活动选项连续，不通过 abort 重建菜单。
+    const statusUpdate = fetchPromise && isLatestVersionFetchPending({ fetchPromise, fetchCompleted })
+      ? fetchPromise.then(version => formatVersionInfo(installedVersion, version, true, tool.npmPackageName, isDesktop),
+        () => formatVersionInfo(installedVersion, null, true, tool.npmPackageName, isDesktop))
+      : undefined;
+    const action = await select<ToolMenuAction>({
+        message: t('menu_select_action'), statusText, statusUpdate,
         choices: [
           { name: `${theme.icon('◆')} ${t('tool_configure_models')}`, value: 'models' as const },
           ...(tool.launchOnly ? [] : [
@@ -119,14 +106,7 @@ export async function showToolMenu(tool: ITool): Promise<void> {
           { name: `${theme.dimIcon('▪')} ${t('tool_view_config')}`, value: 'view' as const },
           { name: `${theme.dimIcon('◁')} ${t('tool_back')}`, value: 'back' as const },
         ],
-      }, { signal: controller.signal });
-    } catch (e: unknown) {
-      // 版本查询完成触发的 abort，重新渲染菜单
-      if (e instanceof Error && e.name === 'AbortPromptError') {
-        continue;
-      }
-      throw e;
-    }
+      });
 
     switch (action) {
       case 'models':
@@ -205,52 +185,53 @@ async function runInitialToolSetup(tool: ITool): Promise<void> {
   await applyConfig(tool);
 }
 
-// 渲染版本信息区域
-function renderVersionInfo(
+// 生成版本信息区域，在 prompt 内随版本请求结果更新。
+function formatVersionInfo(
   installed: string | null,
   latest: string | null,
   fetchCompleted: boolean,
   npmPackageName?: string,
   isDesktop = false,
-): void {
+): string {
   // 桌面应用不显示版本信息
   if (isDesktop) {
-    return;
+    return '';
   }
 
+  const lines: string[] = [];
+  const item = (label: string, value: string): void => { lines.push(`  ${chalk.bold(padEnd(label, 16))}${value}`); };
   // 当前版本
   const installedDisplay = installed
     ? chalk.white(installed)
     : chalk.yellow(t('tool_version_not_installed'));
-  uiRenderer.renderConfigItem(t('tool_version_installed'), installedDisplay);
+  item(t('tool_version_installed'), installedDisplay);
 
   if (!npmPackageName) {
-    logger.newLine();
-    return;
+    return lines.join('\n') + '\n';
   }
 
   // 最新版本
   if (latest) {
     const hasUpdate = installed ? isNewerVersion(installed, latest) : false;
     if (hasUpdate) {
-      uiRenderer.renderConfigItem(
+      item(
         t('tool_version_latest'),
         `${chalk.green(latest)}  ${chalk.yellow(t('tool_version_update_hint'))}`,
       );
     } else {
-      uiRenderer.renderConfigItem(
+      item(
         t('tool_version_latest'),
         `${chalk.white(latest)}  ${chalk.green(t('tool_version_up_to_date'))}`,
       );
     }
   } else {
-    uiRenderer.renderConfigItem(
+    item(
       t('tool_version_latest'),
       chalk.dim(t(getMissingLatestVersionDisplayKey(fetchCompleted))),
     );
   }
 
-  logger.newLine();
+  return lines.join('\n') + '\n';
 }
 
 export function getMissingLatestVersionDisplayKey(fetchCompleted: boolean): string {
