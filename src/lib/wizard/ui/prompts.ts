@@ -38,7 +38,7 @@ function isEscape(key: KeypressEvent): boolean {
 
 function isPrintable(key: KeypressEvent): boolean {
   const seq = sequenceOf(key);
-  return !key.ctrl && seq.length === 1 && seq >= ' ' && seq !== '\x7f';
+  return !key.ctrl && [...seq].length === 1 && seq >= ' ' && seq !== '\x7f';
 }
 
 // 底部提示：一行，淡色；放不下时按整组换行
@@ -189,7 +189,8 @@ const menuView = createPrompt(<T,>(config: MenuConfig<T>, done: (result: MenuRes
   const [query, setQuery] = useState('');
   const [tab, setTab] = useState(0);
   const [status, setStatus] = useState<'idle' | 'done'>('idle');
-  const [details, setDetails] = useState<Record<string, string>>({});
+  const [details] = useState(new Map<T, string | undefined>());
+  const [, refreshDetails] = useState({});
 
   // 搜索时跨所有标签过滤并排序；没有搜索时按当前标签筛选
   const items = useMemo((): MenuEntry<T | typeof CUSTOM>[] => {
@@ -218,14 +219,17 @@ const menuView = createPrompt(<T,>(config: MenuConfig<T>, done: (result: MenuRes
   const [active, setActive] = useState(defaultIndex === -1 ? first : defaultIndex);
   const activeIndex = selectable(items[active]) ? active : first;
   const current = activeIndex >= 0 ? items[activeIndex] as MenuItem<T | typeof CUSTOM> : undefined;
-  const detailKey = current && current.value !== CUSTOM ? String(current.value) : '';
+  const detailKey = current?.value;
 
   // 选中项变化时取补充信息（只取一次，结果缓存）
   useEffect(() => {
-    if (!config.asyncDetail || !detailKey || detailKey in details) return;
+    if (!config.asyncDetail || !current || current.value === CUSTOM || details.has(current.value)) return;
     const item = current as MenuItem<T>;
-    Promise.resolve(config.asyncDetail(item)).then((text) => {
-      if (text !== undefined) setDetails({ ...details, [detailKey]: text });
+    // Map 保留值的身份；先占位，避免切换行时重复发起尚未完成的请求。
+    details.set(item.value, undefined);
+    Promise.resolve().then(() => config.asyncDetail!(item)).then((text) => {
+      details.set(item.value, text);
+      refreshDetails({});
     }).catch(() => {});
   }, [detailKey]);
 
@@ -272,7 +276,7 @@ const menuView = createPrompt(<T,>(config: MenuConfig<T>, done: (result: MenuRes
       return;
     }
     if (config.searchable) {
-      if (isBackspaceKey(key)) return updateQuery(query.slice(0, -1));
+      if (isBackspaceKey(key)) return updateQuery([...query].slice(0, -1).join(''));
       if (isPrintable(key)) return updateQuery(query + sequenceOf(key));
       return;
     }
@@ -332,12 +336,12 @@ const menuView = createPrompt(<T,>(config: MenuConfig<T>, done: (result: MenuRes
     lines.push(`  ${theme.subtle(config.emptyText?.(query) ?? t('ui_search_empty'))}`);
   }
   if (items.length) lines.push(page);
-  const extra = detailKey ? details[detailKey] : undefined;
+  const extra = current && current.value !== CUSTOM ? details.get(current.value) : undefined;
   if (current?.description || extra) {
     lines.push('');
     for (const line of [current?.description, extra].filter(Boolean).join('\n').split('\n')) lines.push(`  ${line}`);
   }
-  const footer = config.footer ?? standardHints({ back: config.escape, search: config.searchable, tabs: !!config.tabs?.length });
+  const footer = config.footer ?? standardHints({ back: !!config.escape, search: config.searchable, tabs: !!config.tabs?.length });
   lines.push('', `  ${renderKeyHints(query ? [['Esc', t('ui_key_clear_search')], [t('ui_key_enter'), t('ui_key_confirm')]] : footer)}`);
   return `${lines.join('\n')}${CURSOR_HIDE}`;
 });
