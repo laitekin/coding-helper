@@ -1,11 +1,13 @@
-import { confirmAndWrite, selectTargets } from '../ui/write-plan.js';
+import { commitWritePlan, confirmAndWrite, selectTargets } from '../ui/write-plan.js';
 import { configManager } from '../../config.js';
 import { parseContextSize, formatContextSize } from '../../core/context.js';
-import { getSyncTargets } from '../../core/tool-service.js';
+import { exitCodeFor, getSyncTargets, type ToolResult } from '../../core/tool-service.js';
 import { toolManager } from '../../tool-manager.js';
 import { t } from '../../i18n.js';
 import { promptHelper } from '../ui/prompt-helper.js';
 import { uiRenderer } from '../ui/ui-renderer.js';
+import { menuPrompt } from '../ui/prompts.js';
+import { renderToolResults } from '../ui/tool-results.js';
 export const CONTEXT_UNSUPPORTED_TOOLS = ['claude-code', 'hermes', 'copilot'];
 export function contextLabel(tokens?: number): string { return tokens ? formatContextSize(tokens) : t('context_auto'); }
 export async function runContextFlow(): Promise<void> {
@@ -24,5 +26,27 @@ export async function runContextFlow(): Promise<void> {
   }
   const targets = await selectTargets(t('targets_prompt'), candidates);
   if (!targets?.length) return;
-  await confirmAndWrite(t('context_title'), targets.map(tool => ({ tool, context: context ?? null, changes: [{ label: t('plan_context'), before: contextLabel(configManager.getContextWindow(tool.name)), after: contextLabel(context) }] })));
+  const plans = targets.map(tool => ({ tool, connection: configManager.getConnection(tool.name), context: context ?? null,
+    changes: [{ label: t('plan_context'), before: contextLabel(configManager.getContextWindow(tool.name)), after: contextLabel(context) }] }));
+  const safe = plans.filter(plan => plan.tool.supportsPreview === true);
+  const normal = plans.filter(plan => plan.tool.supportsPreview !== true);
+  const results: ToolResult[] = [];
+  if (safe.length) {
+    const written = await confirmAndWrite(t('context_title'), safe);
+    if (written === 'back') return;
+    results.push(...written);
+    await promptHelper.pressEnter();
+  }
+  if (normal.length) {
+    uiRenderer.renderPage(t('context_title'));
+    uiRenderer.renderHint(t('context_preview_fallback', { tools: normal.map(plan => plan.tool.displayName).join(', ') }));
+    const confirmation = await menuPrompt({ message: t('context_targets_hint', { value: contextLabel(context) }), escape: true, default: false,
+      items: [{ value: false, label: t('confirm_no') }, { value: true, label: t('confirm_yes') }] });
+    if (confirmation.action === 'escape' || !confirmation.value) return;
+    const written = await commitWritePlan(normal);
+    results.push(...written);
+    renderToolResults(written);
+    process.exitCode = exitCodeFor(results);
+    await promptHelper.pressEnter();
+  }
 }

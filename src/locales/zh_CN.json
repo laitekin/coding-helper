@@ -389,5 +389,6 @@
   "plan_validation_cancelled": "其他目标校验失败，已取消写入。",
   "plan_write_failed": "写入失败，已有恢复记录已保留。",
   "helper_settings_failed": "客户端已写入，helper 设置保存失败；可使用 restore 还原。",
-  "setup_preview_fallback": "{{tool}} 不支持安全预演，将单独进入原配置流程。"
+  "setup_preview_fallback": "{{tool}} 不支持安全预演，将单独进入原配置流程。",
+  "context_preview_fallback": "{{tools}} 不支持预演，确认后将按普通写入流程应用上下文设置。"
 }
