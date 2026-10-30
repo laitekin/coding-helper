@@ -455,3 +455,5 @@ Model search matches vendor aliases, punctuation-free model IDs, context sizes s
 Model slots follow the main model unless explicitly overridden. Main-model changes retain slot overrides, and clearing one tool leaves other tools unchanged.
 
 The model picker uses searchable rows, vendor tabs, capability filters and recent models. It reloads the list for the selected connection and keeps selection in memory until confirmed. Esc clears search first, then returns.
+
+Tool slots: Claude fallback/subagent; Codex review/subagent/memory; Droid spec session model; Grok summary; Hermes vision. Existing transactions restore original settings. Droid retains array indices of existing custom models. The slot editor prepares an in-memory plan; saving and entry points are connected by the following UI layers.

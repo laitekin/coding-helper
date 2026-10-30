@@ -1,9 +1,10 @@
+import { slotModel } from '../core/model-slots.js';
 import { stateStore } from '../core/state-store.js';
 import { findCommand, commandVersion } from '../../utils/find-command.js';
 import { parse } from 'smol-toml';
 import { readTextFile } from '../core/safe-write.js';
 import { applyConfigEdits, restoreConfigEdits, parseConfigObject } from '../core/config-transaction.js';
-import { validateToml, upsertTopLevelTomlKey, removeTopLevelTomlKey, removeTomlTable as removeSharedTomlTable } from '../core/toml-edit.js';
+import { validateToml, upsertTomlTableKey, upsertTopLevelTomlKey, removeTopLevelTomlKey, removeTomlTable as removeSharedTomlTable } from '../core/toml-edit.js';
 import { capContextWindow, fetchModelLimits, isRecord } from './openai-compat-tool.js';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -101,7 +102,7 @@ export class CodexTool implements ITool {
       if (!recordedFiles.includes(file) && readTextFile(file) !== undefined) throw new Error('Codex profile file already exists. Choose another profile name.');
     }
     applyConfigEdits(this.name, [
-      { file: CODEX_CONFIG_FILE, build: content => mergeCodexProfiles(mergeCodexConfig(content ?? '', baseUrl, model, CODEX_CATALOG_FILE), profiles) },
+      { file: CODEX_CONFIG_FILE, build: content => mergeCodexProfiles(mergeCodexConfig(applyCodexSlots(content ?? '', { review: slotModel(this.name, 'review', model, models), subagent: slotModel(this.name, 'subagent', model, models), memory: slotModel(this.name, 'memory', model, models) }), baseUrl, model, CODEX_CATALOG_FILE), profiles) },
       { file: CODEX_AUTH_FILE, build: content => JSON.stringify({ ...parseConfigObject(content), auth_mode: 'apikey', OPENAI_API_KEY: apiKey }, null, 2) + '\n' },
       { file: CODEX_CATALOG_FILE, build: content => { if (content !== undefined) parseConfigObject(content); return buildCodexModelCatalog([...GPT_MODELS, ...extra].map(entry => ({ ...entry, context_length: capContextWindow(entry.context_length, this.name) }))); } },
       ...[...new Set([...recordedFiles.filter(file => file.endsWith('.config.toml')), ...generated.keys()])].map(file => ({ file, build: () => generated.get(file) ?? '' })),
@@ -411,4 +412,12 @@ function codexTransactionFiles(): string[] {
     }
   }
   return base;
+}
+
+export function applyCodexSlots(content: string, slots: Record<'review' | 'subagent' | 'memory', string>): string {
+  let next = upsertTopLevelTomlKey(content, 'review_model', JSON.stringify(slots.review));
+  next = upsertTomlTableKey(next, 'agents', 'default_subagent_model', JSON.stringify(slots.subagent));
+  next = upsertTomlTableKey(next, 'memories', 'extract_model', JSON.stringify(slots.memory));
+  next = upsertTomlTableKey(next, 'memories', 'consolidation_model', JSON.stringify(slots.memory));
+  validateToml(next); return next;
 }

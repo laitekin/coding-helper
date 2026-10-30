@@ -101,7 +101,7 @@ export class ClaudeCodeTool implements ITool {
   async loadConfig(apiKey: string, baseUrl: string, models: ModelConfig): Promise<void> {
     stateStore.withLock(() => {
       if (stateStore.getState(this.name)) throw new Error('Legacy Claude restoration state requires recovery from backup.');
-      const selected = models.claudeCode || {};
+      const selected = { ...models.claudeCode, ...(models.slotModels?.[this.name]?.fallback ? { haikuModel: models.slotModels[this.name].fallback } : {}), ...(models.slotModels?.[this.name]?.subagent ? { subagentModel: models.slotModels[this.name].subagent } : {}) };
       const clearSelection = !selected.useDefaultModels &&
         [selected.haikuModel, selected.sonnetModel, selected.opusModel, selected.subagentModel].some(Boolean);
       const plans: ConfigPlan[] = [];
@@ -160,7 +160,7 @@ export class ClaudeCodeTool implements ITool {
     for (const key of ['CLAUDE_CODE_USE_BEDROCK','CLAUDE_CODE_USE_VERTEX','CLAUDE_CODE_USE_FOUNDRY','CLAUDE_CODE_USE_ANTHROPIC_AWS','CLAUDE_CODE_USE_MANTLE','ANTHROPIC_API_KEY']) env[key] = undefined;
     Object.assign(env, { ANTHROPIC_BASE_URL: baseUrl, ANTHROPIC_AUTH_TOKEN: apiKey, API_TIMEOUT_MS: API_TIMEOUT,
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1', CLAUDE_CODE_ATTRIBUTION_HEADER: '0' });
-    const selected = models.claudeCode || {};
+    const selected = { ...models.claudeCode, ...(models.slotModels?.[this.name]?.fallback ? { haikuModel: models.slotModels[this.name].fallback } : {}), ...(models.slotModels?.[this.name]?.subagent ? { subagentModel: models.slotModels[this.name].subagent } : {}) };
     if (selected.haikuModel) env.ANTHROPIC_DEFAULT_HAIKU_MODEL = selected.haikuModel;
     if (selected.sonnetModel) env.ANTHROPIC_DEFAULT_SONNET_MODEL = selected.sonnetModel;
     if (selected.opusModel) env.ANTHROPIC_DEFAULT_OPUS_MODEL = selected.opusModel;
