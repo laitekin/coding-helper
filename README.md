@@ -446,3 +446,5 @@ Profiles store named connections and per-tool bindings. Reload, sync and launch 
 
 Codex 0.134+ profiles use `~/.codex/qn-<name>.config.toml` and `codex --profile qn-<name>`. Providers live in config.toml with per-profile credentials, protected by mode 0600. Existing files and conflicting providers are preserved by refusing the operation. Added profile files join the existing multi-file journal; restore checks all files before writing and restores original bytes. Removed helper profiles are not automatically deleted from client configuration; run restore before reinstalling to remove stale providers. [Official format](https://learn.chatgpt.com/docs/config-file/config-advanced#profiles).
 When model metadata is offline, context caps only narrow already verified client limits and retain known modality metadata. A 64k cap cannot expand a client limit already known to be 32k.
+
+Batch setup captures each bound connection before account checks and uses it for writing. Per-tool account results omit credentials. Explicit --key-stdin overrides and unbinds only successful targets, preserving failed targets and other bindings.
