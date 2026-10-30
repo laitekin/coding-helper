@@ -34,7 +34,10 @@ export async function quickCommand(target: string, rest: string[], options: Quic
         return tool;
       }))];
     if (!tools.length) throw new QuickError('no_installed_tools');
-    let picked = pickApiKey(args, process.env, configManager.getApiKey());
+    const profile = args.profile ? configManager.getProfile(args.profile) : undefined;
+    if (args.profile && !profile) throw new QuickError('profile_not_found');
+    if (profile && (args.apiKey || process.env.QINIU_API_KEY || options.intl)) throw new QuickError('profile_connection_conflict');
+    let picked = pickApiKey(args, profile ? {} : process.env, profile?.apiKey ?? configManager.getApiKey());
     if (!picked && !options.json && process.stdin.isTTY && process.stdout.isTTY) {
       const key = (await promptHelper.password(t('apikey_prompt'))).trim();
       if (key) picked = { key, source: 'prompt' };
@@ -43,11 +46,11 @@ export async function quickCommand(target: string, rest: string[], options: Quic
     const context = options.context === undefined ? undefined : parseContextSize(options.context) ?? 0;
     if (context !== undefined && tools.some(tool => ['claude-code', 'hermes', 'copilot'].includes(tool.name))) throw new QuickError('context_unsupported');
     const apiKey = picked.key;
-    let endpoint = options.intl ? 'international' : configManager.getEndpoint();
+    let endpoint = profile?.endpoint ?? (options.intl ? 'international' : configManager.getEndpoint());
     if (endpoint !== CUSTOM_ENDPOINT && !Object.hasOwn(ENDPOINT_DEFINITIONS, endpoint)) endpoint = DEFAULT_ENDPOINT;
-    const customUrl = endpoint === CUSTOM_ENDPOINT ? configManager.baseUrl : undefined;
+    const customUrl = endpoint === CUSTOM_ENDPOINT ? profile?.baseUrl ?? configManager.baseUrl : undefined;
     let validation = await validateApiKey(apiKey, getBaseUrl(endpoint, customUrl));
-    if (endpoint !== CUSTOM_ENDPOINT && !validation.valid && validation.error === 'Invalid API Key') {
+    if (!profile && endpoint !== CUSTOM_ENDPOINT && !validation.valid && validation.error === 'Invalid API Key') {
       const alternate = otherEndpoint(endpoint);
       const retry = await validateApiKey(apiKey, getBaseUrl(alternate));
       if (retry.valid) { endpoint = alternate; validation = retry; }
@@ -101,14 +104,14 @@ export async function quickCommand(target: string, rest: string[], options: Quic
     let helperSaved = false, saveFailed = false;
     if (successful.length && !options.dryRun && options.save !== false) {
       try {
-        configManager.saveSettings(apiKey, endpoint, mergeModelConfigs(...successful.map(plan => plan.models)), { contexts: context === undefined ? undefined : Object.fromEntries(successful.map(plan => [plan.tool.name, context])) });
+        configManager.saveSettings(apiKey, endpoint, mergeModelConfigs(...successful.map(plan => plan.models)), { toolNames: successful.map(plan => plan.tool.name), profile: profile?.name, baseUrl, contexts: context === undefined ? undefined : Object.fromEntries(successful.map(plan => [plan.tool.name, context])) });
         modelService.clearCache(); marketModelService.clearCache(); helperSaved = true;
       } catch { saveFailed = true; }
     }
     const exitCode = saveFailed || !successful.length ? 1 : exitCodeFor(results);
     const model = tools.length === 1 ? plans[0]?.model : 'model' in requested ? requested.model : undefined;
     const preview = options.dryRun ? { dryRun: true, changes: publicPlannedChanges(planned.changes) } : {};
-    if (options.json) console.log(JSON.stringify({ keySource: picked.source, endpoint, model,
+    if (options.json) console.log(JSON.stringify({ keySource: picked.source, endpoint, model, ...(profile ? { profile: profile.name } : {}),
       toolModels: Object.fromEntries(plans.map(plan => [plan.tool.name, plan.model])),
       results: jsonToolResults(results), helperSaved, ...(saveFailed ? { error: 'helper_settings_failed' } : {}), ...preview, exitCode }, null, 2));
     else {

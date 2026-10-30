@@ -439,3 +439,7 @@ Hermes 使用共享 YAML 编辑和事务层；恢复原始备份后须先成功�
 Quick configuration supports `opencode --context 64k` and `auto`. Validation failures, `--dry-run` and `--no-save` do not persist the cap. Claude Code, Hermes and Copilot manage context in the client.
 
 Profiles store named connections and per-tool bindings. Reload, sync and launch resolve the bound connection. Explicit command connection objects take precedence over bindings. Switching the active profile clears per-tool bindings; removing a profile leaves client files untouched.
+
+### Profiles
+
+`profile add work --key-stdin`, `profile list --json`, `profile use work [opencode,grok]`, and `profile remove work` manage named connections. Add validates before saving. `profile use work` switches helper only; `--sync` explicitly updates configured clients. `opencode @work` validates and writes that same connection and binds successful targets. Combining `@work` with a key override or `--intl` is rejected. A quick command without `@profile` uses the current global connection, overrides old bindings only for successful targets, and detaches the active profile without editing its credentials. `--no-save` and `--dry-run` never save bindings. Profile listings expose only whether a key is set.
