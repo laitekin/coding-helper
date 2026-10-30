@@ -21,7 +21,7 @@ test('MiniMax load uses its normal writer instead of preview rejection',{skip:pr
 });
 test('restore menu includes journal targets whose client is no longer configured',{skip:process.platform==='win32'},async()=>{
  const source=`import {toolManager} from './dist/lib/tool-manager.js';import {stateStore} from './dist/lib/core/state-store.js';import {showMainMenu} from './dist/lib/wizard/menus/main-menu.js';toolManager.getAll=()=>[{name:'journal',displayName:'JournalOnly',isInstalled:()=>false,isConfigured:()=>false}];stateStore.getRecordedTools=()=>['journal'];await showMainMenu();console.log('RESULT done');`;
- const out=await runPrompt(source,[['请选择操作','\x1b[B'.repeat(5)+'\r'],['请选择操作','\x1b[B\r'],['JournalOnly','\x1b'],['请选择操作','\x1b'],['请选择操作','\x1b']]);assert.match(out,/RESULT done/);
+ const out=await runPrompt(source,[[/接入编码工具[\s\S]*?Esc 退出/,'\x1b[B'.repeat(5)+'\r'],[/1 个工具[\s\S]*?Esc 返回/,'\x1b[B\r'],[/JournalOnly[\s\S]*?Esc 返回/,'\x1b'],[/更多…[\s\S]*?Esc 返回/,'\x1b'],[/接入编码工具[\s\S]*?Esc 退出/,'\x1b']]);assert.match(out,/RESULT done/);
 });
 test('generic checkbox wrapper selects all unspecified preferences',{skip:process.platform==='win32'},async()=>{
  const out=await runPrompt(`import {promptHelper} from './dist/lib/wizard/ui/prompt-helper.js';console.log('RESULT',JSON.stringify(await promptHelper.checkbox('CHECK_READY',[{name:'Alpha',value:'a'},{name:'Beta',value:'b'}])));`,[['CHECK_READY','\x1b[A'],['❯ ☐',' '],['❯ ☑','\x1b[C']]);assert.match(out,/RESULT.*\["a","b"\]/);
