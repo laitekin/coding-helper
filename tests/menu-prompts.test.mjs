@@ -24,3 +24,7 @@ test('search accepts supplementary Unicode characters', { skip: process.platform
  assert.match(out, /RESULT.*"value":"b"/); assert.match(out, /"query":"😀"/);
  assert.doesNotMatch(out, /Esc.*back/);
 });
+
+test('unmatched explicit custom values take priority over suggestions', {skip:process.platform==='win32'},async()=>{
+ const out=await runPrompt(head+`console.log('RESULT',JSON.stringify(await menuPrompt({message:'CUSTOM_READY',searchable:true,items:[{value:'known',label:'Known'}],suggest:()=>[{value:'known',label:'Known'}],customLabel:q=>'Use '+q})));`,[['CUSTOM_READY','vendor/new'],['vendor/new','\r']]);assert.match(out,/"action":"custom"/);assert.match(out,/"query":"vendor\/new"/);
+});
