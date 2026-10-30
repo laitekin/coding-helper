@@ -15,7 +15,7 @@ const cases = [
 for (const [name,relative,original,models,slots,check] of cases) test(`${name} writes slots and restores all original bytes`, async () => {
  const file=path.join(home,relative); fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,original);
  const tool=toolManager.get(name); await tool.loadConfig('sk-test','https://api.qnaigc.com',{...models,slotModels:{[name]:slots}});check(fs.readFileSync(file,'utf8')); if(name==='claude-code'){const env=tool.getLaunchEnv('sk-test','https://api.qnaigc.com',{...models,slotModels:{[name]:slots}});assert.equal(env.ANTHROPIC_SMALL_FAST_MODEL,'own');assert.equal(env.ANTHROPIC_DEFAULT_FABLE_MODEL,'main');} const first=fs.readFileSync(file,'utf8'); await tool.loadConfig('sk-test','https://api.qnaigc.com',{...models,slotModels:{[name]:slots}}); assert.equal(fs.readFileSync(file,'utf8'),first);
- if(name==='hermes'){await tool.loadConfig('sk-test','https://api.qnaigc.com',{...models,slotModels:{hermes:{}}});assert.equal(yaml.load(fs.readFileSync(file,'utf8')).auxiliary.vision.model,'old-eye');}
+ if(name==='hermes'){await tool.loadConfig('sk-test','https://api.qnaigc.com',{...models,slotModels:{hermes:{}}});assert.equal(yaml.load(fs.readFileSync(file,'utf8')).auxiliary.vision.model,'main');}
  await tool.unloadConfig(); assert.equal(fs.readFileSync(file,'utf8'),original);
 });
 test('real PTY slot editor cancellation returns without saving', {skip:process.platform==='win32'},async()=>{
