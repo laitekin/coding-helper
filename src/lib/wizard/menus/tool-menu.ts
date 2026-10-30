@@ -7,7 +7,7 @@ import chalk from 'chalk';
 import select from '@inquirer/select';
 import { editToolModels } from '../flows/model-slots-flow.js';
 import { toolSlots } from '../../core/model-slots.js';
-import { renderToolResults } from '../ui/tool-results.js';
+import { renderToolResults, safeToolFailureReason } from '../ui/tool-results.js';
 import { t } from '../../i18n.js';
 import { configManager } from '../../config.js';
 import { promptHelper } from '../ui/prompt-helper.js';
@@ -30,13 +30,13 @@ async function configureToolModelSlots(tool: ITool): Promise<void> {
     if (result.status === 'success') {
       try { configManager.saveToolSettings(plan.models ?? {}, {}, plan.main); }
       catch { result.status = 'failed'; result.reason = 'quick_save_failed'; }
-    } else if (result.status === 'failed') result.reason = 'tool_config_load_failed';
+    } else if (result.status === 'failed') result.reason = safeToolFailureReason(result.reason);
     renderToolResults([result]);
     process.exitCode = exitCodeFor([result]);
     await promptHelper.pressEnter();
   } catch (error) {
     if (error instanceof Error && ['ExitPromptError', 'AbortPromptError'].includes(error.name)) throw error;
-    uiRenderer.renderError(t('tool_config_load_failed', { tool: tool.displayName }));
+    uiRenderer.renderError(t(safeToolFailureReason(error instanceof Error ? error.message : undefined), { tool: tool.displayName }));
     process.exitCode = 1;
     await promptHelper.pressEnter();
   }

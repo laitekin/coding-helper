@@ -390,5 +390,13 @@
   "plan_write_failed": "写入失败，已有恢复记录已保留。",
   "helper_settings_failed": "客户端已写入，helper 设置保存失败；可使用 restore 还原。",
   "setup_preview_fallback": "{{tool}} 不支持安全预演，将单独进入原配置流程。",
-  "context_preview_fallback": "{{tools}} 不支持预演，确认后将按普通写入流程应用上下文设置。"
+  "context_preview_fallback": "{{tools}} 不支持预演，确认后将按普通写入流程应用上下文设置。",
+  "tool_failure_unrecorded": "缺少恢复记录。请恢复可信备份或手动清理旧凭据后重试；保留其他恢复记录。",
+  "tool_failure_recovery": "恢复元数据或中断的写入需要恢复。请保留文件和恢复记录，恢复可信备份后重试。",
+  "tool_failure_path": "配置路径发生变化。请切回记录中的原路径并卸载原配置，再切换路径。",
+  "tool_failure_changed": "托管配置已被修改。请恢复可信备份到记录状态后重试，并保留恢复记录。",
+  "tool_failure_conflict": "配置归属或名称冲突。请选择其他配置档/名称，或恢复已记录的配置后重试。",
+  "tool_failure_protected": "目标受到符号链接或只读设置保护。请检查路径和保护设置后重试，并保留恢复记录。",
+  "tool_failure_permissions": "无法访问目标。请检查 helper 与客户端文件权限后重试，并保留恢复记录。",
+  "tool_failure_retry": "本次操作期间配置发生变化。请重新加载最新设置后重试，并保留现有文件和恢复记录。"
 }
