@@ -55,16 +55,16 @@ export async function setupCommand(options: SetupOptions): Promise<void> {
       const validation = await validateApiKey(apiKey, configManager.baseUrl);
       if (!validation.valid) throw new Error(validation.error ?? 'Invalid API key');
     }
-    if (!apiKey) throw new Error(t('setup_no_key'));
+    if (!apiKey && (options.keyStdin || targets.some(tool => !configManager.getConnection(tool.name).apiKey))) throw new Error(t('setup_no_key'));
     const models = configManager.getModels();
     const preferredModels = targets.map(tool => savedModelFor(tool, models)).filter((id): id is string => !!id);
-    const account = targets.length ? await checkAccountStatus(apiKey, configManager.baseUrl, preferredModels) : undefined;
+    const account = targets.length ? await checkAccountStatus(apiKey ?? configManager.getConnection(targets[0]?.name).apiKey!, configManager.baseUrl, preferredModels) : undefined;
     if (account && account.usable !== true && !options.json) uiRenderer.renderWarning(describeAccountStatus(account));
     const perform = async (): Promise<ToolResult[]> => {
       const results: ToolResult[] = [];
       for (const tool of targets) {
         if (interactive && !options.dryRun && tool.requiresModelSelection && !tool.launchOnly && !hasSavedToolModelConfig(tool, configManager.getModels())) await tool.runModelConfigFlow();
-        const apply = () => applyTool(tool, { apiKey: apiKey!, baseUrl: configManager.baseUrl });
+        const apply = () => applyTool(tool, options.keyStdin ? { apiKey: apiKey!, baseUrl: configManager.baseUrl } : undefined);
         results.push(await (options.json || options.dryRun ? withQuietLogs(apply) : apply()));
       }
       return results;
@@ -72,7 +72,7 @@ export async function setupCommand(options: SetupOptions): Promise<void> {
     const planned = options.dryRun ? await previewWrites(perform) : { value: await perform(), changes: [] };
     const results = planned.value;
     if (options.keyStdin && !options.dryRun && results.some(result => result.status === 'success')) {
-      configManager.setApiKey(apiKey); modelService.clearCache(); marketModelService.clearCache();
+      configManager.setApiKey(apiKey!); modelService.clearCache(); marketModelService.clearCache();
     }
     results.push(...skipped);
     const exitCode = exitCodeFor(results);
