@@ -149,6 +149,7 @@ export async function pickModel(options: PickOptions): Promise<PickResult> {
       default: last,
       escape: true,
       searchable: true,
+      customFirst: q => q.trim().includes('/') && !q.trim().endsWith('/') && !byId.has(q.trim()),
       pageSize: 12,
       items,
       tabs: [
@@ -174,7 +175,7 @@ export async function pickModel(options: PickOptions): Promise<PickResult> {
         return closestModels(candidates.map(m => m.id), q).map(id => modelRow(byId.get(id)!, options));
       },
       // 像模型 ID 的输入才提供「使用自定义模型 ID」（中文厂商名、200k、看图 这类过滤词不算）
-      customLabel: (q) => /^[\w.\-/:]+$/.test(q.trim()) && !parseModelQuery(q).minContext && !parseModelQuery(q).vision && !parseModelQuery(q).toolCall && !parseModelQuery(q).reasoning
+      customLabel: (q) => /^[\w.\-/:]+$/.test(q.trim()) && !parseModelQuery(q).minContext && !parseModelQuery(q).vision && !parseModelQuery(q).toolCall && !parseModelQuery(q).reasoning && !byId.has(q.trim())
         ? t('model_custom_value', { value: resolveModelId(q, models.map((m) => m.id)) })
         : undefined,
     });
