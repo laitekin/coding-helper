@@ -174,8 +174,12 @@ async function restoreSelected(): Promise<void> {
   }
   const targets = await selectTargets(t('targets_prompt_restore'), tools);
   if (!targets || targets.length === 0) return;
-  await restoreCommand(targets.map((tool) => tool.name).join(','), { yes: false });
-  await promptHelper.pressEnter();
+  // 独立 restore 命令的失败码不应影响确认结果后继续使用的菜单会话。
+  const previousExitCode = process.exitCode;
+  try {
+    await restoreCommand(targets.map((tool) => tool.name).join(','), { yes: false });
+    await promptHelper.pressEnter();
+  } finally { process.exitCode = previousExitCode; }
 }
 
 // 更新 Coding Helper
