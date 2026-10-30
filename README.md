@@ -462,3 +462,4 @@ The confirmation page previews client writes in memory and shows model/context c
 When model metadata is offline, context caps only narrow already verified client limits and retain known modality metadata. A 64k cap cannot expand a client limit already known to be 32k.
 
 Claude slot configuration also updates the legacy fast-model alias and the Fable entry in /model, including model descriptions. The launcher uses the same aliases, and unload restores the exact previous values.
+Batch setup captures each bound connection before account checks and uses it for writing. Per-tool account results omit credentials. Explicit --key-stdin overrides and unbinds only successful targets, preserving failed targets and other bindings.
