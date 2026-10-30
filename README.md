@@ -452,3 +452,5 @@ Shared prompts distinguish Esc cancellation from empty input. Checkbox selection
 
 Model search matches vendor aliases, punctuation-free model IDs, context sizes such as 200k, and vision capability. Exact/prefix matches rank before recommendations and recent selections; unmatched input offers nearby model IDs.
 When model metadata is offline, context caps only narrow already verified client limits and retain known modality metadata. A 64k cap cannot expand a client limit already known to be 32k.
+
+Batch setup captures each bound connection before account checks and uses it for writing. Per-tool account results omit credentials. Explicit --key-stdin overrides and unbinds only successful targets, preserving failed targets and other bindings.
