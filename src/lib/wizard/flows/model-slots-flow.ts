@@ -83,7 +83,7 @@ export async function editToolModels(tool: ITool, from?: PlanItem): Promise<Plan
         spinner.succeed(t('model_compatible', { tool: tool.displayName, model }));
       }
       if (rejected) continue;
-      return planForTool(tool, main, overrides);
+      return { ...planForTool(tool, main, overrides), connection };
     }
 
     const isMain = value === MAIN;

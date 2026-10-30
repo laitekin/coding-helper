@@ -43,10 +43,17 @@ export function reloadPlanForTool(tool: ITool) {
   return plan;
 }
 async function configureWithPlan(tool: ITool, reuse = false): Promise<void> {
-  const plan = (reuse ? reloadPlanForTool(tool) : undefined) ?? await editToolModels(tool);
-  if (!plan) return;
-  const results = await confirmAndWrite(t('tool_menu_title', { tool: tool.displayName }), [plan], [], { edit: item => editToolModels(item.tool, item) });
-  if (results !== 'back') await promptHelper.pressEnter();
+  try {
+    const plan = (reuse ? reloadPlanForTool(tool) : undefined) ?? await editToolModels(tool);
+    if (!plan) return;
+    const results = await confirmAndWrite(t('tool_menu_title', { tool: tool.displayName }), [plan], [], { edit: item => editToolModels(item.tool, item) });
+    if (results !== 'back') await promptHelper.pressEnter();
+  } catch (error) {
+    if (error instanceof Error && ['ExitPromptError', 'AbortPromptError'].includes(error.name)) throw error;
+    uiRenderer.renderError(t('tool_config_load_failed', { tool: tool.displayName }));
+    process.exitCode = 1;
+    await promptHelper.pressEnter();
+  }
 }
 
 type ToolMenuAction =
