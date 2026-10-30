@@ -329,5 +329,9 @@
   "model_vision": "vision",
   "slot_follow_main": "Follow main model",
   "slot_pick_prompt": "Choose the model for this slot",
-  "model_search_placeholder": "Type to search, e.g. glm5, kimi, 200k, vision"
+  "model_search_placeholder": "Type to search, e.g. glm5, kimi, 200k, vision",
+  "claude_slot_desc_sonnet": "Qiniu · main model",
+  "claude_slot_desc_opus": "Qiniu · Opus slot",
+  "claude_slot_desc_haiku": "Qiniu · fallback model",
+  "claude_slot_desc_fable": "Qiniu · Fable slot (same as Opus)"
 }

@@ -329,5 +329,9 @@
   "model_vision": "支持看图",
   "slot_follow_main": "跟随主模型",
   "slot_pick_prompt": "选择这一项使用的模型",
-  "model_search_placeholder": "直接打字搜索，如 glm5、智谱、200k、看图"
+  "model_search_placeholder": "直接打字搜索，如 glm5、智谱、200k、看图",
+  "claude_slot_desc_sonnet": "七牛 · 主模型",
+  "claude_slot_desc_opus": "七牛 · Opus 槽位",
+  "claude_slot_desc_haiku": "七牛 · 兜底模型",
+  "claude_slot_desc_fable": "七牛 · Fable 槽位（同 Opus）"
 }
