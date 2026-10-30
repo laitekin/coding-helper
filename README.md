@@ -462,3 +462,5 @@ The confirmation page previews client writes in memory and shows model/context c
 
 The main and tool menus now share arrow/Enter/Esc controls. Main-menu entries expose batch setup, profiles and context settings. Built-in persistent tools open the model/slot editor and confirmation plan; custom extensions retain their original configuration flow. API-key input cancels immediately on Esc. Version refresh still aborts and redraws the tool prompt without blocking navigation.
 When model metadata is offline, context caps only narrow already verified client limits and retain known modality metadata. A 64k cap cannot expand a client limit already known to be 32k.
+
+The six-entry main menu follows the released fork v0.6.5: configure tools, switch models, my tools, account/endpoint, doctor, and more. Account settings contain profiles; more contains context, restore, language and maintenance. The upstream package keeps its own release version.

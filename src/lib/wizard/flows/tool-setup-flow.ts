@@ -46,8 +46,8 @@ export async function setupTool(tool: ITool): Promise<void> {
 }
 
 // 初始化向导专用：选择工具 → 引导配置
-export async function runToolSetupFlow(): Promise<void> {
-  const tools = toolManager.getAll().filter(tool => !tool.launchOnly);
+export async function runToolSetupFlow(candidates?: ITool[]): Promise<void> {
+  const tools = (candidates ?? toolManager.getAll()).filter(tool => !tool.launchOnly);
   const targets = await selectTargets(t('setup_select_tools'), tools);
   if (!targets?.length) return;
   while (true) {
