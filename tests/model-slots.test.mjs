@@ -10,3 +10,12 @@ test('slot overrides survive main-model changes and only empty the selected tool
  const snapshot = configManager.getModels(); snapshot.slotModels.codex.review = 'mutated'; assert.equal(slotModel('codex', 'review', 'main2'), 'review');
  configManager.setModels({ slotModels: { codex: {} } }); assert.deepEqual(slotOverrides('codex'), {}); assert.equal(slotModel('grok', 'summary', 'main'), 'summary');
 });
+test('slot patches preserve sibling overrides through both persistence APIs', () => {
+ configManager.setModels({slotModels:{codex:{review:'r',memory:'m'}}});
+ configManager.setModels({slotModels:{codex:{subagent:'s'}}});
+ assert.deepEqual(slotOverrides('codex'),{review:'r',memory:'m',subagent:'s'});
+ configManager.saveSettings('sk-test', 'china', {slotModels:{codex:{review:'r2'}}});
+ assert.deepEqual(slotOverrides('codex'),{review:'r2',memory:'m',subagent:'s'});
+ configManager.setModels({slotModels:{codex:{}}});
+ assert.deepEqual(slotOverrides('codex'),{});
+});
