@@ -4,7 +4,7 @@ import { logger } from '../../../utils/logger.js';
 import { renderLogo as renderLogoArt } from './logo.js';
 import { theme } from './theme.js';
 import { configManager, type Connection } from '../../config.js';
-import { ENDPOINT_DEFINITIONS } from '../../endpoints.js';
+import { CUSTOM_ENDPOINT, ENDPOINT_DEFINITIONS } from '../../endpoints.js';
 import { t } from '../../i18n.js';
 
 export interface StepInfo { current: number; total: number; keys?: string[]; }
@@ -42,7 +42,7 @@ export const uiRenderer = {
     const endpointDef = endpointId ? ENDPOINT_DEFINITIONS[endpointId] : undefined;
     const endpointDisplay = endpointDef
       ? t(endpointDef.i18nKey)
-      : options.connection?.baseUrl ?? t('config_view_not_set');
+      : endpointId === CUSTOM_ENDPOINT ? options.connection?.baseUrl ?? configManager.baseUrl : t('config_view_not_set');
 
     const apiKey = options.connection ? options.connection.apiKey : configManager.getApiKey();
     const apiKeyDisplay = apiKey
@@ -50,7 +50,7 @@ export const uiRenderer = {
       : t('config_view_not_set');
 
     this.renderConfigPanel([
-      { label: t('config_view_endpoint'), value: endpointDisplay, configured: !!endpointDef },
+      { label: t('config_view_endpoint'), value: endpointDisplay, configured: !!endpointDef || endpointId === CUSTOM_ENDPOINT },
       { label: t('config_view_apikey'), value: apiKeyDisplay, configured: !!apiKey },
     ]);
   },
