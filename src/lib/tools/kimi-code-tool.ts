@@ -2,9 +2,11 @@ import os from 'node:os';
 import path from 'node:path';
 import type { ModelConfig } from '../config.js';
 import { t } from '../i18n.js';
+import { parse } from 'smol-toml';
+import { isQiniuBaseUrl } from '../endpoints.js';
 import { readTextFile } from '../core/safe-write.js';
 import { applyConfigEdits } from '../core/config-transaction.js';
-import { OpenAICompatTool, fetchModelLimits, openAIBaseUrl, type ModelLimits } from './openai-compat-tool.js';
+import { OpenAICompatTool, fetchModelLimits, effectiveContextLimit, openAIBaseUrl, isRecord, type ModelLimits } from './openai-compat-tool.js';
 import { escapeTomlString, normalizeToml, removeTomlTablesWhere, upsertTopLevelTomlKey, validateToml } from '../core/toml-edit.js';
 const PROVIDER_ID = 'qiniu';
 const MODEL_ALIAS_PREFIX = `${PROVIDER_ID}/`;
@@ -64,6 +66,7 @@ export function getKimiInstallCommand(platform: NodeJS.Platform = process.platfo
 }
 
 export class KimiCodeTool extends OpenAICompatTool {
+  supportsPreview = true;
   name = 'kimi-code';
   displayName = 'Kimi Code CLI';
   command = 'kimi';
@@ -77,16 +80,20 @@ export class KimiCodeTool extends OpenAICompatTool {
   }
 
   isConfigured(): boolean {
-    return hasManagedKimiConfig(readTextFile(getKimiConfigFile()) ?? '');
+    const config = parse(readTextFile(getKimiConfigFile()) ?? '');
+    return isRecord(config.providers) && isRecord(config.providers.qiniu) && isQiniuBaseUrl(config.providers.qiniu.base_url);
   }
 
   async loadConfig(apiKey: string, baseUrl: string, models: ModelConfig): Promise<void> {
     const model = this.resolveModel(models);
     const version = this.getVersion();
     if (version && Number(version.split('.')[0]) < 2) throw new Error(t('kimi_legacy_cli', { version, command: this.installCommand }));
-    const limits = await fetchModelLimits(baseUrl, apiKey, model);
+    const limits = await fetchModelLimits(baseUrl, apiKey, model, this.name);
     applyConfigEdits(this.name, [{ file: getKimiConfigFile(), build: content => {
-      const next = applyKimiConfig(content ?? '', baseUrl, apiKey, model, limits.contextWindow, limits); validateToml(next); return next;
+      const parsed = parse(content ?? '');
+      const prior = isRecord(parsed.models) && isRecord(parsed.models[MODEL_ALIAS_PREFIX + model]) ? parsed.models[MODEL_ALIAS_PREFIX + model] : undefined;
+      const known = isRecord(prior) ? prior.max_context_size : undefined;
+      const next = applyKimiConfig(content ?? '', baseUrl, apiKey, model, effectiveContextLimit(limits, known), limits); validateToml(next); return next;
     } }]);
   }
   unloadConfig(): void { this.restoreManagedConfig([getKimiConfigFile()]); }

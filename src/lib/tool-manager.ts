@@ -1,3 +1,4 @@
+import { registerToolProvider } from './tool-registry.js';
 import type { ITool } from './tools/base-tool.js';
 import { ClaudeCodeTool } from './tools/claude-code-tool.js';
 import { QwenCodeTool } from './tools/qwen-code-tool.js';
@@ -14,6 +15,7 @@ import { MinimaxCodeTool } from './tools/minimax-code-tool.js';
 
 import { CopilotTool } from './tools/copilot-tool.js';
 import { OpenCodeTool } from './tools/opencode-tool.js';
+import { DshTool } from './tools/dsh-tool.js';
 
 // 工具注册中心
 class ToolManager {
@@ -34,6 +36,7 @@ class ToolManager {
     this.register(new HermesTool());
     this.register(new DroidTool());
     this.register(new OpenCodeTool());
+    this.register(new DshTool());
   }
 
   // 注册工具
@@ -64,3 +67,5 @@ class ToolManager {
 
 // 导出单例
 export const toolManager = new ToolManager();
+
+registerToolProvider(() => toolManager.getAll());

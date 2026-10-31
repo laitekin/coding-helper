@@ -1,13 +1,17 @@
+import { slotModel } from '../core/model-slots.js';
+import { stateStore } from '../core/state-store.js';
 import { findCommand, commandVersion } from '../../utils/find-command.js';
-import { applyConfigEdits, restoreConfigEdits, parseConfigObject } from '../core/config-transaction.js';
-import { validateToml, upsertTopLevelTomlKey, removeTopLevelTomlKey, removeTomlTable as removeSharedTomlTable } from '../core/toml-edit.js';
-import { fetchModelLimits } from './openai-compat-tool.js';
+import { parse } from 'smol-toml';
+import { readTextFile } from '../core/safe-write.js';
+import { applyConfigEdits, restoreConfigEdits, parseConfigObject, canonicalConfigPath } from '../core/config-transaction.js';
+import { validateToml, upsertTomlTableKey, upsertTopLevelTomlKey, removeTopLevelTomlKey, removeTomlTable as removeSharedTomlTable } from '../core/toml-edit.js';
+import { capContextWindow, fetchModelLimits, isRecord } from './openai-compat-tool.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import type { ITool } from './base-tool.js';
 import { configManager, type ModelConfig } from '../config.js';
-import { DEFAULT_ENDPOINT, getBaseUrl } from '../endpoints.js';
+import { DEFAULT_ENDPOINT, getBaseUrl, isQiniuBaseUrl } from '../endpoints.js';
 import { t } from '../i18n.js';
 import { uiRenderer } from '../wizard/ui/ui-renderer.js';
 import { promptHelper } from '../wizard/ui/prompt-helper.js';
@@ -44,6 +48,7 @@ const GPT_MODELS: CodexCatalogModel[] = [
 
 // Codex 工具实现
 export class CodexTool implements ITool {
+  supportsPreview = true;
   name = 'codex';
   displayName = 'Codex';
   defaultModel = CODEX_MODEL;
@@ -59,16 +64,25 @@ export class CodexTool implements ITool {
   isInstalled(): boolean { return !!findCommand(this.command, this.searchPaths); }
 
   getConfig(): Record<string, unknown> {
-    const content = readCodexConfig();
     return {
       configPath: CODEX_CONFIG_FILE,
       authPath: CODEX_AUTH_FILE,
-      configured: hasManagedCodexConfig(content),
+      configured: this.isConfigured(),
     };
   }
 
+  isConfigured(): boolean {
+    const config = parse(readTextFile(CODEX_CONFIG_FILE) ?? '');
+    const profile = typeof config.profile === 'string' && isRecord(config.profiles) ? config.profiles[config.profile] : undefined;
+    const provider = isRecord(profile)
+      ? profile.model_provider ?? config.model_provider : config.model_provider;
+    if (typeof provider !== 'string') return false;
+    const entry = isRecord(config.model_providers) ? config.model_providers[provider] : undefined;
+    return isRecord(entry) && isQiniuBaseUrl(entry.base_url);
+  }
+
   clearModelConfig(): void {
-    const files = [CODEX_CONFIG_FILE, CODEX_AUTH_FILE, CODEX_CATALOG_FILE];
+    const files = codexTransactionFiles();
     if (!restoreConfigEdits(this.name, files) && files.some(file => fs.existsSync(file))) {
       throw new Error('No restoration record for Codex. Configuration is unchanged; remove legacy credentials manually or recover a known backup.');
     }
@@ -77,18 +91,65 @@ export class CodexTool implements ITool {
   async loadConfig(apiKey: string, baseUrl: string, models: ModelConfig): Promise<void> {
     const model = models.codexModel || this.defaultModel;
     const extra: CodexCatalogModel[] = [];
-    if (!GPT_MODELS.some(entry => entry.id === model)) {
-      const limits = await fetchModelLimits(baseUrl, apiKey, model);
-      extra.push({ id: model, context_length: limits.contextWindow, max_tokens: limits.maxOutputTokens, plain: true, images: limits.modalities?.input.includes('image') ?? false });
+    const slots = { review: slotModel(this.name, 'review', model, models), subagent: slotModel(this.name, 'subagent', model, models), memory: slotModel(this.name, 'memory', model, models) };
+    for (const id of new Set([model, ...Object.values(slots)])) if (!GPT_MODELS.some(entry => entry.id === id)) {
+      const limits = await fetchModelLimits(baseUrl, apiKey, id, this.name);
+      extra.push({ id, context_length: limits.contextWindow, max_tokens: limits.maxOutputTokens, plain: true, images: limits.modalities?.input.includes('image') ?? false });
+    }
+    const profiles = configManager.listProfiles().filter(profile => !!profile.apiKey);
+    const generated = new Map(profiles.map(profile => [path.join(CODEX_DIR, codexProfileName(profile.name) + '.config.toml'), buildCodexProfileFile(profile.name, model, CODEX_CATALOG_FILE)]));
+    const recordedFiles = codexTransactionFiles();
+    const recorded = new Set(recordedFiles.map(canonicalConfigPath));
+    // 只有事务记录中的配置档文件能证明同名 provider 由 helper 管理。
+    const managedProviders = new Set(recordedFiles.filter(file => file.endsWith('.config.toml')).map(file => codexProviderName(path.basename(file).slice(3, -'.config.toml'.length))));
+    const profileFiles = [...new Set([...recordedFiles.filter(file => file.endsWith('.config.toml')), ...generated.keys()])];
+    // macOS/Windows 上文件名可能不区分大小写；先拒绝冲突再启动事务。
+    if (new Set(profileFiles.map(file => path.basename(file).toLowerCase())).size !== profileFiles.length) throw new Error('Codex profile filenames conflict ignoring case.');
+    for (const file of generated.keys()) {
+      if (!recorded.has(canonicalConfigPath(file)) && readTextFile(file) !== undefined) throw new Error('Codex profile file already exists. Choose another profile name.');
     }
     applyConfigEdits(this.name, [
-      { file: CODEX_CONFIG_FILE, build: content => mergeCodexConfig(content ?? '', baseUrl, model, CODEX_CATALOG_FILE) },
+      { file: CODEX_CONFIG_FILE, build: content => mergeCodexProfiles(mergeCodexConfig(applyCodexSlots(content ?? '', slots), baseUrl, model, CODEX_CATALOG_FILE), profiles, managedProviders) },
       { file: CODEX_AUTH_FILE, build: content => JSON.stringify({ ...parseConfigObject(content), auth_mode: 'apikey', OPENAI_API_KEY: apiKey }, null, 2) + '\n' },
-      { file: CODEX_CATALOG_FILE, build: content => { if (content !== undefined) parseConfigObject(content); return buildCodexModelCatalog([...GPT_MODELS, ...extra]); } },
-    ]);
+      { file: CODEX_CATALOG_FILE, build: content => { if (content !== undefined) parseConfigObject(content); return buildCodexModelCatalog([...GPT_MODELS, ...extra].map(entry => ({ ...entry, context_length: capContextWindow(entry.context_length, this.name) }))); } },
+      ...profileFiles.map(file => ({ file, build: (content: string | undefined) => {
+        // 用事务内快照确认新文件仍未被外部创建，禁止接管用户文件。
+        if (!recorded.has(canonicalConfigPath(file)) && content !== undefined) throw new Error('Codex profile file already exists. Choose another profile name.');
+        const next = generated.get(file) ?? content;
+        if (next === undefined) throw new Error('Recorded Codex profile file is missing. Restore before retrying.');
+        return next;
+      } })),
+    ], { extend: true });
   }
 
   async unloadConfig(): Promise<void> { this.clearModelConfig(); }
+
+  async checkModel(model: string, connection: { apiKey: string; baseUrl: string }): Promise<string | undefined> {
+    try {
+      const response = await fetch(`${connection.baseUrl}/bypass/openai/v1/responses`, {
+        method: 'POST', headers: { Authorization: `Bearer ${connection.apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model, input: 'hi', max_output_tokens: 16, stream: true }), signal: AbortSignal.timeout(60000),
+      });
+      if (!response.ok || !response.body) {
+        await response.body?.cancel().catch(() => {});
+        return 'quick_model_incompatible';
+      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let text = '', size = 0;
+      try {
+        while (size <= 65536) {
+          const chunk = await reader.read();
+          if (chunk.done) break;
+          size += chunk.value.length;
+          if (size > 65536) return 'quick_model_incompatible';
+          text += decoder.decode(chunk.value, { stream: true });
+          if (isCodexCompatibleStream(text)) return undefined;
+        }
+      } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
+    } catch { /* 网络和非标准流都不能冒充模型兼容。 */ }
+    return 'quick_model_incompatible';
+  }
 
   async runModelConfigFlow(): Promise<boolean> {
     uiRenderer.renderHeader();
@@ -101,6 +162,28 @@ export class CodexTool implements ITool {
   renderModelConfigSummary(): void {
     uiRenderer.renderConfigItem(t('config_view_codex_model'), configManager.getModels().codexModel || this.defaultModel);
   }
+}
+
+export function isCodexCompatibleStream(text: string): boolean {
+  let completed = false;
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.startsWith('data:')) continue;
+    const data = line.slice(5).trim();
+    if (!data || data === '[DONE]') continue;
+    try {
+      const event: unknown = JSON.parse(data);
+      if (!isRecord(event) || typeof event.type !== 'string') return false;
+      if (['response.failed', 'error'].includes(event.type)) return false;
+      if (event.type === 'response.incomplete') {
+        const response = isRecord(event.response) ? event.response : undefined;
+        const details = response && isRecord(response.incomplete_details) ? response.incomplete_details : undefined;
+        if (details?.reason !== 'max_output_tokens') return false;
+        completed = true;
+      }
+      if (event.type === 'response.completed') completed = true;
+    } catch { return false; }
+  }
+  return completed;
 }
 
 export function buildCodexConfig(_existing: string, baseUrl?: string, model?: string, catalogPath?: string): string {
@@ -217,17 +300,6 @@ export function buildCodexModelCatalog(models: CodexCatalogModel[]): string {
   })) }) + '\n';
 }
 
-function readCodexConfig(): string {
-  try {
-    if (fs.existsSync(CODEX_CONFIG_FILE)) {
-      return fs.readFileSync(CODEX_CONFIG_FILE, 'utf-8');
-    }
-  } catch {
-    // 文件不存在或读取失败时按空配置处理
-  }
-  return '';
-}
-
 function parseJsonObject(content: string): Record<string, unknown> {
   if (!content.trim()) return {};
   try {
@@ -313,4 +385,52 @@ export function mergeCodexConfig(existing: string, baseUrl: string, model: strin
   const next = content.trimEnd() + newline + newline + generated.slice(generated.indexOf('[model_providers.')).replace(/\n/g, newline);
   validateToml(next);
   return next;
+}
+
+export function codexProfileName(name: string): string {
+  if (!/^[A-Za-z0-9_-]{1,32}$/.test(name) || ['__proto__', 'constructor', 'prototype'].includes(name)) throw new Error('Invalid profile name');
+  return 'qn-' + name;
+}
+export function codexProviderName(name: string): string { return 'qnaigc-' + codexProfileName(name).slice(3); }
+export function buildCodexProfileFile(name: string, model: string, catalogPath?: string): string {
+  return 'model_provider = ' + JSON.stringify(codexProviderName(name)) + '\nmodel = ' + JSON.stringify(model) + '\n' + (catalogPath ? 'model_catalog_json = ' + JSON.stringify(catalogPath) + '\n' : '');
+}
+export function mergeCodexProfiles(content: string, profiles: { name: string; apiKey: string; baseUrl: string }[], managedProviders: ReadonlySet<string> = new Set()): string {
+  validateToml(content);
+  let next = content;
+  const parsed = parse(content);
+  const existing = isRecord(parsed.model_providers) ? parsed.model_providers : {};
+  for (const profile of profiles) {
+    const id = codexProviderName(profile.name);
+    const entry = existing[id];
+    if (Object.hasOwn(existing, id) && (!managedProviders.has(id) || !isRecord(entry) || entry.name !== 'Qiniu (' + profile.name + ')')) throw new Error('Codex profile provider name conflicts with an existing provider.');
+    next = removeSharedTomlTable(next, 'model_providers.' + id);
+    next += '\n[model_providers.' + id + ']\nname = ' + JSON.stringify('Qiniu (' + profile.name + ')') + '\nbase_url = ' + JSON.stringify(profile.baseUrl.replace(/\/+$/, '') + '/bypass/openai/v1') + '\nexperimental_bearer_token = ' + JSON.stringify(profile.apiKey) + '\nwire_api = "responses"\n';
+  }
+  validateToml(next); return next;
+}
+function codexTransactionFiles(): string[] {
+  const base = [CODEX_CONFIG_FILE, CODEX_AUTH_FILE, CODEX_CATALOG_FILE];
+  const canonicalDir = path.dirname(canonicalConfigPath(CODEX_CONFIG_FILE));
+  const canonicalBase = new Set(base.map(canonicalConfigPath));
+  for (const { state } of stateStore.getFileStates('codex')) {
+    const entries = state.priors?.files;
+    if (!Array.isArray(entries) || !entries.some(entry => isRecord(entry) && entry.file === path.join(canonicalDir, 'config.toml'))) continue;
+    for (const entry of entries) {
+      if (!isRecord(entry) || typeof entry.file !== 'string') throw new Error('Invalid Codex transaction');
+      if (canonicalBase.has(entry.file)) continue;
+      if (path.dirname(entry.file) !== canonicalDir || !/^qn-[A-Za-z0-9_-]{1,32}\.config\.toml$/.test(path.basename(entry.file))) throw new Error('Invalid Codex profile transaction target');
+      const logical = path.join(CODEX_DIR, path.basename(entry.file));
+      if (!base.includes(logical)) base.push(logical);
+    }
+  }
+  return base;
+}
+
+export function applyCodexSlots(content: string, slots: Record<'review' | 'subagent' | 'memory', string>): string {
+  let next = upsertTopLevelTomlKey(content, 'review_model', JSON.stringify(slots.review));
+  next = upsertTomlTableKey(next, 'agents', 'default_subagent_model', JSON.stringify(slots.subagent));
+  next = upsertTomlTableKey(next, 'memories', 'extract_model', JSON.stringify(slots.memory));
+  next = upsertTomlTableKey(next, 'memories', 'consolidation_model', JSON.stringify(slots.memory));
+  validateToml(next); return next;
 }

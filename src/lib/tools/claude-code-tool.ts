@@ -4,11 +4,12 @@ import { isDeepStrictEqual } from 'node:util';
 import path from 'node:path';
 import os from 'node:os';
 import type { ITool } from './base-tool.js';
-import { configManager, type ModelConfig } from '../config.js';
+import { configManager, type ModelConfig, type ClaudeCodeConfig } from '../config.js';
 import { isQiniuBaseUrl } from '../endpoints.js';
 import { t } from '../i18n.js';
 import { assertNotSymlink, readTextFile, readJsonSnapshot, readJsonObjectStrict, safeWriteFile, writeJsonOrRemove, formatJsonLike } from '../core/safe-write.js';
 import { stateStore, type ToolState, type PriorValues } from '../core/state-store.js';
+import { legacyState } from '../core/legacy-state.js';
 import { runModelSelectionFlow } from '../wizard/flows/model-selection-flow.js';
 import { uiRenderer } from '../wizard/ui/ui-renderer.js';
 
@@ -23,11 +24,23 @@ const CLAUDE_ENV_KEYS = [
   'ANTHROPIC_DEFAULT_HAIKU_MODEL',
   'ANTHROPIC_DEFAULT_SONNET_MODEL',
   'ANTHROPIC_DEFAULT_OPUS_MODEL',
+  'ANTHROPIC_DEFAULT_FABLE_MODEL',
+  'ANTHROPIC_SMALL_FAST_MODEL',
+  'ANTHROPIC_DEFAULT_HAIKU_MODEL_DESCRIPTION',
+  'ANTHROPIC_DEFAULT_SONNET_MODEL_DESCRIPTION',
+  'ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION',
+  'ANTHROPIC_DEFAULT_FABLE_MODEL_DESCRIPTION',
   'CLAUDE_CODE_SUBAGENT_MODEL',
   'API_TIMEOUT_MS',
   'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC',
   'CLAUDE_CODE_ATTRIBUTION_HEADER',
 ];
+
+
+const CLAUDE_SLOT_ALIAS_KEYS = ['ANTHROPIC_DEFAULT_FABLE_MODEL', 'ANTHROPIC_SMALL_FAST_MODEL',
+  'ANTHROPIC_DEFAULT_HAIKU_MODEL_DESCRIPTION', 'ANTHROPIC_DEFAULT_SONNET_MODEL_DESCRIPTION',
+  'ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION', 'ANTHROPIC_DEFAULT_FABLE_MODEL_DESCRIPTION'];
+const CLAUDE_LEGACY_ENV_KEYS = CLAUDE_ENV_KEYS.filter(key => !CLAUDE_SLOT_ALIAS_KEYS.includes(key));
 
 // Claude Code 配置文件路径
 const CLAUDE_SETTINGS_DIR = path.join(os.homedir(), '.claude');
@@ -36,6 +49,7 @@ const CLAUDE_JSON_FILE = path.join(os.homedir(), '.claude.json');
 
 // Claude Code 工具实现
 export class ClaudeCodeTool implements ITool {
+  supportsPreview = true;
   name = 'claude-code';
   displayName = 'Claude Code';
   command = 'claude';
@@ -61,9 +75,16 @@ export class ClaudeCodeTool implements ITool {
     return {};
   }
 
+  // 读取实际路由，不能将 helper 保存过 Key 等同于客户端已接入。
+  isConfigured(): boolean {
+    const env = readJsonObjectStrict(CLAUDE_SETTINGS_FILE).env;
+    return isRecord(env) && isQiniuBaseUrl(env.ANTHROPIC_BASE_URL);
+  }
+
   // 卸载只处理本工具记录过的字段，保留之后的用户编辑
   clearModelConfig(): void {
     stateStore.withLock(() => {
+      migrateClaudeState();
       const targets = [CLAUDE_SETTINGS_FILE, CLAUDE_JSON_FILE];
       const unrecorded = targets.filter(file => !stateStore.getState(this.name, file));
       const exists = unrecorded.some(file => {
@@ -93,8 +114,8 @@ export class ClaudeCodeTool implements ITool {
   // 两个文件先全部解析和校验；任何写入失败时还原本轮已提交的文件及状态
   async loadConfig(apiKey: string, baseUrl: string, models: ModelConfig): Promise<void> {
     stateStore.withLock(() => {
-      if (stateStore.getState(this.name)) throw new Error('Legacy Claude restoration state requires recovery from backup.');
-      const selected = models.claudeCode || {};
+      migrateClaudeState();
+      const selected = { ...models.claudeCode, ...(models.slotModels?.[this.name]?.fallback ? { haikuModel: models.slotModels[this.name].fallback } : {}), ...(models.slotModels?.[this.name]?.subagent ? { subagentModel: models.slotModels[this.name].subagent } : {}) };
       const clearSelection = !selected.useDefaultModels &&
         [selected.haikuModel, selected.sonnetModel, selected.opusModel, selected.subagentModel].some(Boolean);
       const plans: ConfigPlan[] = [];
@@ -133,13 +154,14 @@ export class ClaudeCodeTool implements ITool {
           if (selected.sonnetModel) env.ANTHROPIC_DEFAULT_SONNET_MODEL = selected.sonnetModel;
           if (selected.opusModel) env.ANTHROPIC_DEFAULT_OPUS_MODEL = selected.opusModel;
           if (selected.subagentModel) env.CLAUDE_CODE_SUBAGENT_MODEL = selected.subagentModel;
+          applyClaudeSlotAliases(env, selected);
           next.env = env;
           if (clearSelection) delete next.model;
           next.companyAnnouncements = [t('company_announcement')];
           next.attribution = { commit: '', pr: '' };
         } else next.hasCompletedOnboarding = true;
         const original = previous ? originalConfig(previous) : current;
-        const priors = { content: original.content ?? null, snapshot: snapshot(original.value, settingsFile, manageModel), manageModel };
+        const priors = { ...previous?.priors, content: original.content ?? null, snapshot: snapshot(original.value, settingsFile, manageModel), manageModel };
         plans.push({ file, before: current.content, after: formatJsonLike(current.content, next), previous,
           next: { priors, applied: snapshot(next, settingsFile, manageModel) } });
       }
@@ -153,11 +175,12 @@ export class ClaudeCodeTool implements ITool {
     for (const key of ['CLAUDE_CODE_USE_BEDROCK','CLAUDE_CODE_USE_VERTEX','CLAUDE_CODE_USE_FOUNDRY','CLAUDE_CODE_USE_ANTHROPIC_AWS','CLAUDE_CODE_USE_MANTLE','ANTHROPIC_API_KEY']) env[key] = undefined;
     Object.assign(env, { ANTHROPIC_BASE_URL: baseUrl, ANTHROPIC_AUTH_TOKEN: apiKey, API_TIMEOUT_MS: API_TIMEOUT,
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1', CLAUDE_CODE_ATTRIBUTION_HEADER: '0' });
-    const selected = models.claudeCode || {};
+    const selected = { ...models.claudeCode, ...(models.slotModels?.[this.name]?.fallback ? { haikuModel: models.slotModels[this.name].fallback } : {}), ...(models.slotModels?.[this.name]?.subagent ? { subagentModel: models.slotModels[this.name].subagent } : {}) };
     if (selected.haikuModel) env.ANTHROPIC_DEFAULT_HAIKU_MODEL = selected.haikuModel;
     if (selected.sonnetModel) env.ANTHROPIC_DEFAULT_SONNET_MODEL = selected.sonnetModel;
     if (selected.opusModel) env.ANTHROPIC_DEFAULT_OPUS_MODEL = selected.opusModel;
     if (selected.subagentModel) env.CLAUDE_CODE_SUBAGENT_MODEL = selected.subagentModel;
+    applyClaudeSlotAliases(env, selected);
     return env;
   }
 
@@ -190,11 +213,41 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 // 缺失字段不存入快照，从而与显式 null 区分
-function snapshot(config: Record<string, unknown>, settings: boolean, model: boolean): PriorValues {
+function migrateClaudeState(): void {
+  const keys = ['settings.model', 'companyAnnouncements', 'attribution', 'claudeJson.hasCompletedOnboarding', ...CLAUDE_ENV_KEYS.map(key => 'env.' + key)];
+  const saved = legacyState('claude-code', keys);
+  if (!saved) return;
+  const priors = saved.priors!;
+  if (!Object.hasOwn(priors, 'env.ANTHROPIC_BASE_URL') || !Object.hasOwn(priors, 'env.ANTHROPIC_AUTH_TOKEN')) throw new Error('Incomplete legacy Claude restoration state. Recover before retrying.');
+  const records = [CLAUDE_SETTINGS_FILE, CLAUDE_JSON_FILE].map(file => {
+    assertNotSymlink(file);
+    const current = readJsonSnapshot(file), settings = file === CLAUDE_SETTINGS_FILE;
+    if (current.content === undefined) throw new Error('Legacy Claude configuration is missing. Recover from backup before retrying.');
+    const original = structuredClone(current.value);
+    const restore = (object: Record<string, unknown>, key: string, value: unknown): void => {
+      if (value === null) delete object[key]; else Object.defineProperty(object, key, { value: structuredClone(value), enumerable: true, configurable: true, writable: true });
+    };
+    if (settings) {
+      if (!isRecord(current.value.env) || !isQiniuBaseUrl(current.value.env.ANTHROPIC_BASE_URL)) throw new Error('Legacy Claude ownership changed. Recover before retrying.');
+      const env = { ...current.value.env };
+      for (const [key, value] of Object.entries(priors)) {
+        if (key.startsWith('env.')) restore(env, key.slice(4), value);
+        else if (key === 'settings.model') restore(original, 'model', value);
+        else if (key !== 'claudeJson.hasCompletedOnboarding') restore(original, key, value);
+      }
+      original.env = env;
+    } else if (Object.hasOwn(priors, 'claudeJson.hasCompletedOnboarding')) restore(original, 'hasCompletedOnboarding', priors['claudeJson.hasCompletedOnboarding']);
+    const manageModel = settings && Object.hasOwn(priors, 'settings.model');
+    return { file, state: { priors: { content: formatJsonLike(current.content, original), snapshot: snapshot(original, settings, manageModel), manageModel }, applied: snapshot(current.value, settings, manageModel) } };
+  });
+  stateStore.migrateLegacy('claude-code', saved, records);
+}
+
+function snapshot(config: Record<string, unknown>, settings: boolean, model: boolean, keys = CLAUDE_ENV_KEYS): PriorValues {
   const result: PriorValues = {};
   if (settings && Object.hasOwn(config, 'env')) {
     if (!isRecord(config.env)) throw new Error('Invalid Claude env: expected an object.');
-    result.env = Object.fromEntries(CLAUDE_ENV_KEYS.filter(key => Object.hasOwn(config.env!, key)).map(key => [key, (config.env as PriorValues)[key]]));
+    result.env = Object.fromEntries(keys.filter(key => Object.hasOwn(config.env!, key)).map(key => [key, (config.env as PriorValues)[key]]));
   }
   for (const key of settings ? ['companyAnnouncements', 'attribution', ...(model ? ['model'] : [])] : ['hasCompletedOnboarding']) {
     if (Object.hasOwn(config, key)) result[key] = structuredClone(config[key]);
@@ -229,8 +282,21 @@ function checkedState(saved: ToolState | undefined, settings: boolean): ToolStat
   if (saved) {
     const original = originalConfig(saved);
     const model = saved.priors!.manageModel === true;
-    if (!isDeepStrictEqual(snapshot(original.value, settings, model), saved.priors!.snapshot) ||
-        !isDeepStrictEqual(snapshot(saved.applied!, settings, model), saved.applied)) {
+    const expected = snapshot(original.value, settings, model);
+    if (!isDeepStrictEqual(expected, saved.priors!.snapshot)) {
+      // 旧版本尚未管理别名字段：只接受与旧键集合完全一致的快照，并从原文件补齐原值。
+      if (!settings || !isDeepStrictEqual(snapshot(original.value, settings, model, CLAUDE_LEGACY_ENV_KEYS), saved.priors!.snapshot) ||
+          !isDeepStrictEqual(snapshot(saved.applied!, settings, model, CLAUDE_LEGACY_ENV_KEYS), saved.applied)) {
+        throw new Error('Claude restoration snapshot is inconsistent. Restore from backup before retrying.');
+      }
+      saved = structuredClone(saved);
+      saved.priors!.snapshot = expected;
+      const originalEnv = isRecord(original.value.env) ? original.value.env : {};
+      const appliedEnv = isRecord(saved.applied!.env) ? saved.applied!.env : {};
+      for (const key of CLAUDE_SLOT_ALIAS_KEYS) if (Object.hasOwn(originalEnv, key)) appliedEnv[key] = structuredClone(originalEnv[key]);
+      if (Object.hasOwn(original.value, 'env') || Object.hasOwn(saved.applied!, 'env')) saved.applied!.env = appliedEnv;
+    }
+    if (!isDeepStrictEqual(snapshot(saved.applied!, settings, model), saved.applied)) {
       throw new Error('Claude restoration snapshot is inconsistent. Restore from backup before retrying.');
     }
   }
@@ -322,5 +388,19 @@ function commitConfigs(tool: string, plans: ConfigPlan[]): void {
     }
     if (failures.length) throw new AggregateError([error, ...failures], 'Claude configuration recovery failed. Restore from backup before retrying.');
     throw error;
+  }
+}
+
+// 同步旧快速模型入口与 /model 列表别名，卸载时仍按事务快照逐字段还原。
+function applyClaudeSlotAliases(env: Record<string, unknown>, selected: ClaudeCodeConfig): void {
+  if (selected.haikuModel) {
+    env.ANTHROPIC_SMALL_FAST_MODEL = selected.haikuModel;
+    env.ANTHROPIC_DEFAULT_HAIKU_MODEL_DESCRIPTION = t('claude_slot_desc_haiku');
+  }
+  if (selected.sonnetModel) env.ANTHROPIC_DEFAULT_SONNET_MODEL_DESCRIPTION = t('claude_slot_desc_sonnet');
+  if (selected.opusModel) {
+    env.ANTHROPIC_DEFAULT_FABLE_MODEL = selected.opusModel;
+    env.ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION = t('claude_slot_desc_opus');
+    env.ANTHROPIC_DEFAULT_FABLE_MODEL_DESCRIPTION = t('claude_slot_desc_fable');
   }
 }

@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { ModelConfig } from '../config.js';
 import { t } from '../i18n.js';
+import { isQiniuBaseUrl } from '../endpoints.js';
 import { readTextFile, assertNotSymlink } from '../core/safe-write.js';
 import { applyConfigEdits } from '../core/config-transaction.js';
 import { parseYamlDocument } from '../core/yaml-edit.js';
@@ -21,6 +22,8 @@ function parseMinimaxConfig(content: string): ReturnType<typeof parseYamlDocumen
 }
 
 export class MinimaxCodeTool extends OpenAICompatTool {
+  // 官方 provider 命令会执行外部写入，不能将空预演误报为成功。
+  supportsPreview = false;
   name = 'minimax-code';
   displayName = 'MiniMax Code';
   command = 'mcode';
@@ -33,8 +36,9 @@ export class MinimaxCodeTool extends OpenAICompatTool {
     catch { return {}; }
   }
   isConfigured(): boolean {
-    const config = this.getConfig();
-    return isRecord(config.custom_provider) && Object.hasOwn(config.custom_provider, 'qiniu');
+    const config: unknown = parseMinimaxConfig(readTextFile(getMinimaxConfigFile()) ?? '').toJS();
+    return isRecord(config) && isRecord(config.custom_provider) && isRecord(config.custom_provider.qiniu) &&
+      isRecord(config.custom_provider.qiniu.options) && isQiniuBaseUrl(config.custom_provider.qiniu.options.baseURL);
   }
   async loadConfig(apiKey: string, baseUrl: string, models: ModelConfig): Promise<void> {
     const model = this.resolveModel(models);
@@ -46,7 +50,7 @@ export class MinimaxCodeTool extends OpenAICompatTool {
     if (staged.hasIn(['custom_provider', 'qiniu'])) staged.deleteIn(['custom_provider', 'qiniu']);
     if (/^(?:custom_provider:)?qiniu\//.test(String(staged.get('defaultModel') ?? ''))) staged.delete('defaultModel');
     logger.info(t('minimax_fetching_limits'));
-    const limits = await fetchModelLimits(baseUrl, apiKey, model);
+    const limits = await fetchModelLimits(baseUrl, apiKey, model, this.name);
     // 官方命令只写临时数据目录，成功并校验后才替换用户文件
     const stage = fs.mkdtempSync(path.join(os.tmpdir(), 'coding-helper-mcode-'));
     try {

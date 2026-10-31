@@ -8,6 +8,8 @@ import { uiRenderer } from '../lib/wizard/ui/ui-renderer.js';
 import { runApiKeyFlow } from '../lib/wizard/flows/api-key-flow.js';
 import { promptHelper } from '../lib/wizard/ui/prompt-helper.js';
 import ora from 'ora';
+import { applyTool, exitCodeFor } from '../lib/core/tool-service.js';
+import { syncAfterChange } from '../lib/wizard/flows/sync-tools-flow.js';
 
 // 拼接已注册工具名称及别名，用于 auth reload 的提示文案
 function formatAvailableTools(): string {
@@ -21,7 +23,7 @@ function formatAvailableTools(): string {
 }
 
 // auth 命令 - API Key 管理
-export async function authCommand(tokenOrAction?: string): Promise<void> {
+export async function authCommand(tokenOrAction?: string, options: { sync?: boolean } = {}): Promise<void> {
   i18n.init();
 
   if (tokenOrAction === 'revoke') {
@@ -46,7 +48,7 @@ export async function authCommand(tokenOrAction?: string): Promise<void> {
       uiRenderer.renderHint(t('auth_reload_tools', { tools: availableTools }));
       return;
     }
-    const apiKey = configManager.getApiKey();
+    const apiKey = configManager.getConnection(tool.name).apiKey;
     if (tool.launchOnly) {
       uiRenderer.renderHint(t('setup_reason_launch_only'));
       return;
@@ -61,7 +63,9 @@ export async function authCommand(tokenOrAction?: string): Promise<void> {
         const confirmed = await promptHelper.confirm(t('tool_config_load_confirm', { tool: tool.displayName }));
         if (!confirmed) return;
       }
-      await tool.loadConfig(apiKey, configManager.baseUrl, configManager.getModels());
+      const result = await applyTool(tool);
+      process.exitCode = exitCodeFor([result]);
+      if (result.status !== 'success') throw new Error(t(result.reason ?? 'tool_config_load_failed', { tool: tool.displayName }));
       uiRenderer.renderSuccess(t('tool_config_loaded', { tool: tool.displayName }));
       for (const note of tool.getLoadConfigNotes?.() ?? []) uiRenderer.renderHint(note);
     } catch (err: unknown) {
@@ -79,15 +83,19 @@ export async function authCommand(tokenOrAction?: string): Promise<void> {
 
     if (result.valid) {
       spinner.succeed(t('apikey_valid'));
+      const changed = configManager.getApiKey() !== tokenOrAction;
       configManager.setApiKey(tokenOrAction);
       modelService.clearCache();
       marketModelService.clearCache();
       uiRenderer.renderSuccess(t('apikey_saved'));
+      // 显式 --sync 即使 Key 相同也重试，允许修复上次同步失败的客户端。
+      if (options.sync || changed) await syncAfterChange(!!options.sync);
     } else {
       spinner.fail(t('apikey_invalid', { error: result.error || '' }));
+      process.exitCode = 1;
     }
     return;
   }
 
-  await runApiKeyFlow();
+  await runApiKeyFlow(!!options.sync);
 }
