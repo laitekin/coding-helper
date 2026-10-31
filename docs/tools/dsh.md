@@ -13,13 +13,13 @@ Key 可使用已保存的 coding-helper 配置或 `QINIU_API_KEY`，也可通过
 
 ## 配置与恢复
 
-默认目录为 `~/.dsh`，支持 `DSH_HOME`。配置目标是官方 Web 和 Headless profile：
+默认目录为 `~/.dsh`，支持 `DSH_HOME`，包含官方的 `~`、`~/` 和 `~\` 前缀展开。配置目标是官方 Web 和 Headless profile：
 
 - `profiles/web/package.json`、`profiles/web/cordis.patch.yml`
 - `profiles/headless/package.json`、`profiles/headless/cordis.patch.yml`
 - `.env` 中的 `CODING_HELPER_DSH_API_KEY`
 
-新目录会生成官方对应的 bundle manifest。已存在的标准 profile manifest 保持原文，依赖和插件配置不被删除。两个 profile 分别合并自己的 provider 列表，新增 `coding-helper-qiniu` 路由，并更新新会话的默认模型；不会把 Web 的服务商复制进 Headless。使用 OpenAI Chat Completions 协议，写入模型目录返回的上下文、最大输出和图片输入能力。切换模型保留该路由内已有模型。
+新目录会生成官方对应的 bundle manifest。已存在的标准 profile manifest 保持原文，依赖和插件配置不被删除。两个 profile 分别合并自己的 provider 列表，新增 `coding-helper-qiniu` 路由，并更新新会话的默认模型；不会把 Web 的服务商复制进 Headless。使用 OpenAI Chat Completions 协议，写入模型目录返回的上下文、最大输出和图片输入能力。切换模型保留该路由内已有模型。同一线路离线重载时沿用已有模型限额和图片能力，用户上下文上限只会继续收窄这些值，不会扩大已验证的容量。
 
 持久配置生效后可以直接运行 `dsh web` 或 `dsh headless '任务'`；已有会话需重新选择模型。`coding-helper run dsh` 还会向子进程提供当前 Key，并在配置与当前线路/模型不一致时提示先装载配置。
 

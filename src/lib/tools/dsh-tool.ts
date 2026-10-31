@@ -9,14 +9,19 @@ import { readDotenvValue, setDotenvValue } from '../core/dotenv-edit.js';
 import { readTextFile } from '../core/safe-write.js';
 import { isQiniuBaseUrl } from '../endpoints.js';
 import { t } from '../i18n.js';
-import { OpenAICompatTool, fetchModelLimits, openAIBaseUrl, type ModelLimits } from './openai-compat-tool.js';
+import { OpenAICompatTool, fetchModelLimits, effectiveContextLimit, effectiveOutputLimit, openAIBaseUrl, type ModelLimits } from './openai-compat-tool.js';
 
 export const DSH_PROVIDER = 'coding-helper-qiniu';
 const ROW = 'llm-pi-ai';
 const PROFILES = ['web', 'headless'] as const;
 const PLUGIN = '@deepseek-ai/dsh-llm-pi-ai';
 const KEY_ENV = 'CODING_HELPER_DSH_API_KEY';
-export function getDshHome(): string { return path.resolve(process.env.DSH_HOME?.trim() || path.join(os.homedir(), '.dsh')); }
+export function getDshHome(): string {
+  const override = process.env.DSH_HOME;
+  const value = override !== undefined && override.trim() ? override : path.join(os.homedir(), '.dsh');
+  // 与官方 resolveDshHome 一致：仅空值忽略空白，非空路径保留原文并展开支持的 ~ 前缀。
+  return path.resolve(value === '~' ? os.homedir() : value.startsWith('~/') || value.startsWith('~\\') ? path.join(os.homedir(), value.slice(2)) : value);
+}
 function profileFile(profile: string, file: string): string { return path.join(getDshHome(), 'profiles', profile, file); }
 function patchFile(profile = 'web'): string { return profileFile(profile, 'cordis.patch.yml'); }
 function envFile(): string { return path.join(getDshHome(), '.env'); }
@@ -89,6 +94,7 @@ export function buildDshPatch(content: string, baseUrl: string, model: string, l
   // 官方插件只允许一份注册；在对应 profile 中增量合并 provider，保留其他服务商。
   mapAt(provider, ['config', 'providers', DSH_PROVIDER], doc);
   const prefix = ['config', 'providers', DSH_PROVIDER];
+  const sameRoute = provider.getIn([...prefix, 'baseURL']) === openAIBaseUrl(baseUrl);
   for (const [key, value] of Object.entries({ displayName: 'Qiniu', apiKeyEnv: KEY_ENV, api: 'openai-completions', baseURL: openAIBaseUrl(baseUrl) })) provider.setIn([...prefix, key], value);
   const modelsPath = [...prefix, 'models'];
   let models = provider.getIn(modelsPath, true);
@@ -97,8 +103,15 @@ export function buildDshPatch(content: string, baseUrl: string, model: string, l
   const ids = models.items.map(item => (item as YAMLMap).get('id'));
   if (new Set(ids).size !== ids.length) throw new Error('Duplicate DSH model identifiers.');
   let selected = models.items.find(item => (item as YAMLMap).get('id') === model) as YAMLMap | undefined;
+  const preserve = limits.verified === false && sameRoute && selected !== undefined;
+  const context = effectiveContextLimit(limits, preserve ? selected!.get('contextWindow') : undefined);
+  const output = effectiveOutputLimit(limits, preserve ? selected!.get('maxTokens') : undefined, context);
+  const existingInput = preserve ? selected!.get('input', true) : undefined;
+  const input = isSeq(existingInput) && existingInput.items.length && existingInput.items.every(item => isScalar(item) && ['text', 'image'].includes(String(item.value)))
+    ? existingInput.items.map(item => (item as { value: string }).value)
+    : limits.modalities?.input.includes('image') ? ['text', 'image'] : ['text'];
   if (!selected) { selected = doc.createNode({ id: model }) as YAMLMap; models.add(selected); }
-  for (const [key, value] of Object.entries({ name: model, contextWindow: limits.contextWindow, maxTokens: limits.maxOutputTokens, input: limits.modalities?.input.includes('image') ? ['text', 'image'] : ['text'] })) selected.set(key, value);
+  for (const [key, value] of Object.entries({ name: model, contextWindow: context, maxTokens: output, input })) selected.set(key, value);
   let defaults = rows(doc, 'agent-default-model')[0];
   if (!defaults) { (doc.contents as { add(item: unknown): void }).add(doc.createNode({ id: 'agent-default-model', config: {} })); defaults = rows(doc, 'agent-default-model')[0]; }
   mapAt(defaults, ['config'], doc);

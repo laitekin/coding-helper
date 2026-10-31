@@ -12,3 +12,6 @@ test('DSH starts from an empty HOME and completes the full first-use wizard',{sk
   [/请选择语言[\s\S]*?Esc 返回/,'\x1b[B\r'],[/Select API endpoint[\s\S]*?Esc back/,'\x1b[B\r'],[/Enter your API Key[\s\S]*?Esc back/,'fixture-key\r'],[/Select tools[\s\S]*?Esc back/,'\x1b[B'.repeat(13)+' '+'\x1b[C'],[/Type to search[\s\S]*?Type search/,'z-ai/glm-5.2\r'],[/\? Confirm[\s\S]*?Esc back/,'\x1b[A\x1b[A\r'],[/Press Enter/,'\r'],
  ],110,{rows:40});assert.match(out,/VERIFIED dsh first run/);
 });
+for(const save of [true,false])test('DSH quick configuration recommends dsh web with save='+save,{skip:process.platform==='win32'},async()=>{
+ const out=await runPrompt(source+`import {quickCommand} from './dist/commands/quick.js';await quickCommand('dsh',['z-ai/glm-5.2'],{save:${save}});assert.equal(process.exitCode,0);assert.equal(tool.isConfigured(),true);assert.equal(configManager.getModels().toolModels?.dsh,${save?"'z-ai/glm-5.2'":"undefined"});console.log('VERIFIED dsh quick hint');`,[],110,{rows:40});assert.match(out,/Start the tool: dsh web/);assert.match(out,/VERIFIED dsh quick hint/);
+});
