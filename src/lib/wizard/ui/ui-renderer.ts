@@ -63,7 +63,9 @@ export const uiRenderer = {
   // 统一页面头部：清屏 + Logo + 配置面板（线路 + API Key）
   renderHeader(options: string | { full?: boolean; crumb?: string; connection?: Connection } = {}): void {
     const toolName = typeof options === 'string' ? options : undefined;
-    const header = typeof options === 'string' ? { full: (process.stdout.rows || 24) >= 30, crumb: toolName, connection: undefined } : options;
+    // 大 Logo 只在主菜单显示；其他页面（含工具页）统一用一行小标题，工具页附「› 工具名」
+    const crumb = toolName ? registeredTools().find(tool => tool.name === toolName)?.displayName ?? toolName : undefined;
+    const header = typeof options === 'string' ? { full: false, crumb, connection: undefined } : options;
     this.clearScreen();
     if (header.full) this.renderLogo(toolName);
     else {

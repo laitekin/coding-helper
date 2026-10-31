@@ -47,12 +47,12 @@ export async function showMainMenu(): Promise<void> {
       default: last,
       escape: true,
       items: [
-        { value: 'setup', label: t('menu_setup_tools'), hint: pending > 0 ? t('menu_hint_pending', { count: String(pending) }) : t('menu_hint_all_connected') },
-        { value: 'model', label: t('menu_switch_model'), hint: currentModelHint(connected, models) },
-        { value: 'tools', label: t('menu_my_tools'), hint: t('menu_hint_connected', { count: String(connected.length), total: String(total) }) },
-        { value: 'account', label: t('menu_account'), hint: apiKey ? `${uiRenderer.maskApiKey(apiKey)} · ${uiRenderer.endpointLabel()}` : t('config_view_not_set') },
-        { value: 'doctor', label: t('menu_doctor') },
-        { value: 'more', label: t('menu_more'), hint: t('menu_more_hint') },
+        { value: 'setup', icon: theme.icon('+'), label: t('menu_setup_tools'), hint: pending > 0 ? t('menu_hint_pending', { count: String(pending) }) : t('menu_hint_all_connected') },
+        { value: 'model', icon: theme.icon('◆'), label: t('menu_switch_model'), hint: currentModelHint(connected, models) },
+        { value: 'tools', icon: theme.icon('≡'), label: t('menu_my_tools'), hint: t('menu_hint_connected', { count: String(connected.length), total: String(total) }) },
+        { value: 'account', icon: theme.icon('◎'), label: t('menu_account'), hint: apiKey ? `${uiRenderer.maskApiKey(apiKey)} · ${uiRenderer.endpointLabel()}` : t('config_view_not_set') },
+        { value: 'doctor', icon: theme.dimIcon('✓'), label: t('menu_doctor') },
+        { value: 'more', icon: theme.dimIcon('…'), label: t('menu_more'), hint: t('menu_more_hint') },
       ],
       footer: [['↑↓', t('ui_key_move')], [t('ui_key_enter'), t('ui_key_confirm')], ['Esc', t('menu_exit')]],
     });
@@ -97,10 +97,11 @@ async function showAccountMenu(): Promise<void> {
       default: last as 'apikey' | undefined,
       escape: true,
       items: [
-        { value: 'apikey', label: t('menu_configure_apikey'), hint: apiKey ? uiRenderer.maskApiKey(apiKey) : t('config_view_not_set'), description: theme.subtle(t('account_apikey_desc')) },
-        { value: 'endpoint', label: t('menu_configure_endpoint'), hint: uiRenderer.endpointLabel(), description: theme.subtle(t('account_endpoint_desc')) },
+        { value: 'apikey', icon: theme.icon('◇'), label: t('menu_configure_apikey'), hint: apiKey ? uiRenderer.maskApiKey(apiKey) : t('config_view_not_set'), description: theme.subtle(t('account_apikey_desc')) },
+        { value: 'endpoint', icon: theme.icon('⇄'), label: t('menu_configure_endpoint'), hint: uiRenderer.endpointLabel(), description: theme.subtle(t('account_endpoint_desc')) },
         {
           value: 'profile',
+          icon: theme.icon('▣'),
           label: t('menu_profiles'),
           hint: profiles.length ? t('account_profile_hint', { name: active ?? '—', count: String(profiles.length) }) : t('menu_hint_profile_none'),
           description: theme.subtle(t('account_profile_desc')),
@@ -127,11 +128,11 @@ async function showMoreMenu(): Promise<boolean> {
       default: last,
       escape: true,
       items: [
-        { value: 'context', label: t('menu_context'), hint: contextMenuHint(connected) },
-        { value: 'restore', label: t('menu_restore'), hint: restorable.length ? t('menu_hint_restore', { count: String(restorable.length) }) : '' },
-        { value: 'language', label: t('menu_configure_language'), hint: i18n.getLocale() === 'zh_CN' ? '简体中文' : 'English' },
-        { value: 'update', label: t('menu_update_helper') },
-        { value: 'clear_config', label: t('menu_clear_config') },
+        { value: 'context', icon: theme.icon('↔'), label: t('menu_context'), hint: contextMenuHint(connected) },
+        { value: 'restore', icon: theme.icon('↺'), label: t('menu_restore'), hint: restorable.length ? t('menu_hint_restore', { count: String(restorable.length) }) : '' },
+        { value: 'language', icon: theme.dimIcon('◐'), label: t('menu_configure_language'), hint: i18n.getLocale() === 'zh_CN' ? '简体中文' : 'English' },
+        { value: 'update', icon: theme.dimIcon('△'), label: t('menu_update_helper') },
+        { value: 'clear_config', icon: theme.danger('✕'), label: t('menu_clear_config') },
       ],
     });
     if (action === 'escape') return false;
