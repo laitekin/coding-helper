@@ -7,7 +7,7 @@ import { t } from '../../i18n.js';
 import { configManager } from '../../config.js';
 import { savedModelFor } from '../../core/model-mapping.js';
 import { backupsRoot, type PlannedChange } from '../../core/safe-write.js';
-import { detectTool, type ToolDetection, type ToolResult } from '../../core/tool-service.js';
+import type { ToolDetection, ToolResult } from '../../core/tool-service.js';
 import type { ITool } from '../../tools/base-tool.js';
 import { logger } from '../../../utils/logger.js';
 import { truncate, visibleWidth } from '../../../utils/string-width.js';
@@ -49,28 +49,23 @@ export function formatConfiguredBadge(detection: ToolDetection): string {
     : theme.border(`○ ${t('tool_badge_not_configured')}`);
 }
 
-// 检测一组工具并按「已安装在前」排序（同组保持注册顺序）
+// 列表用的轻量检测：只查是否安装、是否接入，不运行 --version（启动客户端可能很慢或卡住）
+export function quickDetect(tool: ITool): ToolDetection {
+  const detection: ToolDetection = { tool, installed: null, version: null, configured: null, errors: [] };
+  try { detection.installed = tool.isInstalled(); } catch { detection.errors.push('installation_detection_failed'); }
+  try { detection.configured = tool.isConfigured?.() ?? null; } catch { detection.errors.push('configuration_detection_failed'); }
+  return detection;
+}
+
+// 检测一组工具并按「已安装在前」排序（同组保持注册顺序）；交互检查脚本也用它确定列表顺序
 export function detectSorted(tools: ITool[]): ToolDetection[] {
-  return tools.map(tool => detectTool(tool)).sort((a, b) => Number(b.installed !== false) - Number(a.installed !== false));
+  return tools.map(quickDetect).sort((a, b) => Number(b.installed !== false) - Number(a.installed !== false));
 }
 
 // 已接入工具当前使用的模型（未接入时为空）
 export function currentToolModel(detection: ToolDetection): string | undefined {
   if (!detection.configured) return undefined;
   return savedModelFor(detection.tool, configManager.getModels()) ?? detection.tool.defaultModel;
-}
-
-// 工具的配置文件路径（展示用）
-export function toolConfigPath(tool: ITool): string | undefined {
-  try {
-    const config = tool.getConfig();
-    for (const key of ['configPath', 'settingsPath', 'configFile', 'path']) {
-      if (typeof config[key] === 'string') return displayPath(config[key] as string);
-    }
-  } catch {
-    // 读不到配置时不显示路径
-  }
-  return undefined;
 }
 
 function statusText(result: ToolResult): string {
@@ -86,9 +81,10 @@ function reasonText(result: ToolResult): string {
   return t(key, { tool: result.tool.displayName });
 }
 
-// 测试或外部适配器可能没有实现安装检测，按「已安装」处理
+// 安装状态；null 表示桌面应用，必须保留。只有没有实现安装检测（如测试替身）时才按已安装处理
 function installState(tool: ITool): boolean | null {
-  try { return tool.isInstalled?.() ?? true; } catch { return true; }
+  if (typeof tool.isInstalled !== 'function') return true;
+  try { return tool.isInstalled(); } catch { return true; }
 }
 
 function launchHint(tool: ITool): string {

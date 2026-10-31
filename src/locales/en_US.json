@@ -493,5 +493,7 @@
   "account_apikey_desc": "After changing it you can sync connected tools",
   "account_endpoint_desc": "China / International / custom address",
   "apikey_current_replace": "Current key {{key}}. Entering a new key replaces it",
-  "profile_operation_failed": "Profile operation failed. Check the name, key, endpoint and configuration, then try again"
+  "profile_operation_failed": "Profile operation failed. Check the name, key, endpoint and configuration, then try again",
+  "plan_files_none": "No files need changes",
+  "tool_detail_model_default": "Tool default model"
 }

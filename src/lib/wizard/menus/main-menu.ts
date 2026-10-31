@@ -3,7 +3,7 @@ import { promptHelper } from '../ui/prompt-helper.js';
 import { uiRenderer, connectedToolNames } from '../ui/ui-renderer.js';
 import chalk from 'chalk';
 import { menuPrompt, type MenuEntry } from '../ui/prompts.js';
-import { currentToolModel, detectSorted, formatConfiguredBadge, formatInstallState, toolConfigPath, toolIcon } from '../ui/tool-view.js';
+import { currentToolModel, detectSorted, formatConfiguredBadge, formatInstallState, toolIcon } from '../ui/tool-view.js';
 import { padVisible, visibleWidth } from '../../../utils/string-width.js';
 import type { ToolDetection } from '../../core/tool-service.js';
 import { runLanguageFlow } from '../flows/language-flow.js';
@@ -216,15 +216,16 @@ function toolEntry(detection: ToolDetection, nameWidth: number): MenuEntry<strin
   const { tool } = detection;
   const installed = detection.installed !== false;
   const model = currentToolModel(detection);
-  const configPath = toolConfigPath(tool);
   const connection = configManager.getConnection(tool.name);
-  const description = installed
-    ? [
-        model ? `${theme.subtle(t('tool_detail_model'))}  ${chalk.hex('#8BE9FF')(model)}` : theme.subtle(t('tool_detail_not_connected')),
-        `${theme.subtle(t('tool_detail_connection'))}  ${theme.value(connection.profile ? `${t('profile_label')} ${connection.profile}` : uiRenderer.endpointLabel(connection.endpoint, connection.baseUrl))}`,
-        configPath ? `${theme.subtle(t('tool_detail_config'))}  ${theme.subtle(configPath)}` : '',
-      ].filter(Boolean).join('\n')
-    : `${theme.subtle(t('tool_detail_install'))}  ${theme.value(tool.installCommand)}`;
+  // 是否接入以检测结果为准；接入但没有 helper 保存的模型（如使用工具默认模型）时显示「工具默认」
+  const description = !installed
+    ? `${theme.subtle(t('tool_detail_install'))}  ${theme.value(tool.installCommand)}`
+    : !detection.configured
+      ? theme.subtle(t('tool_detail_not_connected'))
+      : [
+          `${theme.subtle(t('tool_detail_model'))}  ${model ? chalk.hex('#8BE9FF')(model) : theme.subtle(t('tool_detail_model_default'))}`,
+          `${theme.subtle(t('tool_detail_connection'))}  ${theme.value(connection.profile ? `${t('profile_label')} ${connection.profile}` : uiRenderer.endpointLabel(connection.endpoint, connection.baseUrl))}`,
+        ].join('\n');
   return {
     value: tool.name,
     icon: toolIcon(tool.name, !installed),

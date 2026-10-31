@@ -13,7 +13,7 @@ import { uiRenderer, type StepInfo } from './ui-renderer.js';
 import { checkPrompt, menuPrompt, type MenuEntry } from './prompts.js';
 import { renderToolResults, safeToolFailureReason } from './tool-results.js';
 import { theme } from './theme.js';
-import { detectSorted, displayPath, formatConfiguredBadge, formatInstallState, renderFileChanges, renderResultSummary, toolConfigPath, toolIcon } from './tool-view.js';
+import { detectSorted, displayPath, formatConfiguredBadge, formatInstallState, renderFileChanges, renderResultSummary, toolIcon } from './tool-view.js';
 
 // 勾选要处理的工具：左侧色点，右侧为 detail（如当前模型）或安装 / 接入状态；已安装的排在前面
 export async function selectTargets(message: string, tools: ITool[], options: { preselect?: string[]; detail?: (tool: ITool) => string; allowEmpty?: boolean; nextLabel?: string } = {}): Promise<ITool[] | undefined> {
@@ -123,7 +123,7 @@ function itemSummary(item: PlanItem): string {
 
 function changedFiles(item: PlanItem, files: Map<ITool, PlannedChange[]>): string[] {
   const changed = files.get(item.tool);
-  return changed?.length ? changed.map(change => displayPath(change.file)) : [toolConfigPath(item.tool)].filter((file): file is string => !!file);
+  return changed?.length ? changed.map(change => displayPath(change.file)) : [t('plan_files_none')];
 }
 
 // 右侧值超出终端宽度时整行截断（否则菜单会隐藏所有右侧值）
@@ -171,9 +171,22 @@ export async function confirmAndWrite(title: string, initial: PlanItem[], untouc
       { value: FILES, label: t('plan_view_changes'), hint: invalid ? '' : theme.subtle(t('plan_files_count', { count: String(fileCount) })), description: theme.subtle(t('plan_view_changes_hint', { count: String(fileCount) })) },
       { value: BACK, label: t('tool_back') });
     // 前缀 4 列 + 图标 2 列 + 标签 + 4 列间距 + 2 列留白；放不下的右侧值单独截断
+    const columns = Math.min(process.stdout.columns || 100, 140);
     const labelWidth = Math.max(...entries.map(entry => 'label' in entry ? visibleWidth(entry.label) : 0));
-    const hintWidth = Math.max(12, Math.min(process.stdout.columns || 100, 140) - 12 - labelWidth);
-    for (const entry of entries) if ('hint' in entry && entry.hint) entry.hint = fit(entry.hint, hintWidth);
+    const hintWidth = columns - 12 - labelWidth;
+    if (hintWidth >= 12) {
+      for (const entry of entries) if ('hint' in entry && entry.hint) entry.hint = fit(entry.hint, hintWidth);
+    } else {
+      // 窄终端放不下右侧一列：明细行的值改放在标签下一行，其余右侧值省略，保证确认前能看到每一项
+      const narrow: MenuEntry<string>[] = [];
+      for (const entry of entries) {
+        if (!('label' in entry) || !entry.hint) { narrow.push(entry); continue; }
+        if (!entry.disabled) { narrow.push({ ...entry, hint: '' }); continue; }
+        if (stripAnsi(entry.label).trim()) narrow.push({ ...entry, hint: '' });
+        narrow.push({ value: entry.value + ':value', label: '     ' + fit(entry.hint, Math.max(8, columns - 12)), disabled: true });
+      }
+      entries.splice(0, entries.length, ...narrow);
+    }
     if (untouched.length) uiRenderer.renderHint(t('plan_untouched', { tools: untouched.map(tool => tool.displayName).join(', ') }));
     const { value, action } = await menuPrompt({ message: t('plan_prompt'), escape: true, arrows: true, default: last, pageSize: 20, items: entries });
     if (action === 'escape' || value === BACK) return 'back';
