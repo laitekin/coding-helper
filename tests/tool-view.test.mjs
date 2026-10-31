@@ -36,3 +36,9 @@ for (const columns of [40, 80]) {
     }
   });
 }
+
+test('result summary keeps long model ids intact', t => {
+  const model = 'vendor/very-long-model-identifier-with-version-2026-10-31-256k';
+  const out = capture(t, () => renderResultSummary([{ tool: { ...base, name: 'demo', displayName: 'Demo', defaultModel: model, isInstalled: () => true }, status: 'success' }]));
+  assert.ok(out.replace(/\s/g, '').includes(model), out);
+});

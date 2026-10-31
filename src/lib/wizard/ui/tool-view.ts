@@ -108,7 +108,8 @@ export function renderResultSummary(results: ToolResult[], options: { undoComman
       `${toolIcon(result.tool.name)} ${theme.value(result.tool.displayName)}`,
       statusText(result),
       result.status === 'success'
-        ? chalk.hex('#8BE9FF')(truncate(savedModelFor(result.tool, models) ?? result.tool.defaultModel ?? '—', 32))
+        // 模型原值完整交给表格，放不下时由 renderTable 按字段换行；失败原因在表内截断，完整内容列在表下方
+        ? chalk.hex('#8BE9FF')(savedModelFor(result.tool, models) ?? result.tool.defaultModel ?? '—')
         : theme.subtle(truncate(reasonText(result), 32)),
       result.status === 'success' ? theme.brand(launchHint(result.tool)) : '',
     ]),
