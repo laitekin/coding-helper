@@ -9,6 +9,7 @@ import { marketModelService } from '../lib/market-model-service.js';
 import { parseQuickArgs, pickApiKey, pickModel } from '../lib/core/quick-args.js';
 import { modelConfigFor, savedModelFor, mergeModelConfigs } from '../lib/core/model-mapping.js';
 import { applyTool, exitCodeFor, type ToolResult } from '../lib/core/tool-service.js';
+import { isExternallyModified, rebaselineTool } from '../lib/core/rebaseline.js';
 import { previewWrites, publicPlannedChanges } from '../lib/core/safe-write.js';
 import type { ITool } from '../lib/tools/base-tool.js';
 import { promptHelper } from '../lib/wizard/ui/prompt-helper.js';
@@ -16,7 +17,7 @@ import { uiRenderer } from '../lib/wizard/ui/ui-renderer.js';
 import { jsonToolResults, renderToolResults } from '../lib/wizard/ui/tool-results.js';
 import { withQuietLogs } from '../utils/logger.js';
 
-export interface QuickOptions { intl?: boolean; json?: boolean; dryRun?: boolean; save?: boolean; key?: string; model?: string; context?: string; }
+export interface QuickOptions { intl?: boolean; json?: boolean; dryRun?: boolean; save?: boolean; key?: string; model?: string; context?: string; rebaseline?: boolean; }
 
 class QuickError extends Error {
   constructor(public readonly code: string, public readonly suggestions: string[] = []) { super(code); }
@@ -95,7 +96,14 @@ export async function quickCommand(target: string, rest: string[], options: Quic
     const perform = async (): Promise<ToolResult[]> => {
       const applied: ToolResult[] = [];
       for (const { tool, models } of plans) {
-        const apply = (): Promise<ToolResult> => tool.launchOnly ? Promise.resolve({ tool, status: 'success' }) : applyTool(tool, { apiKey, baseUrl, models });
+        const apply = async (): Promise<ToolResult> => {
+          if (tool.launchOnly) return { tool, status: 'success' };
+          // 显式 --rebaseline：外部已切到其他服务时，以当前配置为新的还原基线（先归档旧记录）
+          if (options.rebaseline && isExternallyModified(tool)) {
+            try { rebaselineTool(tool); } catch { return { tool, status: 'failed', reason: 'rebaseline_failed' }; }
+          }
+          return applyTool(tool, { apiKey, baseUrl, models });
+        };
         applied.push(await (options.json || options.dryRun ? withQuietLogs(apply) : apply()));
       }
       return applied;
@@ -121,6 +129,8 @@ export async function quickCommand(target: string, rest: string[], options: Quic
       results: jsonToolResults(results), helperSaved, ...(saveFailed ? { error: 'helper_settings_failed' } : {}), ...preview, exitCode }, null, 2));
     else {
       renderToolResults(results, apiKey, !!options.dryRun);
+      // 外部已切到其他服务导致失败时，提示可以显式以当前配置为基线
+      if (!options.rebaseline && results.some(result => result.status === 'failed' && isExternallyModified(result.tool))) uiRenderer.renderHint(t('quick_rebaseline_hint'));
       if (saveFailed) uiRenderer.renderError(t('quick_save_failed'));
       if (options.dryRun) for (const change of publicPlannedChanges(planned.changes)) console.log(JSON.stringify(change));
       else if (!saveFailed) for (const { tool } of successful) uiRenderer.renderHint(`${t('quick_start')}: ${tool.launchOnly ? `coding-helper run ${tool.name}` : [tool.command, ...(tool.launchArgs ?? [])].join(' ')}`);
