@@ -6,7 +6,7 @@ import { LauncherShutdown } from '../../../utils/launcher-shutdown.js';
 import chalk from 'chalk';
 import { padEnd } from '../../../utils/string-width.js';
 import { safeToolFailureReason } from '../ui/tool-results.js';
-import { menuPrompt } from '../ui/prompts.js';
+import { menuPrompt, type MenuEntry } from '../ui/prompts.js';
 import { editToolModels } from '../flows/model-slots-flow.js';
 import { confirmAndWrite } from '../ui/write-plan.js';
 import { planForTool } from '../flows/model-pick-flow.js';
@@ -17,7 +17,6 @@ import { promptHelper } from '../ui/prompt-helper.js';
 import { uiRenderer } from '../ui/ui-renderer.js';
 import { theme } from '../ui/theme.js';
 import { currentToolModel, formatConfiguredBadge, quickDetect } from '../ui/tool-view.js';
-import { isExternallyModified } from '../../core/rebaseline.js';
 import type { ITool } from '../../tools/base-tool.js';
 import { logger } from '../../../utils/logger.js';
 import { fetchLatestVersion, isNewerVersion } from '../../version-service.js';
@@ -25,8 +24,8 @@ import { applyTool, removeTool, hasSavedToolModelConfig } from '../../core/tool-
 export { hasSavedToolModelConfig } from '../../core/tool-service.js';
 
 // 工具菜单操作
-async function select<T>(config: { message: string; choices: { name: string; value: T }[]; statusText?: string; statusUpdate?: Promise<string> }, context?: { signal?: AbortSignal }): Promise<T> {
-  const result = await menuPrompt({ message: config.message, statusText: config.statusText, statusUpdate: config.statusUpdate, escape: true, items: config.choices.map(choice => ({ value: choice.value, label: choice.name })) }, context);
+async function select<T>(config: { message: string; items: MenuEntry<T>[]; default?: T; statusText?: string; statusUpdate?: Promise<string> }, context?: { signal?: AbortSignal }): Promise<T> {
+  const result = await menuPrompt({ message: config.message, statusText: config.statusText, statusUpdate: config.statusUpdate, escape: true, default: config.default, items: config.items }, context);
   return result.action === 'escape' ? 'back' as T : result.value;
 }
 const PLANNED_TOOLS = ['claude-code', 'codex', 'codebuddy', 'workbuddy', 'hermes', 'opencode', 'qwen-code', 'kimi-code', 'grok', 'droid', 'openclaw', 'dsh'];
@@ -97,10 +96,7 @@ export async function showToolMenu(tool: ITool): Promise<void> {
     uiRenderer.renderTitle(t('tool_menu_title', { tool: tool.displayName }));
     // 一行接入状态与当前模型；外部改成其他服务时说明怎么接入
     if (!tool.launchOnly) {
-      const detection = quickDetect(tool);
-      const model = currentToolModel(detection);
-      logger.log(`  ${formatConfiguredBadge(detection)}${model ? `   ${theme.subtle(t('tool_detail_model'))} ${theme.value(model)}` : ''}`);
-      if (isExternallyModified(tool)) logger.log(`  ${theme.subtle(t('tool_page_external_hint'))}`);
+      logger.log(`  ${formatConfiguredBadge(quickDetect(tool))}`);
       logger.newLine();
     }
 
@@ -112,21 +108,29 @@ export async function showToolMenu(tool: ITool): Promise<void> {
       ? fetchPromise.then(version => formatVersionInfo(installedVersion, version, true, tool.npmPackageName, isDesktop),
         () => formatVersionInfo(installedVersion, null, true, tool.npmPackageName, isDesktop))
       : undefined;
+    // 每项：定宽图标 + 短标签 + 右侧当前值（模型、命令、版本），一眼看清每步会做什么
+    const detection = quickDetect(tool);
+    const model = currentToolModel(detection);
+    const missing = detection.installed === false;
+    const update = !missing && installedVersion && latestVersion && isNewerVersion(installedVersion, latestVersion) ? latestVersion : undefined;
     const action = await select<ToolMenuAction>({
         message: t('menu_select_action'), statusText, statusUpdate,
-        choices: [
-          { name: `${theme.icon('◆')} ${t('tool_configure_models')}`, value: 'models' as const },
+        items: [
+          { value: 'models', icon: theme.icon('◆'), label: t('tool_configure_models'),
+            hint: model ? chalk.hex('#8BE9FF')(model) : theme.subtle(t('tool_hint_not_configured')) },
           ...(tool.launchOnly ? [] : [
-            { name: t('tool_load_config'), value: 'load' as const },
-            { name: t('tool_unload_config'), value: 'unload' as const },
+            { value: 'load' as const, icon: theme.icon('↻'), label: t('tool_load_config'), hint: theme.subtle(t('tool_hint_load')) },
+            { value: 'unload' as const, icon: theme.dimIcon('↺'), label: t('tool_unload_config'), hint: theme.subtle(t('tool_hint_unload')) },
           ]),
-          { name: `${theme.icon('▸')} ${t('tool_launch')}`, value: 'launch' as const },
+          { value: 'launch', icon: theme.icon('▸'), label: t('tool_launch'),
+            hint: theme.subtle([tool.command, ...(tool.launchArgs ?? [])].join(' ')) },
           // 未安装时「更新」换成「安装」；我的工具列表里回车即进入安装
-          tool.isInstalled() === false
-            ? { name: `${theme.icon('⬇')} ${t('install_action')}`, value: 'install' as const }
-            : { name: `${theme.dimIcon('△')} ${t('tool_update')}`, value: 'update' as const },
-          { name: `${theme.dimIcon('▪')} ${t('tool_view_config')}`, value: 'view' as const },
-          { name: `${theme.dimIcon('◁')} ${t('tool_back')}`, value: 'back' as const },
+          missing
+            ? { value: 'install' as const, icon: theme.icon('⬇'), label: theme.brand(t('install_action')), hint: theme.subtle(tool.installCommand) }
+            : { value: 'update' as const, icon: theme.dimIcon('△'), label: t('tool_update'),
+              hint: update ? theme.warning(t('tool_hint_update_to', { version: update })) : '' },
+          { value: 'view', icon: theme.dimIcon('▪'), label: t('tool_view_config') },
+          { value: 'back', icon: theme.dimIcon('◁'), label: t('tool_back') },
         ],
       });
 
@@ -352,18 +356,21 @@ export async function launchTool(tool: ITool): Promise<void> {
 
 // 更新工具
 // 安装未安装的命令行工具：展示命令，回车确认后执行，装好后重新检测；返回是否已安装
-export async function installTool(tool: ITool): Promise<boolean> {
+// allowSkip：多一项「跳过」，不安装也继续配置（返回 'skip'）
+export async function installTool(tool: ITool, options: { allowSkip?: boolean } = {}): Promise<boolean | 'skip'> {
   uiRenderer.renderPage(t('install_title', { tool: tool.displayName }), undefined, t('install_subtitle'));
   uiRenderer.renderConfigItem(t('install_command'), theme.value(tool.installCommand));
   logger.newLine();
-  const { value, action } = await menuPrompt<'install' | 'back'>({
+  const { value, action } = await menuPrompt<'install' | 'skip' | 'back'>({
     message: t('install_prompt', { tool: tool.displayName }), escape: true, default: 'install',
     items: [
       { value: 'install', label: theme.brandBold(t('install_action')), description: theme.subtle(t('install_action_desc')) },
+      ...(options.allowSkip ? [{ value: 'skip' as const, label: t('install_skip'), description: theme.subtle(t('tool_hint_install_skip')) }] : []),
       { value: 'back', label: t('tool_back') },
     ],
   });
   if (action === 'escape' || value === 'back') return false;
+  if (value === 'skip') return 'skip';
   logger.newLine();
   logger.info(t('install_running', { tool: tool.displayName }));
   try {

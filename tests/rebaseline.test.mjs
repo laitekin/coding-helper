@@ -40,6 +40,16 @@ test('rebaseline preview writes nothing; commit archives the old record and rest
   await tool.unloadConfig(); assert.equal(fs.readFileSync(settings, 'utf8'), deepseek);
 });
 
+test('applyTool adopts the externally switched config automatically and restore returns to it', async () => {
+  const { applyTool } = await import('../dist/lib/core/tool-service.js');
+  const deepseek = await switchedToDeepSeek();
+  const before = new Set(fs.existsSync(backupsRoot()) ? fs.readdirSync(backupsRoot()) : []);
+  const result = await applyTool(tool, { apiKey: 'sk-qiniu-new', baseUrl: 'https://api.qnaigc.com', models });
+  assert.equal(result.status, 'success'); assert.equal(tool.isConfigured(), true);
+  assert.ok(fs.readdirSync(backupsRoot()).some(name => !before.has(name) && name.startsWith('rebaseline-claude-code-')));
+  await tool.unloadConfig(); assert.equal(fs.readFileSync(settings, 'utf8'), deepseek);
+});
+
 test('rebaseline refuses while the config still uses Qiniu and keeps the record', async () => {
   for (const entry of stateStore.getRecordedTools()) stateStore.removeToolRecords(entry);
   fs.writeFileSync(settings, original); await tool.loadConfig('sk-qiniu', 'https://api.qnaigc.com', models);
@@ -48,12 +58,13 @@ test('rebaseline refuses while the config still uses Qiniu and keeps the record'
   await tool.unloadConfig(); assert.equal(fs.readFileSync(settings, 'utf8'), original);
 });
 
-test('real PTY confirm page offers the baseline action and writes only after confirmation', { skip: process.platform === 'win32' }, async () => {
+test('real PTY confirm page shows the baseline row and writes directly after confirmation', { skip: process.platform === 'win32' }, async () => {
   const source = `import fs from 'node:fs';import path from 'node:path';import os from 'node:os';import {i18n} from './dist/lib/i18n.js';import {ClaudeCodeTool} from './dist/lib/tools/claude-code-tool.js';import {confirmAndWrite} from './dist/lib/wizard/ui/write-plan.js';i18n.init('en_US');
 const tool=new ClaudeCodeTool(),file=path.join(os.homedir(),'.claude','settings.json'),models={claudeCode:{sonnetModel:'vendor/main'}};fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,'{}\\n');
 await tool.loadConfig('sk-old','https://api.qnaigc.com',models);const value=JSON.parse(fs.readFileSync(file,'utf8'));value.env.ANTHROPIC_BASE_URL='https://api.deepseek.com/anthropic';value.env.ANTHROPIC_AUTH_TOKEN='sk-deepseek';const deepseek=JSON.stringify(value,null,2)+'\\n';fs.writeFileSync(file,deepseek);
 const results=await confirmAndWrite('REBASE_READY',[{tool,models,main:'vendor/main',changes:[{label:'Main model',after:'vendor/main'}],connection:{apiKey:'sk-new',baseUrl:'https://api.qnaigc.com',endpoint:'china'}}]);
 console.log('RESULT',JSON.stringify(results.map(r=>r.status)));console.log('QINIU',tool.isConfigured());await tool.unloadConfig();console.log('RESTORED',fs.readFileSync(file,'utf8')===deepseek);`;
-  const out = await runPrompt(source, [[/Use current config as baseline[\s\S]*?Esc back/, '\x1b[A\x1b[A\r'], [/Restore baseline[\s\S]*?Esc back/, '\x1b[A\x1b[A\r']], 100, { rows: 40 });
+  // 不需要额外选择：确认页直接列出「还原基线」，写入时自动备份并接入
+  const out = await runPrompt(source, [[/Restore baseline[\s\S]*?old record[\s\S]*?Esc back/, '\x1b[A\x1b[A\r']], 100, { rows: 40 });
   assert.match(out, /RESULT.*\["success"\]/); assert.match(out, /QINIU true/); assert.match(out, /RESTORED true/); assert.doesNotMatch(out, /sk-deepseek|sk-old|sk-new/);
 });
