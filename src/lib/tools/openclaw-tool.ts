@@ -7,7 +7,7 @@ import { isQiniuBaseUrl } from '../endpoints.js';
 import { readTextFile, ConfigParseError, formatJsonLike } from '../core/safe-write.js';
 import { applyConfigEdits } from '../core/config-transaction.js';
 import { stateStore } from '../core/state-store.js';
-import { OpenAICompatTool, fetchModelLimits, getPath, isRecord, openAIBaseUrl, setPath, type ModelLimits } from './openai-compat-tool.js';
+import { OpenAICompatTool, fetchModelLimits, effectiveContextLimit, effectiveOutputLimit, getPath, isRecord, openAIBaseUrl, setPath, type ModelLimits } from './openai-compat-tool.js';
 const PROVIDER_ID = 'qiniu';
 const PRIMARY_PATH = 'agents.defaults.model.primary';
 
@@ -123,8 +123,8 @@ export function applyOpenClawConfig(
       id: model,
       name: `Qiniu: ${model}`,
       ...(limits ? {
-        contextWindow: limits.verified === false && typeof selected.contextWindow === 'number' && selected.contextWindow > 0 ? selected.contextWindow : limits.contextWindow,
-        maxTokens: limits.verified === false && typeof selected.maxTokens === 'number' && selected.maxTokens > 0 ? selected.maxTokens : limits.maxOutputTokens,
+        contextWindow: effectiveContextLimit(limits, selected.contextWindow),
+        maxTokens: effectiveOutputLimit(limits, selected.maxTokens, effectiveContextLimit(limits, selected.contextWindow)),
       } : {}),
       ...(limits?.reasoning !== undefined ? { reasoning: limits.reasoning } : {}),
       ...(limits?.modalities ? { input: limits.modalities.input.filter(value => ['text','image'].includes(value)) } : {}),
@@ -143,6 +143,7 @@ export function applyOpenClawConfig(
 }
 
 export class OpenClawTool extends OpenAICompatTool {
+  supportsPreview = true;
   name = 'openclaw';
   displayName = 'OpenClaw';
   command = 'openclaw';
@@ -160,7 +161,8 @@ export class OpenClawTool extends OpenAICompatTool {
   }
 
   isConfigured(): boolean {
-    return isQiniuBaseUrl(getPath(this.getConfig(), `models.providers.${PROVIDER_ID}.baseUrl`));
+    const file = getOpenClawConfigFile();
+    return isQiniuBaseUrl(getPath(parseOpenClawConfig(readTextFile(file), file), `models.providers.${PROVIDER_ID}.baseUrl`));
   }
 
   // 同一状态锁内核对已装载目标，路径变化时保留旧凭据及还原记录并提示恢复。
@@ -175,7 +177,7 @@ export class OpenClawTool extends OpenAICompatTool {
 
   async loadConfig(apiKey: string, baseUrl: string, models: ModelConfig): Promise<void> {
     assertConfigWritable();
-    const model = this.resolveModel(models); const limits = await fetchModelLimits(baseUrl, apiKey, model);
+    const model = this.resolveModel(models); const limits = await fetchModelLimits(baseUrl, apiKey, model, this.name);
     stateStore.withLock(() => {
       assertConfigWritable();
       const file = getOpenClawConfigFile();

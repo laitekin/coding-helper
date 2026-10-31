@@ -4,7 +4,13 @@ import { findCommand } from '../../../utils/find-command.js';
 import { runCommand } from '../../../commands/run.js';
 import { LauncherShutdown } from '../../../utils/launcher-shutdown.js';
 import chalk from 'chalk';
-import select from '@inquirer/select';
+import { padEnd } from '../../../utils/string-width.js';
+import { safeToolFailureReason } from '../ui/tool-results.js';
+import { menuPrompt } from '../ui/prompts.js';
+import { editToolModels } from '../flows/model-slots-flow.js';
+import { confirmAndWrite } from '../ui/write-plan.js';
+import { planForTool } from '../flows/model-pick-flow.js';
+import { savedModelFor } from '../../core/model-mapping.js';
 import { t } from '../../i18n.js';
 import { configManager } from '../../config.js';
 import { promptHelper } from '../ui/prompt-helper.js';
@@ -13,9 +19,44 @@ import { theme } from '../ui/theme.js';
 import type { ITool } from '../../tools/base-tool.js';
 import { logger } from '../../../utils/logger.js';
 import { fetchLatestVersion, isNewerVersion } from '../../version-service.js';
-import type { ModelConfig } from '../../config.js';
+import { applyTool, removeTool, hasSavedToolModelConfig } from '../../core/tool-service.js';
+export { hasSavedToolModelConfig } from '../../core/tool-service.js';
 
 // 工具菜单操作
+async function select<T>(config: { message: string; choices: { name: string; value: T }[]; statusText?: string; statusUpdate?: Promise<string> }, context?: { signal?: AbortSignal }): Promise<T> {
+  const result = await menuPrompt({ message: config.message, statusText: config.statusText, statusUpdate: config.statusUpdate, escape: true, items: config.choices.map(choice => ({ value: choice.value, label: choice.name })) }, context);
+  return result.action === 'escape' ? 'back' as T : result.value;
+}
+const PLANNED_TOOLS = ['claude-code', 'codex', 'codebuddy', 'workbuddy', 'hermes', 'opencode', 'qwen-code', 'kimi-code', 'grok', 'droid', 'openclaw', 'dsh'];
+// 重载保留该工具完整的已保存模型集合，避免将 Buddy 的多模型缩减为首项。
+export function reloadPlanForTool(tool: ITool) {
+  const saved = configManager.getModels();
+  const main = savedModelFor(tool, saved) ?? tool.defaultModel;
+  if (!main) return undefined;
+  const plan = planForTool(tool, main);
+  if (tool.name === 'claude-code' && saved.claudeCode) plan.models!.claudeCode = structuredClone(saved.claudeCode);
+  const field = tool.name === 'codebuddy' ? 'codeBuddyModels' : tool.name === 'workbuddy' ? 'workbuddyModels' : undefined;
+  const values = field ? saved[field] : undefined;
+  if (field && values?.length) {
+    plan.models![field] = [...values];
+    plan.changes[0] = { label: t('tool_configure_models'), before: values.join(', '), after: values.join(', '), note: t('plan_unchanged') };
+  }
+  return plan;
+}
+async function configureWithPlan(tool: ITool, reuse = false): Promise<void> {
+  try {
+    const plan = (reuse ? reloadPlanForTool(tool) : undefined) ?? await editToolModels(tool);
+    if (!plan) return;
+    const results = await confirmAndWrite(t('tool_menu_title', { tool: tool.displayName }), [plan], [], { edit: item => editToolModels(item.tool, item) });
+    if (results !== 'back') await promptHelper.pressEnter();
+  } catch (error) {
+    if (error instanceof Error && ['ExitPromptError', 'AbortPromptError'].includes(error.name)) throw error;
+    uiRenderer.renderError(t(safeToolFailureReason(error instanceof Error ? error.message : undefined), { tool: tool.displayName }));
+    process.exitCode = 1;
+    await promptHelper.pressEnter();
+  }
+}
+
 type ToolMenuAction =
   | 'models'
   | 'load'
@@ -27,7 +68,7 @@ type ToolMenuAction =
 
 // 工具配置菜单
 export async function showToolMenu(tool: ITool): Promise<void> {
-  if (!hasSavedToolModelConfig(tool, configManager.getModels())) {
+  if (!PLANNED_TOOLS.includes(tool.name) && !hasSavedToolModelConfig(tool, configManager.getModels())) {
     await runInitialToolSetup(tool);
   }
 
@@ -49,33 +90,19 @@ export async function showToolMenu(tool: ITool): Promise<void> {
   }
 
   while (true) {
-    uiRenderer.renderHeader();
+    uiRenderer.renderHeader(tool.name);
     uiRenderer.renderTitle(t('tool_menu_title', { tool: tool.displayName }));
 
-    // 显示版本信息
     const installedVersion = tool.getVersion();
-    renderVersionInfo(
-      installedVersion,
-      latestVersion,
-      fetchCompleted,
-      tool.npmPackageName,
-      tool.isInstalled() === null,
-    );
-
-    // 如果最新版本还未获取到，设置 AbortController 以便版本到达后自动刷新
-    const controller = new AbortController();
-    if (fetchPromise && isLatestVersionFetchPending({ fetchPromise, fetchCompleted })) {
-      fetchPromise.then(() => {
-        if (!controller.signal.aborted) {
-          controller.abort();
-        }
-      });
-    }
-
-    let action: ToolMenuAction;
-    try {
-      action = await select<ToolMenuAction>({
-        message: t('menu_select_action'),
+    const isDesktop = tool.isInstalled() === null;
+    const statusText = formatVersionInfo(installedVersion, latestVersion, fetchCompleted, tool.npmPackageName, isDesktop);
+    // 在同一个 prompt 内更新版本信息，保持 readline 和活动选项连续，不通过 abort 重建菜单。
+    const statusUpdate = fetchPromise && isLatestVersionFetchPending({ fetchPromise, fetchCompleted })
+      ? fetchPromise.then(version => formatVersionInfo(installedVersion, version, true, tool.npmPackageName, isDesktop),
+        () => formatVersionInfo(installedVersion, null, true, tool.npmPackageName, isDesktop))
+      : undefined;
+    const action = await select<ToolMenuAction>({
+        message: t('menu_select_action'), statusText, statusUpdate,
         choices: [
           { name: `${theme.icon('◆')} ${t('tool_configure_models')}`, value: 'models' as const },
           ...(tool.launchOnly ? [] : [
@@ -87,22 +114,17 @@ export async function showToolMenu(tool: ITool): Promise<void> {
           { name: `${theme.dimIcon('▪')} ${t('tool_view_config')}`, value: 'view' as const },
           { name: `${theme.dimIcon('◁')} ${t('tool_back')}`, value: 'back' as const },
         ],
-      }, { signal: controller.signal });
-    } catch (e: unknown) {
-      // 版本查询完成触发的 abort，重新渲染菜单
-      if (e instanceof Error && e.name === 'AbortPromptError') {
-        continue;
-      }
-      throw e;
-    }
+      });
 
     switch (action) {
       case 'models':
-        await tool.runModelConfigFlow();
+        if (PLANNED_TOOLS.includes(tool.name) && !tool.launchOnly) await configureWithPlan(tool);
+        else await tool.runModelConfigFlow();
         break;
 
       case 'load':
-        await loadConfig(tool);
+        if (PLANNED_TOOLS.includes(tool.name)) await configureWithPlan(tool, true);
+        else await loadConfig(tool);
         break;
 
       case 'unload':
@@ -136,14 +158,15 @@ export async function showToolMenu(tool: ITool): Promise<void> {
 
 // 卸载错误包含恢复操作指引，必须展示，不能只显示通用失败。
 export async function unloadToolConfig(tool: ITool): Promise<void> {
-  uiRenderer.renderHeader();
+  uiRenderer.renderHeader(tool.name);
   if (!await promptHelper.confirm(t('tool_config_unload_confirm', { tool: tool.displayName }))) return;
   try {
-    await tool.unloadConfig();
-    uiRenderer.renderHeader();
+    const result = await removeTool(tool);
+    if (result.status !== 'success') throw new Error(t(result.reason ?? 'tool_config_unload_failed', { tool: tool.displayName }));
+    uiRenderer.renderHeader(tool.name);
     uiRenderer.renderSuccess(t('tool_config_unloaded', { tool: tool.displayName }));
   } catch (error: unknown) {
-    uiRenderer.renderHeader();
+    uiRenderer.renderHeader(tool.name);
     uiRenderer.renderError(t('tool_config_unload_failed', { tool: tool.displayName }));
     if (error instanceof Error && error.message) uiRenderer.renderError(error.message);
   }
@@ -157,41 +180,12 @@ export function isLatestVersionFetchPending(state: {
   return Boolean(state.fetchPromise && !state.fetchCompleted);
 }
 
-// 判断 coding-helper 自身是否保存过该工具的模型配置状态
-export function hasSavedToolModelConfig(
-  tool: Pick<ITool, 'name'>,
-  models: ModelConfig,
-): boolean {
-  switch (tool.name) {
-    case 'claude-code':
-      return !!(
-        models.claudeCode?.useDefaultModels ||
-        models.claudeCode?.haikuModel ||
-        models.claudeCode?.sonnetModel ||
-        models.claudeCode?.opusModel ||
-        models.claudeCode?.subagentModel
-      );
-    case 'codex':
-      return !!models.codexModel;
-    case 'codebuddy':
-      return !!models.codeBuddyModels?.length;
-    case 'workbuddy':
-      return !!models.workbuddyModels?.length;
-    case 'opencode':
-      return !!(models.toolModels?.[tool.name] ?? models.defaultModel);
-    case 'hermes':
-      return !!models.hermesModel;
-    default:
-      return !!(models.toolModels?.[tool.name] ?? models.defaultModel);
-  }
-}
-
 async function runInitialToolSetup(tool: ITool): Promise<void> {
   const completed = await tool.runModelConfigFlow();
   if (!completed || tool.launchOnly) return;
 
   if (tool.name === 'codex') {
-    uiRenderer.renderHeader();
+    uiRenderer.renderHeader(tool.name);
     const confirmed = await promptHelper.confirm(t('tool_config_load_confirm', { tool: tool.displayName }));
     if (!confirmed) return;
   }
@@ -199,52 +193,53 @@ async function runInitialToolSetup(tool: ITool): Promise<void> {
   await applyConfig(tool);
 }
 
-// 渲染版本信息区域
-function renderVersionInfo(
+// 生成版本信息区域，在 prompt 内随版本请求结果更新。
+function formatVersionInfo(
   installed: string | null,
   latest: string | null,
   fetchCompleted: boolean,
   npmPackageName?: string,
   isDesktop = false,
-): void {
+): string {
   // 桌面应用不显示版本信息
   if (isDesktop) {
-    return;
+    return '';
   }
 
+  const lines: string[] = [];
+  const item = (label: string, value: string): void => { lines.push(`  ${chalk.bold(padEnd(label, 16))}${value}`); };
   // 当前版本
   const installedDisplay = installed
     ? chalk.white(installed)
     : chalk.yellow(t('tool_version_not_installed'));
-  uiRenderer.renderConfigItem(t('tool_version_installed'), installedDisplay);
+  item(t('tool_version_installed'), installedDisplay);
 
   if (!npmPackageName) {
-    logger.newLine();
-    return;
+    return lines.join('\n') + '\n';
   }
 
   // 最新版本
   if (latest) {
     const hasUpdate = installed ? isNewerVersion(installed, latest) : false;
     if (hasUpdate) {
-      uiRenderer.renderConfigItem(
+      item(
         t('tool_version_latest'),
         `${chalk.green(latest)}  ${chalk.yellow(t('tool_version_update_hint'))}`,
       );
     } else {
-      uiRenderer.renderConfigItem(
+      item(
         t('tool_version_latest'),
         `${chalk.white(latest)}  ${chalk.green(t('tool_version_up_to_date'))}`,
       );
     }
   } else {
-    uiRenderer.renderConfigItem(
+    item(
       t('tool_version_latest'),
       chalk.dim(t(getMissingLatestVersionDisplayKey(fetchCompleted))),
     );
   }
 
-  logger.newLine();
+  return lines.join('\n') + '\n';
 }
 
 export function getMissingLatestVersionDisplayKey(fetchCompleted: boolean): string {
@@ -253,7 +248,7 @@ export function getMissingLatestVersionDisplayKey(fetchCompleted: boolean): stri
 
 // 装载配置到工具
 async function loadConfig(tool: ITool): Promise<void> {
-  const apiKey = configManager.getApiKey();
+  const apiKey = configManager.getConnection(tool.name).apiKey;
   if (!apiKey) {
     uiRenderer.renderError(t('apikey_not_set'));
     await promptHelper.pressEnter();
@@ -261,7 +256,7 @@ async function loadConfig(tool: ITool): Promise<void> {
   }
 
   // 清屏后二次确认
-  uiRenderer.renderHeader();
+  uiRenderer.renderHeader(tool.name);
   const confirmed = await promptHelper.confirm(
     t('tool_config_load_confirm', { tool: tool.displayName }),
   );
@@ -271,21 +266,21 @@ async function loadConfig(tool: ITool): Promise<void> {
 }
 
 async function applyConfig(tool: ITool): Promise<void> {
-  const apiKey = configManager.getApiKey();
+  const apiKey = configManager.getConnection(tool.name).apiKey;
   if (!apiKey) {
     uiRenderer.renderError(t('apikey_not_set'));
     await promptHelper.pressEnter();
     return;
   }
 
-  const models = configManager.getModels();
   try {
-    await tool.loadConfig(apiKey, configManager.baseUrl, models);
-    uiRenderer.renderHeader();
+    const result = await applyTool(tool);
+    if (result.status !== 'success') throw new Error(t(result.reason ?? 'tool_config_load_failed', { tool: tool.displayName }));
+    uiRenderer.renderHeader(tool.name);
     uiRenderer.renderSuccess(t('tool_config_loaded', { tool: tool.displayName }));
     for (const note of tool.getLoadConfigNotes?.() ?? []) uiRenderer.renderHint(note);
   } catch (err: unknown) {
-    uiRenderer.renderHeader();
+    uiRenderer.renderHeader(tool.name);
     uiRenderer.renderError(
       err instanceof Error ? err.message : t('tool_config_load_failed', { tool: tool.displayName }),
     );
@@ -296,7 +291,7 @@ async function applyConfig(tool: ITool): Promise<void> {
 
 // 启动工具
 export async function launchTool(tool: ITool): Promise<void> {
-  if (tool.launchOnly) {
+  if (tool.launchOnly || (tool.launchArgs && tool.getLaunchEnv)) {
     const previousExitCode = process.exitCode;
     let shuttingDown = false;
     try {
@@ -329,7 +324,7 @@ export async function launchTool(tool: ITool): Promise<void> {
 
   logger.info(t('tool_launching', { tool: tool.displayName }));
   try {
-    const result = spawn.sync(findCommand(tool.command, tool.searchPaths) ?? tool.command, [], { stdio: 'inherit' });
+    const result = spawn.sync(findCommand(tool.command, tool.searchPaths) ?? tool.command, tool.launchArgs ?? [], { stdio: 'inherit' });
     if (result.error) throw result.error;
   } catch (error) {
     uiRenderer.renderError(error instanceof Error ? error.message : String(error));
@@ -397,13 +392,13 @@ export async function updateTool(tool: ITool): Promise<void> {
 }
 
 // 查看当前配置
-async function viewConfig(tool: ITool): Promise<void> {
-  uiRenderer.renderHeader();
+export async function viewConfig(tool: ITool): Promise<void> {
+  uiRenderer.renderHeader(tool.name);
   uiRenderer.renderTitle(t('config_view_title'));
 
-  const apiKey = configManager.getApiKey();
+  const { apiKey, baseUrl } = configManager.getConnection(tool.name);
   const notSet = t('config_view_not_set');
-  uiRenderer.renderConfigItem(t('config_view_endpoint'), configManager.baseUrl);
+  uiRenderer.renderConfigItem(t('config_view_endpoint'), baseUrl);
   uiRenderer.renderConfigItem(
     t('config_view_apikey'),
     apiKey ? uiRenderer.maskApiKey(apiKey) : chalk.dim(notSet),

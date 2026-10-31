@@ -31,8 +31,19 @@
 | Hermes Agent | CLI | `~/.hermes/config.yaml` |
 | Factory Droid | CLI | [配置说明 / Configuration](docs/tools/droid.md) |
 | OpenCode | CLI | `~/.config/opencode/opencode.json` |
+| DeepSeek Harness (dsh) | CLI | [配置说明 / Configuration](docs/tools/dsh.md) |
 
 ## ✨ 功能特性
+
+多工具快捷配置：`coding-helper claude,codex,opencode [Key] [模型]`；`all` 选择已安装的 CLI 工具。支持 `--dry-run` 和 `--no-save`。后者只写客户端配置及恢复日志，不保存 helper 的 Key/线路/模型，启动器工具会跳过。仅成功工具的模型被保存；没有成功工具退出 1，部分写入失败退出 2。预演仍会做网络校验，但不输出配置正文。
+
+`coding-helper setup --tools codex --dry-run --json` 在内存中运行配置事务，报告文件路径、动作和行数，不创建客户端目录、备份、锁或恢复日志。输出不含配置正文，避免旧凭据进入日志。MiniMax 的外部写入命令不支持安全预演，会明确返回失败。
+
+单工具快捷配置：`coding-helper opencode [API Key] [模型 ID]`，Key 也可从 `QINIU_API_KEY` 或已保存配置读取；支持 `--intl`、`--json`。任意前缀的 Key 可用 `--key` 明确指定，`--model` 可消除模型位置参数歧义。所有校验完成且客户端装载成功后才保存 helper 设置。Codex 会用最小 Responses 请求验证协议兼容性。
+
+换 Key 时，`coding-helper auth <key> --sync` 同步仍接入七牛的客户端；失败返回非零，重复同一 Key 可重试。未加 `--sync` 的非交互调用只保存 Key，交互终端允许勾选要更新的工具。切到其他服务商的配置不会被强制改回。
+
+`coding-helper setup --tools claude,codex --yes` 批量装载已保存的模型配置；省略 `--tools` 时选择已安装工具。支持 `--json` 和 `--key-stdin`；stdin Key 仅在有工具成功装载后保存。缺少必选模型的工具会跳过。
 
 - **🎯 交互式向导** — 首次运行引导配置语言、线路、API Key 和模型，步步引导
 - **🌐 多线路支持** — 国内线路 (api.qnaigc.com) / 海外线路 (api.modelink.ai)
@@ -46,6 +57,9 @@
 - **🧱 OpenCode 集成** — 写入七牛 provider 并设为默认模型，卸载时按原值还原
 - **🛡️ OpenCode 安全写入** — OpenCode 写入前备份原文件到 `~/.coding-helper/backups/`，原子写入；配置文件解析失败时报错，不会覆盖
 - **🔍 健康检查** — 内置 `doctor` 命令，检测配置文件、API Key、网络、工具安装状态
+- `doctor` 在 Key 有效后发送一个输出 token 的最小模型请求检查账户可用性；网络或模型错误显示为未知，不误报账户正常。
+- **工具状态** — `coding-helper status` 查询安装和七牛接入状态，`--json` 输出机器可读结果，不返回 Key。接入状态描述持久配置，不代替账户或网络健康检查；检测出错时退出码为 1。
+- **还原配置** — `coding-helper restore [工具名,工具名]` 按记录还原原配置，支持工具别名；不指定工具时处理有恢复记录或仍接入七牛的工具。非交互调用加 `--yes`。没有恢复记录的旧配置会保留并提示手动恢复；全部失败退出 1，部分失败退出 2。
 - **🌍 国际化** — 支持中文 (zh_CN) 和英文 (en_US)
 
 ## 📋 前置要求
@@ -416,3 +430,51 @@ pnpm test
 本项目基于 [AGPL-3.0](LICENSE) 协议开源。
 
 Hermes 使用共享 YAML 编辑和事务层；恢复原始备份后须先成功卸载清理记录，再重新装载，不能直接重载。
+
+### 自定义线路
+
+线路菜单可保存 HTTP(S) 网关根地址（可带路径），不接受 URL 内嵌凭据、查询参数或片段。自定义线路校验失败时不会自动切换国内或海外线路；已登记地址参与 status、同步与恢复识别，恢复仍以事务记录为准。
+
+上下文上限按工具保存，只能收窄模型上限。未设置时兼容旧全局值；工具显式选择 auto 后跟随模型上限，不影响其他工具。
+
+Quick configuration supports `opencode --context 64k` and `auto`. Validation failures and `--dry-run` do not write client settings or save the helper preference. `--no-save` writes the client context cap but does not save the helper preference. The main menu also provides an interactive context action. Claude Code, Hermes and Copilot manage context in the client.
+
+Profiles store named connections and per-tool bindings. Reload, sync and launch resolve the bound connection. Explicit command connection objects take precedence over bindings. Switching the active profile clears per-tool bindings; removing a profile leaves client files untouched.
+
+### Profiles
+
+`profile add work --key-stdin`, `profile list --json`, `profile use work [opencode,grok]`, and `profile remove work` manage named connections. Add validates before saving. `profile use work` switches helper only; `--sync` explicitly updates configured clients. `opencode @work` validates and writes that same connection and binds successful targets. Combining `@work` with a key override or `--intl` is rejected. A quick command without `@profile` uses the current global connection, overrides old bindings only for successful targets, and detaches the active profile without editing its credentials. `--no-save` and `--dry-run` never save bindings. Profile listings expose only whether a key is set.
+
+Codex 0.134+ profiles use `~/.codex/qn-<name>.config.toml` and `codex --profile qn-<name>`. Providers live in config.toml with per-profile credentials, protected by mode 0600. Existing files and conflicting providers are preserved by refusing the operation. Added profile files join the existing multi-file journal; restore checks all files before writing and restores original bytes. Removed helper profiles are not automatically deleted from client configuration; run restore before reinstalling to remove stale providers. [Official format](https://learn.chatgpt.com/docs/config-file/config-advanced#profiles).
+
+The shared terminal menu supports arrows, Enter, Esc, searchable rows, vendor tabs and async details. Letter shortcuts are not used for menu actions. Narrow terminals hide the value column.
+
+Shared prompts distinguish Esc cancellation from empty input. Checkbox selection and masked secret entry are available for the new menu flows; secrets are never echoed in full.
+
+Model search matches vendor aliases, punctuation-free model IDs, context sizes such as 200k, and vision capability. Exact/prefix matches rank before recommendations and recent selections; unmatched input offers nearby model IDs.
+
+Model slots follow the main model unless explicitly overridden. Main-model changes retain slot overrides, and clearing one tool leaves other tools unchanged.
+
+The model picker uses searchable rows, vendor tabs, capability filters and recent models. It reloads the list for the selected connection and keeps selection in memory until confirmed. Esc clears search first, then returns.
+
+Tool slots: Claude fallback/subagent; Codex review/subagent/memory; Droid spec session model; Grok summary; Hermes vision. Existing transactions restore original settings. Droid retains array indices of existing custom models. The slot editor prepares an in-memory plan; saving and entry points are connected by the following UI layers.
+
+The confirmation page previews client writes in memory and shows model/context changes plus a file summary. Cancel leaves helper, client files and journals unchanged. All plan models validate against the captured connection before any writes; only successful clients save helper settings. File summaries contain paths, actions and line counts, never configuration bodies or credentials. Clients with external writers that cannot preview are rejected by this confirmation flow; their normal CLI configuration remains available.
+
+The main and tool menus now share arrow/Enter/Esc controls. Main-menu entries expose batch setup, profiles and context settings. Built-in persistent tools open the model/slot editor and confirmation plan; custom extensions retain their original configuration flow. API-key input cancels immediately on Esc. Version refresh still aborts and redraws the tool prompt without blocking navigation.
+
+The header renders a pixel QINIU logo and a matching tool character when the terminal supports it, with compact text for narrow terminals. Screenshots below come from an isolated HOME and fake credentials.
+
+![Main menu](docs/images/current-main.png)
+
+![Codex tool menu](docs/images/current-codex.png)
+When model metadata is offline, context caps only narrow already verified client limits and retain known modality metadata. A 64k cap cannot expand a client limit already known to be 32k.
+
+The six-entry main menu follows the released fork v0.6.5: configure tools, switch models, my tools, account/endpoint, doctor, and more. Account settings contain profiles; more contains context, restore, language and maintenance. The upstream package keeps its own release version.
+Claude slot configuration also updates the legacy fast-model alias and the Fable entry in /model, including model descriptions. The launcher uses the same aliases, and unload restores the exact previous values.
+
+### 旧版还原记录升级
+
+Claude Code、Grok 和 Hermes 的旧版按工具名保存的字段原值，在首次重载或还原时自动迁移为文件级记录。迁移保留已知原值、当前非托管字段及原始旧记录；预演不改写文件。旧版本没有完整文件快照，因此旧配置按已记录字段恢复，不能承诺恢复旧版本未记录的字节格式。未知字段、损坏记录、配置路径变化及服务商归属变化仍会停止写入；不要删除 `state.json` 来绕过保护。
+
+Droid 遇到最大输出达到上下文容量的模型时，为输入和输出各分配一半容量，保持正的输入预算；已有合理的输出预算保持不变。

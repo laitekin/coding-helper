@@ -5,7 +5,7 @@ import { isQiniuBaseUrl } from '../endpoints.js';
 import { readTextFile, formatJsonLike } from '../core/safe-write.js';
 import { applyConfigEdits, parseConfigObject } from '../core/config-transaction.js';
 import { stateStore } from '../core/state-store.js';
-import { OpenAICompatTool, fetchModelLimits, getPath, isRecord, openAIBaseUrl, setPath } from './openai-compat-tool.js';
+import { OpenAICompatTool, fetchModelLimits, effectiveContextLimit, getPath, isRecord, openAIBaseUrl, setPath } from './openai-compat-tool.js';
 import { setDotenvValue, readDotenvValue } from '../core/dotenv-edit.js';
 // Key 只写进 ~/.qwen/.env，settings.json 里用 envKey 引用，不存明文
 export const QWEN_ENV_KEY = 'QINIU_API_KEY';
@@ -99,6 +99,7 @@ export function applyQwenSettings(
 }
 
 export class QwenCodeTool extends OpenAICompatTool {
+  supportsPreview = true;
   name = 'qwen-code';
   displayName = 'Qwen Code';
   command = 'qwen';
@@ -134,18 +135,24 @@ export class QwenCodeTool extends OpenAICompatTool {
   }
 
   isConfigured(): boolean {
-    const entries = getPath(this.getConfig(), `modelProviders.${AUTH_TYPE}`);
+    const entries = getPath(parseQwenSettings(readTextFile(this.settingsFile())), `modelProviders.${AUTH_TYPE}`);
     return Array.isArray(entries) && entries.some(isQiniuEntry);
   }
 
   async loadConfig(apiKey: string, baseUrl: string, models: ModelConfig): Promise<void> {
     const model = this.resolveModel(models);
-    const limits = await fetchModelLimits(baseUrl, apiKey, model);
+    const limits = await fetchModelLimits(baseUrl, apiKey, model, this.name);
     stateStore.withLock(() => {
       const files = this.configFiles();
       this.assertRecordedDirectory(files);
       applyConfigEdits(this.name, [
-        { file: files[0], build: content => formatJsonLike(content?.replace(/^\uFEFF/, ''), applyQwenSettings(parseQwenSettings(content), baseUrl, model, limits.contextWindow)) },
+        { file: files[0], build: content => {
+          const settings = parseQwenSettings(content);
+          const entries = getPath(settings, `modelProviders.${AUTH_TYPE}`);
+          const previous = Array.isArray(entries) ? entries.find(entry => isRecord(entry) && entry.id === model && entry.baseUrl === openAIBaseUrl(baseUrl) && entry.envKey === QWEN_ENV_KEY) : undefined;
+          const known = isRecord(previous) ? getPath(previous, 'generationConfig.contextWindowSize') : undefined;
+          return formatJsonLike(content?.replace(/^\uFEFF/, ''), applyQwenSettings(settings, baseUrl, model, effectiveContextLimit(limits, known)));
+        } },
         { file: files[1], build: content => setDotenvValue(content ?? '', QWEN_ENV_KEY, apiKey) },
       ]);
     });

@@ -1,85 +1,189 @@
-import { t } from '../../i18n.js';
+import { t, i18n } from '../../i18n.js';
 import { promptHelper } from '../ui/prompt-helper.js';
-import { uiRenderer } from '../ui/ui-renderer.js';
-import { theme } from '../ui/theme.js';
+import { uiRenderer, connectedToolNames } from '../ui/ui-renderer.js';
+import chalk from 'chalk';
+import { menuPrompt, type MenuEntry } from '../ui/prompts.js';
+import { currentToolModel, detectSorted, formatConfiguredBadge, formatInstallState, toolIcon } from '../ui/tool-view.js';
+import { padVisible, visibleWidth } from '../../../utils/string-width.js';
+import type { ToolDetection } from '../../core/tool-service.js';
 import { runLanguageFlow } from '../flows/language-flow.js';
 import { runEndpointSelectionFlow } from '../flows/endpoint-selection-flow.js';
 import { runApiKeyFlow } from '../flows/api-key-flow.js';
+import { runContextFlow, contextMenuHint } from '../flows/context-flow.js';
+import { runProfileFlow } from '../flows/profile-flow.js';
 import { showToolMenu } from './tool-menu.js';
 import { toolManager } from '../../tool-manager.js';
-import { configManager } from '../../config.js';
+import { configManager, type ModelConfig } from '../../config.js';
+import { getRestoreTargets } from '../../core/tool-service.js';
+import { savedModelFor } from '../../core/model-mapping.js';
 import { logger } from '../../../utils/logger.js';
-import chalk from 'chalk';
+import { runToolSetupFlow } from '../flows/tool-setup-flow.js';
+import { theme } from '../ui/theme.js';
+import { selectTargets } from '../ui/write-plan.js';
+import { doctorCommand } from '../../../commands/doctor.js';
+import { restoreCommand } from '../../../commands/restore.js';
 
 // 主菜单操作
-type MainMenuAction =
-  | 'language'
-  | 'endpoint'
-  | 'apikey'
-  | 'tools'
-  | 'clear_config'
-  | 'update'
-  | 'exit';
+type MainMenuAction = 'setup' | 'model' | 'tools' | 'account' | 'doctor' | 'more';
+type MoreAction = 'context' | 'restore' | 'language' | 'update' | 'clear_config';
 
-// 主菜单
+// 主菜单：6 项，右侧显示当前值；Esc 退出
 export async function showMainMenu(): Promise<void> {
+  let last: MainMenuAction | undefined;
   while (true) {
-    uiRenderer.renderHeader();
+    uiRenderer.renderHeader({ full: true });
 
-    uiRenderer.renderTitle(t('menu_main_title'));
+    const connected = connectedToolNames();
+    // 只检测是否安装，不查版本（查版本要逐个启动工具，太慢）
+    const installed = toolManager.getAll().filter(tool => { try { return !tool.launchOnly && tool.isInstalled() !== false; } catch { return false; } });
+    const pending = installed.filter((tool) => !connected.includes(tool.name)).length;
+    const total = toolManager.getAll().filter((tool) => !tool.launchOnly).length;
+    const models = configManager.getModels();
+    const apiKey = configManager.getApiKey();
 
-    const action = await promptHelper.select<MainMenuAction>(t('menu_select_action'), [
-      { name: `${theme.icon('◆')} ${t('menu_configure_language')}`, value: 'language' },
-      { name: `${theme.icon('◇')} ${t('menu_configure_endpoint')}`, value: 'endpoint' },
-      { name: `${theme.icon('◈')} ${t('menu_configure_apikey')}`, value: 'apikey' },
-      { name: `${theme.icon('▸')} ${t('menu_configure_tools')}`, value: 'tools' },
-      { name: `${theme.dimIcon('▪')} ${t('menu_clear_config')}`, value: 'clear_config' },
-      { name: `${theme.dimIcon('△')} ${t('menu_update_helper')}`, value: 'update' },
-      { name: `${theme.dimIcon('◁')} ${t('menu_exit')}`, value: 'exit' },
-    ]);
+    const { value: action, action: key } = await menuPrompt<MainMenuAction>({
+      message: t('menu_select_action'),
+      default: last,
+      escape: true,
+      items: [
+        { value: 'setup', label: t('menu_setup_tools'), hint: pending > 0 ? t('menu_hint_pending', { count: String(pending) }) : t('menu_hint_all_connected') },
+        { value: 'model', label: t('menu_switch_model'), hint: currentModelHint(connected, models) },
+        { value: 'tools', label: t('menu_my_tools'), hint: t('menu_hint_connected', { count: String(connected.length), total: String(total) }) },
+        { value: 'account', label: t('menu_account'), hint: apiKey ? `${uiRenderer.maskApiKey(apiKey)} · ${uiRenderer.endpointLabel()}` : t('config_view_not_set') },
+        { value: 'doctor', label: t('menu_doctor') },
+        { value: 'more', label: t('menu_more'), hint: t('menu_more_hint') },
+      ],
+      footer: [['↑↓', t('ui_key_move')], [t('ui_key_enter'), t('ui_key_confirm')], ['Esc', t('menu_exit')]],
+    });
+    if (key === 'escape') return;
+    last = action;
 
     switch (action) {
-      case 'language':
-        await runLanguageFlow();
+      case 'setup':
+        await runToolSetupFlow();
         break;
-      case 'endpoint':
-        await runEndpointSelectionFlow();
-        break;
-      case 'apikey':
-        await runApiKeyFlow();
+      case 'model':
+        await runSwitchModelFlow();
         break;
       case 'tools':
         await showToolSelector();
         break;
-      case 'clear_config':
-        if (await handleClearConfig()) return;
+      case 'account':
+        await showAccountMenu();
         break;
-      case 'update':
-        await updateHelper();
+      case 'doctor':
+        uiRenderer.renderPage(t('menu_doctor'));
+        await doctorCommand();
+        await promptHelper.pressEnter(t('result_back_to_menu'));
         break;
-      case 'exit':
-        return;
+      case 'more':
+        if (await showMoreMenu()) return;
+        break;
     }
   }
 }
 
-// 工具选择器（当有多个工具时选择）
-async function showToolSelector(): Promise<void> {
-  const tools = toolManager.getAll();
-
-  uiRenderer.renderHeader();
-  uiRenderer.renderTitle(t('menu_configure_tools'));
-
-  const choices = tools.map((tool) => ({
-    name: tool.displayName,
-    value: tool.name,
-  }));
-
-  const toolName = await promptHelper.select<string>(t('menu_select_action'), choices);
-  const tool = toolManager.get(toolName);
-  if (tool) {
-    await showToolMenu(tool);
+// 账号与线路：API Key、线路、配置档
+async function showAccountMenu(): Promise<void> {
+  let last: string | undefined;
+  while (true) {
+    uiRenderer.renderPage(t('menu_account'), undefined, t('account_subtitle'));
+    const apiKey = configManager.getApiKey();
+    const profiles = configManager.listProfiles();
+    const active = configManager.getActiveProfile();
+    const { value, action } = await menuPrompt<'apikey' | 'endpoint' | 'profile'>({
+      message: t('menu_select_action'),
+      default: last as 'apikey' | undefined,
+      escape: true,
+      items: [
+        { value: 'apikey', label: t('menu_configure_apikey'), hint: apiKey ? uiRenderer.maskApiKey(apiKey) : t('config_view_not_set'), description: theme.subtle(t('account_apikey_desc')) },
+        { value: 'endpoint', label: t('menu_configure_endpoint'), hint: uiRenderer.endpointLabel(), description: theme.subtle(t('account_endpoint_desc')) },
+        {
+          value: 'profile',
+          label: t('menu_profiles'),
+          hint: profiles.length ? t('account_profile_hint', { name: active ?? '—', count: String(profiles.length) }) : t('menu_hint_profile_none'),
+          description: theme.subtle(t('account_profile_desc')),
+        },
+      ],
+    });
+    if (action === 'escape') return;
+    last = value;
+    if (value === 'apikey') await runApiKeyFlow();
+    else if (value === 'endpoint') await runEndpointSelectionFlow();
+    else await runProfileFlow();
   }
+}
+
+// 更多：上下文大小 · 还原 · 语言 · 更新 · 清除配置；清除后返回 true（退出主菜单）
+async function showMoreMenu(): Promise<boolean> {
+  let last: MoreAction | undefined;
+  while (true) {
+    uiRenderer.renderPage(t('menu_more'));
+    const connected = connectedToolNames();
+    const restorable = getRestoreTargets(toolManager.getAll());
+    const { value, action } = await menuPrompt<MoreAction>({
+      message: t('menu_select_action'),
+      default: last,
+      escape: true,
+      items: [
+        { value: 'context', label: t('menu_context'), hint: contextMenuHint(connected) },
+        { value: 'restore', label: t('menu_restore'), hint: restorable.length ? t('menu_hint_restore', { count: String(restorable.length) }) : '' },
+        { value: 'language', label: t('menu_configure_language'), hint: i18n.getLocale() === 'zh_CN' ? '简体中文' : 'English' },
+        { value: 'update', label: t('menu_update_helper') },
+        { value: 'clear_config', label: t('menu_clear_config') },
+      ],
+    });
+    if (action === 'escape') return false;
+    last = value;
+    switch (value) {
+      case 'context':
+        await runContextFlow();
+        break;
+      case 'restore':
+        await restoreSelected();
+        break;
+      case 'language':
+        uiRenderer.renderPage(t('menu_configure_language'));
+        await runLanguageFlow();
+        break;
+      case 'update':
+        await updateHelper();
+        break;
+      case 'clear_config':
+        if (await handleClearConfig()) return true;
+        break;
+    }
+  }
+}
+
+// 已接入工具的模型：统一时显示模型名，不一致时显示「各不相同」
+function currentModelHint(connected: string[], models: ModelConfig): string {
+  const used = [...new Set(toolManager.getAll()
+    .filter((tool) => connected.includes(tool.name))
+    .map((tool) => savedModelFor(tool, models) ?? tool.defaultModel)
+    .filter((m): m is string => !!m))];
+  if (used.length === 1) return used[0];
+  if (used.length > 1) return t('menu_hint_models_mixed', { count: String(used.length) });
+  return models.defaultModel ?? t('config_view_not_set');
+}
+
+// 还原：勾选要还原的工具（默认不勾）后确认
+async function restoreSelected(): Promise<void> {
+  const tools = getRestoreTargets(toolManager.getAll());
+  uiRenderer.renderPage(t('menu_restore'), undefined, t('restore_subtitle'));
+  if (tools.length === 0) {
+    uiRenderer.renderHint(t('restore_nothing'));
+    await promptHelper.pressEnter();
+    return;
+  }
+  const targets = await selectTargets(t('targets_prompt_restore'), tools);
+  if (!targets || targets.length === 0) return;
+  // 独立 restore 命令的失败码不应影响确认结果后继续使用的菜单会话。
+  const previousExitCode = process.exitCode;
+  try {
+    await restoreCommand(targets.map((tool) => tool.name).join(','), { yes: false });
+    await promptHelper.pressEnter();
+  } finally { process.exitCode = previousExitCode; }
 }
 
 // 更新 Coding Helper
@@ -92,16 +196,82 @@ async function updateHelper(): Promise<void> {
   } catch {
     uiRenderer.renderError(t('error_unknown'));
   }
+  await promptHelper.pressEnter();
 }
 
 // 清除配置，成功返回 true
 async function handleClearConfig(): Promise<boolean> {
-  uiRenderer.renderHeader();  // 清屏，与其他选项保持一致
+  uiRenderer.renderHeader();
   const confirmed = await promptHelper.confirm(t('clear_config_confirm'), false);
   if (!confirmed) return false;
 
   configManager.clearConfig();
-  uiRenderer.renderHeader();  // 清屏并显示更新后的配置状态
+  uiRenderer.renderHeader();
   uiRenderer.renderSuccess(t('clear_config_success'));
   return true;
+}
+
+// 我的工具一行：色点 · 名称 · 版本 · 接入状态，右侧当前模型；选中时下方显示模型、连接与配置文件
+function toolEntry(detection: ToolDetection, nameWidth: number): MenuEntry<string> {
+  const { tool } = detection;
+  const installed = detection.installed !== false;
+  const model = currentToolModel(detection);
+  const connection = configManager.getConnection(tool.name);
+  // 是否接入以检测结果为准；接入但没有 helper 保存的模型（如使用工具默认模型）时显示「工具默认」
+  const description = !installed
+    ? `${theme.subtle(t('tool_detail_install'))}  ${theme.value(tool.installCommand)}`
+    : !detection.configured
+      ? theme.subtle(t('tool_detail_not_connected'))
+      : [
+          `${theme.subtle(t('tool_detail_model'))}  ${model ? chalk.hex('#8BE9FF')(model) : theme.subtle(t('tool_detail_model_default'))}`,
+          `${theme.subtle(t('tool_detail_connection'))}  ${theme.value(connection.profile ? `${t('profile_label')} ${connection.profile}` : uiRenderer.endpointLabel(connection.endpoint, connection.baseUrl))}`,
+        ].join('\n');
+  return {
+    value: tool.name,
+    icon: toolIcon(tool.name, !installed),
+    label: `${padVisible(installed ? tool.displayName : theme.subtle(tool.displayName), nameWidth)}  ${padVisible(formatInstallState(detection), 10)}  ${formatConfiguredBadge(detection)}`,
+    hint: model ? theme.subtle(model.split('/').pop() ?? model) : '',
+    description,
+    search: tool.name,
+  };
+}
+
+// 我的工具：已安装 / 未安装分组，打字搜索，回车打开工具页，Esc 返回
+async function showToolSelector(): Promise<void> {
+  let last: string | undefined;
+  while (true) {
+    uiRenderer.renderPage(t('menu_my_tools'));
+    const detections = detectSorted(toolManager.getAll());
+    const nameWidth = Math.max(...detections.map(detection => visibleWidth(detection.tool.displayName)));
+    const installed = detections.filter(detection => detection.installed !== false);
+    const missing = detections.filter(detection => detection.installed === false);
+    const { value, action } = await menuPrompt<string>({
+      message: t('menu_select_action'),
+      default: last,
+      escape: true,
+      searchable: true,
+      pageSize: 18,
+      items: [
+        { separator: theme.subtle(t('tool_group_installed', { count: String(installed.length) })) },
+        ...installed.map(detection => toolEntry(detection, nameWidth)),
+        ...(missing.length ? [{ separator: theme.subtle(t('tool_group_missing', { count: String(missing.length) })) }] : []),
+        ...missing.map(detection => toolEntry(detection, nameWidth)),
+      ],
+    });
+    if (action === 'escape') return;
+    last = value;
+    const tool = toolManager.get(value);
+    if (tool) await showToolMenu(tool);
+  }
+}
+
+async function runSwitchModelFlow(): Promise<void> {
+  const connected = connectedToolNames();
+  if (!connected.length) {
+    uiRenderer.renderPage(t('menu_switch_model'));
+    uiRenderer.renderHint(t('menu_switch_model_none'));
+    await promptHelper.pressEnter();
+    return;
+  }
+  await runToolSetupFlow(toolManager.getAll().filter(tool => connected.includes(tool.name)));
 }

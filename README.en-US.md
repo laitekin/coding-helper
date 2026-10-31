@@ -31,8 +31,19 @@
 | Hermes Agent | CLI | `~/.hermes/config.yaml` |
 | Factory Droid | CLI | [配置说明 / Configuration](docs/tools/droid.md) |
 | OpenCode | CLI | `~/.config/opencode/opencode.json` |
+| DeepSeek Harness (dsh) | CLI | [配置说明 / Configuration](docs/tools/dsh.md) |
 
 ## ✨ Features
+
+Quick configuration accepts `claude,codex,opencode` or `all` for installed CLI tools. `--dry-run` previews without writing files; `--no-save` writes clients and restoration journals without saving helper keys/endpoints/models, and skips launch-only tools. Only successful model settings are saved. Exit codes are 1 if no tool succeeds and 2 for partial write failures. Previews still perform network checks and omit configuration contents.
+
+`coding-helper setup --tools codex --dry-run --json` previews transactions in memory and reports file paths, operations and line counts without creating client directories, backups, locks or journals. Configuration contents are omitted to protect existing credentials. MiniMax's external writer does not support safe previews and reports failure explicitly.
+
+Quick setup: `coding-helper opencode [API key] [model ID]`; keys can also come from `QINIU_API_KEY` or saved settings. Supports `--intl` and `--json`. Use `--key` for any key format and `--model` to avoid positional ambiguity. Helper settings are saved only after validation and successful client configuration. Codex compatibility is checked using a minimal Responses request.
+
+`coding-helper auth <key> --sync` updates clients still configured for Qiniu and returns nonzero on failures; the same key can be retried. Without `--sync`, non-interactive calls only save the key, while terminals offer a tool selection. Other providers are preserved.
+
+`coding-helper setup --tools claude,codex --yes` configures selected tools using saved models; omit `--tools` to select installed tools. Supports `--json` and `--key-stdin`; a stdin key is saved only after a successful tool configuration. Tools requiring an unselected model are skipped.
 
 - **🎯 Interactive Wizard** — Guided step-by-step setup for language, endpoint, API Key, and model on first run
 - **🌐 Multi-Region Support** — Domestic (api.qnaigc.com) / International (api.modelink.ai) endpoints
@@ -46,6 +57,9 @@
 - **🧱 OpenCode Integration** — Add a Qiniu provider and make it the default model; unloading restores the previous values
 - **🛡️ OpenCode safe writes** — For OpenCode, back up the original file to `~/.coding-helper/backups/` and write atomically; a config that fails to parse is reported, never overwritten
 - **🔍 Health Check** — Built-in `doctor` command to verify config, API Key, network, tools, Git, and Node.js
+- After validating the key, `doctor` sends a minimal one-output-token model request to check account availability; network or model errors remain unknown rather than being reported as healthy.
+- **Tool status** — `coding-helper status` shows installation and Qiniu configuration state. Add `--json` for machine-readable output without API keys. Configuration state does not verify account or network health; detection errors return exit code 1.
+- **Restore settings** — `coding-helper restore [tool,tool]` restores recorded originals and accepts tool aliases. With no tool names, it selects tools with restoration records or Qiniu configuration. Non-interactive calls require `--yes`. Legacy configuration without a restoration record is preserved with recovery guidance; exit codes are 1 for complete failure and 2 for partial failure.
 - **🌍 Internationalization** — Supports Chinese (zh_CN) and English (en_US)
 
 ## 📋 Prerequisites
@@ -418,3 +432,9 @@ pnpm test
 This project is licensed under the [AGPL-3.0](LICENSE) License.
 
 Hermes uses shared YAML editing and guarded transactions. After restoring the original backup, successfully unload to clear the transaction record before loading again; do not retry reload directly.
+
+### Upgrading legacy restoration records
+
+Claude Code, Grok and Hermes automatically migrate recognized tool-level prior values into file-level records before reload or restore. Migration preserves recorded originals, current unmanaged fields and the complete legacy record; previews never persist it. Legacy versions did not retain full file snapshots, so restoration recovers recorded fields rather than promising the original byte formatting. Unknown fields, corrupt records, changed configuration paths and changed provider ownership continue to block writes. Do not delete `state.json` to bypass protection.
+
+When a Droid model's maximum output reaches its context capacity, input and output each receive half the capacity. Existing valid output budgets remain unchanged.

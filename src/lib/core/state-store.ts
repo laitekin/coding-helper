@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { atomicWriteFile, ConfigParseError, helperDir, readTextFile } from './safe-write.js';
+import { atomicWriteFile, ConfigParseError, helperDir, readTextFile, isPreview, writeTextOrRemove } from './safe-write.js';
 
 // 被七牛覆盖前的原值；null 表示原本不存在
 export type PriorValues = Record<string, unknown>;
@@ -82,6 +82,10 @@ class StateStore {
   // 跨进程串行化“读取原值—写入客户端—更新状态”；回调必须同步完成
   withLock<T>(operation: () => T): T {
     if (this.lockDepth > 0) return operation();
+    if (isPreview()) {
+      if (fs.existsSync(path.join(helperDir(), 'state.lock'))) throw new Error('Another configuration operation is active; retry preview later.');
+      return operation();
+    }
     fs.mkdirSync(helperDir(), { recursive: true, mode: 0o700 });
     const lock = path.join(helperDir(), 'state.lock');
     let descriptor: number;
@@ -106,6 +110,17 @@ class StateStore {
     const tools = this.read().tools;
     const key = this.key(tool, file);
     return Object.hasOwn(tools, key) ? tools[key] : undefined;
+  }
+
+  // 从已有日志提取工具名，不改写事务记录或另存一份装载状态。
+  getRecordedTools(): string[] {
+    return [...new Set(Object.keys(this.read().tools).map(key => {
+      try {
+        const identity: unknown = JSON.parse(key);
+        if (Array.isArray(identity) && identity.length === 2 && typeof identity[0] === 'string' && typeof identity[1] === 'string') return identity[0];
+      } catch { /* 兼容旧版按工具名保存的记录 */ }
+      return key;
+    }))];
   }
 
   // 查找同一工具的文件记录，避免顺序和部分重叠绕过原值保护。
@@ -152,6 +167,25 @@ class StateStore {
     return Object.hasOwn(tools, tool) ? tools[tool]?.priors : undefined;
   }
 
+  // 一次性迁移旧工具记录，完整保留旧数据供审计；不允许与文件记录混用。
+  migrateLegacy(tool: string, expected: ToolState, records: { file: string; state: ToolState }[]): void {
+    this.withLock(() => {
+      const state = this.read();
+      if (!Object.hasOwn(state.tools, tool) || !isDeepStrictEqual(state.tools[tool], expected) || !records.length || this.getFileStates(tool).length) {
+        throw new Error('Legacy restoration state changed or conflicts with file records. Recover before retrying.');
+      }
+      const keys = records.map(entry => this.key(tool, entry.file));
+      if (new Set(keys).size !== keys.length || keys.some(key => Object.hasOwn(state.tools, key))) throw new Error('Conflicting legacy migration targets.');
+      records.forEach((entry, index) => {
+        const next = structuredClone(entry.state);
+        if (index === 0) next.priors = { ...next.priors, legacy: structuredClone(expected) };
+        Object.defineProperty(state.tools, keys[index], { value: next, enumerable: true, configurable: true, writable: true });
+      });
+      delete state.tools[tool];
+      this.write(state);
+    });
+  }
+
   // 只记录第一次看到的原值，重复装载时不会被七牛自己写入的值覆盖
   recordPriors(tool: string, priors: PriorValues, file?: string): void {
     this.withLock(() => {
@@ -161,7 +195,7 @@ class StateStore {
   }
 
   clear(): void {
-    this.withLock(() => fs.rmSync(this.file(), { force: true }));
+    this.withLock(() => { if (isPreview()) writeTextOrRemove(this.file(), undefined); else fs.rmSync(this.file(), { force: true }); });
   }
 }
 

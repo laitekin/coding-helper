@@ -1,8 +1,11 @@
+import { slotModel } from '../core/model-slots.js';
 import { stateStore } from '../core/state-store.js';
+import { isPreview, readTextFile } from '../core/safe-write.js';
 import { isQiniuBaseUrl } from '../endpoints.js';
 import { findCommand, commandVersion } from '../../utils/find-command.js';
 import { applyConfigEdits, restoreConfigEdits } from '../core/config-transaction.js';
-import { parseYamlDocument, setYamlValue, stringifyYamlDocument, deleteYamlValue } from '../core/yaml-edit.js';
+import { migrateLegacyText } from '../core/legacy-state.js';
+import { parseYamlDocument, getYamlValue, setYamlValue, stringifyYamlDocument, deleteYamlValue } from '../core/yaml-edit.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -18,8 +21,27 @@ const HERMES_DIR = path.join(os.homedir(), '.hermes');
 const HERMES_CONFIG_FILE = path.join(HERMES_DIR, 'config.yaml');
 const MANAGED_MODEL_KEYS = ['provider', 'default', 'base_url', 'api_key'] as const;
 
+function migrateHermesState(): void {
+  const keys = [...MANAGED_MODEL_KEYS.map(key => 'model.' + key), ...['provider', 'model', 'base_url', 'api_key'].map(key => 'auxiliary.vision.' + key)];
+  migrateLegacyText('hermes', HERMES_CONFIG_FILE, keys, (content, priors) => {
+    const doc = parseYamlDocument(content), current: unknown = doc.toJS();
+    if (!isRecord(current) || !isRecord(current.model) || !isQiniuBaseUrl(current.model.base_url) || MANAGED_MODEL_KEYS.some(key => !Object.hasOwn(priors, 'model.' + key))) throw new Error('Legacy Hermes configuration is incomplete or ownership changed. Recover before retrying.');
+    const visionKeys = Object.keys(priors).filter(key => key.startsWith('auxiliary.vision.'));
+    if (visionKeys.length && !isQiniuBaseUrl(getYamlValue(doc, ['auxiliary', 'vision', 'base_url'])) &&
+        visionKeys.some(key => (getYamlValue(doc, key.split('.')) ?? null) !== priors[key])) throw new Error('Legacy Hermes vision ownership changed. Recover before retrying.');
+    for (const [key, value] of Object.entries(priors)) {
+      if (value !== null && typeof value !== 'string') throw new Error('Invalid legacy Hermes field. Recover before retrying.');
+      const parts = key.split('.');
+      if (value === null) deleteYamlValue(doc, parts); else setYamlValue(doc, parts, value);
+    }
+    return stringifyYamlDocument(doc);
+  });
+}
+
 // Hermes Agent 工具实现
 export class HermesTool implements ITool {
+  supportsPreview = true;
+  requiresModelSelection = true;
   name = 'hermes';
   displayName = 'Hermes Agent';
   command = 'hermes';
@@ -36,14 +58,21 @@ export class HermesTool implements ITool {
   }
 
   clearModelConfig(): void {
+    migrateHermesState();
     if (!restoreConfigEdits(this.name, [HERMES_CONFIG_FILE]) && fs.existsSync(HERMES_CONFIG_FILE)) {
       throw new Error('No restoration record for Hermes. Configuration is unchanged; remove legacy credentials manually or recover a known backup.');
     }
   }
 
+  isConfigured(): boolean {
+    const config: unknown = parseYamlDocument(readHermesConfig()).toJS();
+    return isRecord(config) && isRecord(config.model) && isQiniuBaseUrl(config.model.base_url);
+  }
+
   async loadConfig(apiKey: string, baseUrl: string, models: ModelConfig): Promise<void> {
     if (!models.hermesModel) throw new Error(t('hermes_model_not_configured'));
     stateStore.withLock(() => {
+      migrateHermesState();
       const canonical = fs.existsSync(HERMES_DIR) ? path.join(fs.realpathSync(HERMES_DIR), 'config.yaml') : HERMES_CONFIG_FILE;
       applyConfigEdits(this.name, [{ file: HERMES_CONFIG_FILE,
         build: (current) => {
@@ -53,7 +82,11 @@ export class HermesTool implements ITool {
           if (!stateStore.getState(this.name, canonical) && model && isQiniuBaseUrl(model.base_url) && typeof model.api_key === 'string' && model.api_key) {
             throw new Error('Legacy Hermes credentials have no restoration record. Configuration is unchanged; remove legacy credentials manually or recover a known backup before loading.');
           }
-          return buildHermesConfig(current ?? '', baseUrl, apiKey, models.hermesModel!);
+          const next = buildHermesConfig(current ?? '', baseUrl, apiKey, models.hermesModel!);
+          const recorded = stateStore.getState(this.name, canonical)?.priors?.files;
+          const entry = Array.isArray(recorded) ? recorded.find(entry => isRecord(entry) && entry.file === canonical) : undefined;
+          const original = isRecord(entry) ? typeof entry.original === 'string' ? entry.original : '' : undefined;
+          return applyHermesVision(next, slotModel(this.name, 'vision', models.hermesModel!, models), baseUrl, apiKey, original);
         } }]);
     });
     applyHermesConfigPermissions(HERMES_DIR, HERMES_CONFIG_FILE);
@@ -94,11 +127,11 @@ export function removeManagedHermesConfig(existing: string): string {
 }
 
 function readHermesConfig(): string {
-  try { return fs.readFileSync(HERMES_CONFIG_FILE, 'utf8'); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return ''; throw error; }
+  return readTextFile(HERMES_CONFIG_FILE) ?? '';
 }
 
 export function applyHermesConfigPermissions(configDir: string, configFile: string): void {
+  if (isPreview()) return;
   if (process.platform === 'win32') {
     return;
   }
@@ -123,4 +156,18 @@ function dumpYaml(config: Record<string, unknown>): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+export function applyHermesVision(content: string, vision: string | undefined, baseUrl: string, apiKey: string, original?: string): string {
+  if (!vision && original === undefined) return content;
+  const doc = parseYamlDocument(content);
+  const before = parseYamlDocument(original ?? '').toJS() as unknown;
+  const auxiliary = isRecord(before) && isRecord(before.auxiliary) ? before.auxiliary : undefined;
+  const prior = auxiliary && isRecord(auxiliary.vision) ? auxiliary.vision : {};
+  const values: Record<string, unknown> = vision ? { provider: 'custom', model: vision, base_url: baseUrl.replace(/\/+$/, '') + '/v1', api_key: apiKey } : prior;
+  for (const key of ['provider', 'model', 'base_url', 'api_key', 'api_mode']) {
+    if (values[key] === undefined) deleteYamlValue(doc, ['auxiliary', 'vision', key]);
+    else setYamlValue(doc, ['auxiliary', 'vision', key], values[key]);
+  }
+  return stringifyYamlDocument(doc);
 }

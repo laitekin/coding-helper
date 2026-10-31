@@ -5,10 +5,16 @@ export interface ITool {
   name: string;
   displayName: string;
   command: string;
+  // 未提供启动参数时使用，例如 dsh 的 web profile。
+  launchArgs?: string[];
   installCommand: string;
 
   // 只通过启动器使用的工具，不写客户端配置文件
   launchOnly?: boolean;
+  requiresModelSelection?: boolean;
+  supportsPreview?: boolean;
+  defaultModel?: string;
+  checkModel?(model: string, connection: { apiKey: string; baseUrl: string }): Promise<string | undefined>;
   // 启动器私有临时设置文件。
   getLaunchSettings?(apiKey: string, baseUrl: string, models: ModelConfig): Record<string, unknown>;
   getLaunchEnv?(apiKey: string, baseUrl: string, models: ModelConfig): Record<string, string | undefined>;
@@ -36,6 +42,9 @@ export interface ITool {
 
   // 获取当前工具配置
   getConfig(): Record<string, unknown>;
+
+  // 只检查持久配置是否接入七牛，不探测网络或泄露 Key。
+  isConfigured?(): boolean;
 
   // 清除模型配置
   clearModelConfig(): void | Promise<void>;

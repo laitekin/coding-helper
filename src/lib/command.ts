@@ -1,6 +1,9 @@
+import { profileListCommand, profileAddCommand, profileUseCommand, profileRemoveCommand } from '../commands/profile.js';
 import { runCommand } from '../commands/run.js';
+import { setupCommand } from '../commands/setup.js';
+import { quickCommand, type QuickOptions } from '../commands/quick.js';
 import { Command } from 'commander';
-import { authCommand, doctorCommand, langShowCommand, langSetCommand } from '../commands/index.js';
+import { authCommand, doctorCommand, langShowCommand, langSetCommand, statusCommand, restoreCommand } from '../commands/index.js';
 import { Wizard } from './wizard/wizard.js';
 import { i18n } from './i18n.js';
 import { toolManager } from './tool-manager.js';
@@ -25,7 +28,17 @@ export function createProgram(): Command {
 
   // 默认行为（无子命令）：首次运行触发向导，否则进入主菜单
   program
-    .action(async () => {
+    .argument('[tool]', 'tool name or alias for quick configuration')
+    .argument('[values...]', 'API key and model ID in either order')
+    .option('--context <tokens>', 'context cap for selected tools: 64k, 1m or auto')
+    .option('--intl', 'prefer the international endpoint')
+    .option('--json', 'print quick configuration results as JSON')
+    .option('--key <key>', 'explicit API key, including non-sk formats')
+    .option('--model <id>', 'explicit model ID to avoid positional ambiguity')
+    .option('--dry-run', 'preview quick configuration without writing files')
+    .option('--no-save', 'write client settings without saving helper connection or models')
+    .action(async (tool: string | undefined, values: string[], options: QuickOptions) => {
+      if (tool) { await quickCommand(tool, values, options); return; }
       const wizard = new Wizard();
       await wizard.run();
     });
@@ -37,17 +50,39 @@ export function createProgram(): Command {
     .action(async () => {
       const wizard = new Wizard();
       i18n.init();
-      await wizard.runInitWizard();
-      await wizard.runMainMenu();
+      if (await wizard.runInitWizard()) await wizard.runMainMenu();
     });
 
   // auth - API Key 管理
   program
     .command('auth [token]')
     .description('Manage API Key')
-    .action(async (token?: string) => {
-      await authCommand(token);
+    .option('--sync', 'also update clients still configured for Qiniu')
+    .action(async (token: string | undefined, options: { sync?: boolean }) => {
+      await authCommand(token, options);
     });
+
+  // status - 只读查询安装与配置状态
+  program.command('setup')
+    .description('Configure selected or installed coding tools')
+    .option('--tools <names>', 'comma-separated tool names or aliases')
+    .option('-y, --yes', 'skip interactive tool and model selection')
+    .option('--json', 'print results as JSON')
+    .option('--key-stdin', 'read an API key from standard input')
+    .option('--dry-run', 'preview files without writing client settings or journals')
+    .action(async (options: import('../commands/setup.js').SetupOptions) => { await setupCommand(options); });
+
+  // status - 只读查询安装与配置状态
+  program.command('status')
+    .description('Show coding tool installation and Qiniu configuration status')
+    .option('--json', 'print status as JSON')
+    .action((options: { json?: boolean }) => { statusCommand(options); });
+
+  // restore - 根据原有事务记录还原，未记录的旧配置由适配器提示恢复方法。
+  program.command('restore [tools]')
+    .description('Restore previous client settings using saved restoration records')
+    .option('-y, --yes', 'skip confirmation; required for non-interactive use')
+    .action(async (tools: string | undefined, options: { yes?: boolean }) => { await restoreCommand(tools, options); });
 
   // doctor - 健康检查
   program
@@ -103,5 +138,10 @@ export function createProgram(): Command {
       }
     });
 
+  const profile = program.command('profile').description('Manage named connections');
+  profile.command('list').option('--json', 'print profiles without credentials').action(profileListCommand);
+  profile.command('add <name> [key]').option('--intl', 'international endpoint').option('--base-url <url>', 'custom gateway root URL').option('--key-stdin', 'read key from stdin').option('--use', 'activate the profile').action(profileAddCommand);
+  profile.command('use <name> [tools]').option('--sync', 'update configured clients').action(profileUseCommand);
+  profile.command('remove <name>').action(profileRemoveCommand);
   return program;
 }

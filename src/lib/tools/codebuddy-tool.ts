@@ -1,3 +1,4 @@
+import { capContextWindow } from './openai-compat-tool.js';
 import { findCommand, commandVersion } from '../../utils/find-command.js';
 import path from 'node:path';
 import os from 'node:os';
@@ -11,6 +12,7 @@ import {
 import { t } from '../i18n.js';
 import { readJsonObjectStrict } from '../core/safe-write.js';
 import { QINIU_VENDOR, loadModelsJson, unloadModelsJson } from './models-json.js';
+import { isQiniuBaseUrl } from '../endpoints.js';
 import { runCodeBuddyModelSelectionFlow } from '../wizard/flows/codebuddy-model-selection-flow.js';
 import { uiRenderer } from '../wizard/ui/ui-renderer.js';
 import { promptHelper } from '../wizard/ui/prompt-helper.js';
@@ -34,6 +36,8 @@ export interface CodeBuddyModel {
 }
 
 export class CodeBuddyTool implements ITool {
+  supportsPreview = true;
+  requiresModelSelection = true;
   name = 'codebuddy';
   displayName = 'CodeBuddy';
   command = 'codebuddy';
@@ -52,6 +56,13 @@ export class CodeBuddyTool implements ITool {
       // 文件不存在或解析失败
     }
     return {};
+  }
+
+  // 同时检查厂商和地址，用户手动切换的条目不算七牛接入。
+  isConfigured(): boolean {
+    const models = readJsonObjectStrict(CODEBUDDY_MODELS_FILE).models;
+    return Array.isArray(models) && models.some(model => model && typeof model === 'object' &&
+      model.vendor === QINIU_VENDOR && isQiniuBaseUrl(model.url));
   }
 
   // 共用写入层只撤销本工具记录的改动
@@ -128,8 +139,8 @@ export class CodeBuddyTool implements ITool {
       vendor: QINIU_VENDOR,
       url: `${baseUrl}/v1/chat/completions`,
       apiKey,
-      maxInputTokens: caps.maxInputTokens,
-      maxOutputTokens: caps.maxOutputTokens,
+      maxInputTokens: capContextWindow(caps.maxInputTokens, this.name),
+      maxOutputTokens: configManager.getContextWindow(this.name) === undefined ? caps.maxOutputTokens : Math.min(caps.maxOutputTokens, Math.floor(capContextWindow(caps.maxInputTokens, this.name) / 2)),
       temperature: DEFAULT_TEMPERATURE,
       supportsToolCall: caps.toolCall,
       supportsImages: caps.images,
