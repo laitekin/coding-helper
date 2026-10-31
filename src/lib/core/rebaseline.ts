@@ -62,7 +62,7 @@ function hasUnfinishedWrite(state: ToolState | undefined): boolean {
   return Array.isArray(entries) && entries.some(entry => !!entry && typeof entry === 'object' && Object.hasOwn(entry, 'before'));
 }
 
-// 外部已切到其他服务：有还原记录、当前不指向七牛，且记录里助手写入的地址确实都已从文件中消失。
+// 外部已切到其他服务：有还原记录、当前不指向七牛，且记录里助手写入的地址确实都已从文件中消失（旧版记录见下）。
 // 仍能找到助手写入的地址（如只是线路切换导致识别失败、或配置目录换了）、或有中断的写入时，都不算外部修改，交给适配器给出恢复指引
 export function isExternallyModified(tool: ITool): boolean {
   if (tool.launchOnly || !hasRestoreRecord(tool)) return false;
@@ -70,7 +70,10 @@ export function isExternallyModified(tool: ITool): boolean {
     if (tool.isConfigured?.() !== false) return false;
     const states = stateStore.getFileStates(tool.name);
     const legacy = stateStore.getState(tool.name);
-    if (legacy || !states.length || states.some(entry => hasUnfinishedWrite(entry.state))) return false;
+    if (hasUnfinishedWrite(legacy) || states.some(entry => hasUnfinishedWrite(entry.state))) return false;
+    // 旧版按工具名的记录没有写入快照和文件路径可核对；适配器迁移又要求当前仍是七牛，外部切换后只能以当前配置为基线（记录归档在清单里）
+    if (!states.length) return !!legacy;
+    if (legacy) return false;
     const statuses = states.map(({ file, state }) => recordStatus(file, state));
     return statuses.includes('gone') && !statuses.includes('ours');
   } catch { return false; }

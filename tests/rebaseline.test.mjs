@@ -100,3 +100,22 @@ test('generic transactions: interrupted writes and records in another directory 
   assert.equal(stateStore.getFileStates(fake.name).length, 2);
   stateStore.removeToolRecords(fake.name);
 });
+
+test('a legacy record with an externally switched config is archived and the write goes through', async () => {
+  const { applyTool } = await import('../dist/lib/core/tool-service.js');
+  for (const entry of stateStore.getRecordedTools()) stateStore.removeToolRecords(entry);
+  const deepseek = '{\n  "env": {\n    "ANTHROPIC_BASE_URL": "https://api.deepseek.com/anthropic",\n    "ANTHROPIC_AUTH_TOKEN": "sk-deepseek"\n  }\n}\n';
+  fs.writeFileSync(settings, deepseek);
+  // 旧版按工具名保存、只有字段原值的记录
+  stateStore.setState('claude-code', { priors: { 'env.ANTHROPIC_BASE_URL': null, 'env.ANTHROPIC_AUTH_TOKEN': null } });
+  assert.equal(isExternallyModified(tool), true);
+  stateStore.setState('claude-code', { priors: { 'env.ANTHROPIC_BASE_URL': null }, pending: { before: null, after: '', applied: {} } });
+  assert.equal(isExternallyModified(tool), false, 'interrupted legacy write must be recovered first');
+  stateStore.setState('claude-code', { priors: { 'env.ANTHROPIC_BASE_URL': null, 'env.ANTHROPIC_AUTH_TOKEN': null } });
+  const result = await applyTool(tool, { apiKey: 'sk-qiniu-new', baseUrl: 'https://api.qnaigc.com', models });
+  assert.equal(result.status, 'success'); assert.equal(stateStore.getState('claude-code'), undefined);
+  const archive = fs.readdirSync(backupsRoot()).filter(name => name.startsWith('rebaseline-claude-code-')).map(name => path.join(backupsRoot(), name, 'manifest.json'))
+    .map(file => JSON.parse(fs.readFileSync(file, 'utf8'))).find(manifest => Object.hasOwn(manifest.records, 'claude-code'));
+  assert.ok(archive, 'legacy record must be archived');
+  await tool.unloadConfig(); assert.equal(fs.readFileSync(settings, 'utf8'), deepseek);
+});
