@@ -483,5 +483,15 @@
   "page_apikey": "Enter your Qiniu API Key",
   "page_tools": "Choose tools to connect to Qiniu",
   "page_tools_hint": "Installed tools come first; Space to select several. Original configs are backed up before changes",
-  "page_confirm": "Review the changes"
+  "page_confirm": "Review the changes",
+  "profile_subtitle": "A profile is a key + endpoint pair. Switch between accounts or regions; tools can also use a profile of their own",
+  "profile_use_now": "Switch to profile {{name}} now?",
+  "endpoint_desc_china": "Fastest from mainland China",
+  "endpoint_desc_international": "Use outside mainland China, or when the China endpoint is slow",
+  "endpoint_desc_custom": "A private deployment or corporate proxy compatible with the Qiniu API",
+  "account_subtitle": "The key and endpoint decide which Qiniu account every connected tool uses",
+  "account_apikey_desc": "After changing it you can sync connected tools",
+  "account_endpoint_desc": "China / International / custom address",
+  "apikey_current_replace": "Current key {{key}}. Entering a new key replaces it",
+  "profile_operation_failed": "Profile operation failed. Check the name, key, endpoint and configuration, then try again"
 }

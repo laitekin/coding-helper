@@ -85,7 +85,14 @@ export const uiRenderer = {
     const columns = Math.max(12, process.stdout.columns || 100);
     const line = parts.join(theme.subtle('  ·  '));
     if (visibleWidth(line) + 4 <= columns) logger.log(`  ${line}`);
-    else for (const part of parts) logger.log(`  ${part}`);
+    else {
+      // 放不下时分两行：连接一行，接入与配置档一行；再放不下才逐段换行
+      for (const group of [parts.slice(0, 2), parts.slice(2)]) {
+        const text = group.join(theme.subtle('  ·  '));
+        if (visibleWidth(text) + 4 <= columns) logger.log(`  ${text}`);
+        else for (const part of group) logger.log(`  ${part}`);
+      }
+    }
     logger.log(`  ${theme.border('─'.repeat(Math.max(1, Math.min(columns - 4, 72))))}`);
     logger.newLine();
   },

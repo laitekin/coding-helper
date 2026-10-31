@@ -483,5 +483,15 @@
   "page_apikey": "填写七牛 API Key",
   "page_tools": "选择要接入七牛的工具",
   "page_tools_hint": "已安装的排在前面；空格勾选多个，修改前会自动备份原配置",
-  "page_confirm": "检查将要写入的改动"
+  "page_confirm": "检查将要写入的改动",
+  "profile_subtitle": "配置档 = 一组 Key + 线路，可以在多个账号、国内外线路之间切换；工具也可以单独使用某个配置档",
+  "profile_use_now": "现在切换到配置档 {{name}}？",
+  "endpoint_desc_china": "中国大陆网络访问更快",
+  "endpoint_desc_international": "在海外，或国内线路访问较慢时使用",
+  "endpoint_desc_custom": "私有部署或企业代理的地址（需兼容七牛 API）",
+  "account_subtitle": "Key 与线路决定所有已接入工具走哪个七牛账号",
+  "account_apikey_desc": "更换后可以选择同步到已接入的工具",
+  "account_endpoint_desc": "国内线路 / 海外线路 / 自定义地址",
+  "apikey_current_replace": "当前 Key {{key}}，输入新的 Key 会替换它",
+  "profile_operation_failed": "配置档操作失败，请检查名称、Key、线路与配置文件后重试"
 }

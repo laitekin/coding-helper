@@ -87,7 +87,7 @@ export async function showMainMenu(): Promise<void> {
 async function showAccountMenu(): Promise<void> {
   let last: string | undefined;
   while (true) {
-    uiRenderer.renderPage(t('menu_account'));
+    uiRenderer.renderPage(t('menu_account'), undefined, t('account_subtitle'));
     const apiKey = configManager.getApiKey();
     const profiles = configManager.listProfiles();
     const active = configManager.getActiveProfile();
@@ -96,8 +96,8 @@ async function showAccountMenu(): Promise<void> {
       default: last as 'apikey' | undefined,
       escape: true,
       items: [
-        { value: 'apikey', label: t('menu_configure_apikey'), hint: apiKey ? uiRenderer.maskApiKey(apiKey) : t('config_view_not_set') },
-        { value: 'endpoint', label: t('menu_configure_endpoint'), hint: uiRenderer.endpointLabel() },
+        { value: 'apikey', label: t('menu_configure_apikey'), hint: apiKey ? uiRenderer.maskApiKey(apiKey) : t('config_view_not_set'), description: theme.subtle(t('account_apikey_desc')) },
+        { value: 'endpoint', label: t('menu_configure_endpoint'), hint: uiRenderer.endpointLabel(), description: theme.subtle(t('account_endpoint_desc')) },
         {
           value: 'profile',
           label: t('menu_profiles'),

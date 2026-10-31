@@ -12,8 +12,8 @@ import { syncAfterChange } from './sync-tools-flow.js';
 // API Key 输入和验证流程
 export async function runApiKeyFlow(forceSync = false, step?: StepInfo): Promise<boolean> {
   const render = (): void => {
-    if (step) uiRenderer.renderPage(t('page_apikey'), step);
-    else uiRenderer.renderHeader();
+    const current = configManager.getApiKey();
+    uiRenderer.renderPage(t('page_apikey'), step, current ? t('apikey_current_replace', { key: uiRenderer.maskApiKey(current) }) : undefined);
     uiRenderer.renderHint(t('apikey_hint'));
   };
   render();
