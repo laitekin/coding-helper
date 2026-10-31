@@ -1,7 +1,7 @@
 import { t } from '../../i18n.js';
 import { configManager } from '../../config.js';
 import { CUSTOM_ENDPOINT, ENDPOINT_DEFINITIONS, normalizeCustomBaseUrl } from '../../endpoints.js';
-import { uiRenderer } from '../ui/ui-renderer.js';
+import { uiRenderer, type StepInfo } from '../ui/ui-renderer.js';
 import { menuPrompt, textPrompt } from '../ui/prompts.js';
 import { modelService } from '../../model-service.js';
 import { marketModelService } from '../../market-model-service.js';
@@ -23,8 +23,9 @@ export async function pickEndpoint(): Promise<[string, string | undefined] | und
     catch { uiRenderer.renderError(t('endpoint_custom_invalid', { value: '' })); }
   }
 }
-export async function runEndpointSelectionFlow(): Promise<boolean> {
-  uiRenderer.renderHeader();
+export async function runEndpointSelectionFlow(step?: StepInfo): Promise<boolean> {
+  if (step) uiRenderer.renderPage(t('page_endpoint'), step, t('page_endpoint_hint'));
+  else uiRenderer.renderHeader();
   const previous = configManager.baseUrl;
   const picked = await pickEndpoint();
   if (!picked) return false;

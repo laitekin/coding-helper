@@ -4,16 +4,19 @@ import { t } from '../../i18n.js';
 import { configManager } from '../../config.js';
 import { validateApiKey } from '../../api-validator.js';
 import { promptHelper } from '../ui/prompt-helper.js';
-import { uiRenderer } from '../ui/ui-renderer.js';
+import { uiRenderer, type StepInfo } from '../ui/ui-renderer.js';
 import { modelService } from '../../model-service.js';
 import { marketModelService } from '../../market-model-service.js';
 import { syncAfterChange } from './sync-tools-flow.js';
 
 // API Key 输入和验证流程
-export async function runApiKeyFlow(forceSync = false): Promise<boolean> {
-  uiRenderer.renderHeader();
-  // 显示 API Key 获取提示
-  uiRenderer.renderHint(t('apikey_hint'));
+export async function runApiKeyFlow(forceSync = false, step?: StepInfo): Promise<boolean> {
+  const render = (): void => {
+    if (step) uiRenderer.renderPage(t('page_apikey'), step);
+    else uiRenderer.renderHeader();
+    uiRenderer.renderHint(t('apikey_hint'));
+  };
+  render();
 
   // 循环直到成功或用户取消
   while (true) {
@@ -24,8 +27,7 @@ export async function runApiKeyFlow(forceSync = false): Promise<boolean> {
       uiRenderer.renderError(t('apikey_empty'));
       const retry = await promptHelper.confirm(t('apikey_retry'));
       if (!retry) return false;
-      uiRenderer.renderHeader();
-      uiRenderer.renderHint(t('apikey_hint'));
+      render();
       continue;
     }
 
@@ -51,7 +53,6 @@ export async function runApiKeyFlow(forceSync = false): Promise<boolean> {
     const retry = await promptHelper.confirm(t('apikey_retry'));
     if (!retry) return false;
     // 重试前清屏并重新渲染
-    uiRenderer.renderHeader();
-    uiRenderer.renderHint(t('apikey_hint'));
+    render();
   }
 }
