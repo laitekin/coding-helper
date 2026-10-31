@@ -7,3 +7,8 @@ test('DSH tool menu stages a model and saves only after write confirmation',{ski
 test('DSH staged model cancellation returns to the tool menu with no client or model saved',{skip:process.platform==='win32'},async()=>{
  const out=await runPrompt(source+`await showToolMenu(tool);assert.equal(configManager.getModels().toolModels?.dsh,undefined);assert.equal(fs.existsSync(process.env.HOME+'/.dsh'),false);console.log('VERIFIED dsh cancel');`,[...start,[/Main model[\s\S]*?Esc back/,'\x1b'],[/Configure Models[\s\S]*?Esc back/,'\x1b']],110,{rows:40});assert.match(out,/VERIFIED dsh cancel/);
 });
+test('DSH starts from an empty HOME and completes the full first-use wizard',{skip:process.platform==='win32'},async()=>{
+ const out=await runPrompt(source+`import {Wizard} from './dist/lib/wizard/wizard.js';configManager.clearConfig();i18n.init();assert.equal(fs.existsSync(configManager.configFile),false);const done=await new Wizard().runInitWizard();assert.equal(done,true);configManager.reload();assert.equal(configManager.getModels().toolModels.dsh,'z-ai/glm-5.2');assert.equal(tool.isConfigured(),true);console.log('VERIFIED dsh first run');`,[
+  [/请选择语言[\s\S]*?Esc 返回/,'\x1b[B\r'],[/Select API endpoint[\s\S]*?Esc back/,'\x1b[B\r'],[/Enter your API Key[\s\S]*?Esc back/,'fixture-key\r'],[/Select tools[\s\S]*?Esc back/,'\x1b[B'.repeat(13)+' '+'\x1b[C'],[/Type to search[\s\S]*?Type search/,'z-ai/glm-5.2\r'],[/\? Confirm[\s\S]*?Esc back/,'\x1b[A\x1b[A\r'],[/Press Enter/,'\r'],
+ ],110,{rows:40});assert.match(out,/VERIFIED dsh first run/);
+});

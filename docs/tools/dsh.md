@@ -47,3 +47,11 @@ Previews and cancellations do not write. Restoration recovers original file byte
 - [官方默认模型服务](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/core/agent-default-model/README.md)
 
 本地额外用官方 CLI 组合生成配置，并以 Headless 实际调用测试网关验证模型 ID、Bearer 凭据和响应；目录导出不替代启动验证。
+
+可选的官方 CLI 集成测试（安装 dsh 后执行）：
+
+```bash
+DSH_TEST_BINARY="$(command -v dsh)" node --test tests/dsh*.test.mjs
+```
+
+测试使用临时 HOME，并在测试网关验证 Headless 请求和 Web 的会话认证页面访问。另已使用真实七牛海外线路、`z-ai/glm-5.2` 验证 Headless 返回 `OK`，凭据不进入公开日志。
