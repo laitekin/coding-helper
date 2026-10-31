@@ -3,6 +3,7 @@ import { configManager } from '../../config.js';
 import { CUSTOM_ENDPOINT, ENDPOINT_DEFINITIONS, normalizeCustomBaseUrl } from '../../endpoints.js';
 import { uiRenderer, type StepInfo } from '../ui/ui-renderer.js';
 import { theme } from '../ui/theme.js';
+import { promptHelper } from '../ui/prompt-helper.js';
 import { menuPrompt, textPrompt } from '../ui/prompts.js';
 import { modelService } from '../../model-service.js';
 import { marketModelService } from '../../market-model-service.js';
@@ -37,6 +38,7 @@ export async function runEndpointSelectionFlow(step?: StepInfo): Promise<boolean
   configManager.setEndpoint(...picked);
   modelService.clearCache(); marketModelService.clearCache();
   uiRenderer.renderSuccess(t('endpoint_set', { endpoint: configManager.baseUrl }));
-  if (previous !== configManager.baseUrl) await syncAfterChange(false, targets);
+  // 有同步结果时等用户看完再回菜单
+  if (previous !== configManager.baseUrl && (await syncAfterChange(false, targets)).length) await promptHelper.pressEnter();
   return true;
 }

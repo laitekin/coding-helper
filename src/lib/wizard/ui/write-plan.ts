@@ -89,15 +89,12 @@ async function previewByTool(items: PlanItem[]): Promise<{ results: ToolResult[]
   return { results, files };
 }
 
-// 写入时逐个工具显示进度：⠋ 正在写入 Claude Code… → ✔ / ✖
+// 写入时逐个工具显示临时进度（⠋ 正在写入 X…），写完清除，只保留结果表
 function spinnerProgress(): (item: PlanItem, result?: ToolResult) => void {
   let spinner: ReturnType<typeof ora> | undefined;
   return (item, result) => {
-    if (!result) { spinner = ora({ text: t('setup_applying', { tool: item.tool.displayName }), color: 'cyan', indent: 2 }).start(); return; }
-    const text = result.status === 'success' ? t('tool_config_loaded', { tool: item.tool.displayName }) : item.tool.displayName;
-    if (result.status === 'success') spinner?.succeed(text);
-    else if (result.status === 'skipped') spinner?.warn(text);
-    else spinner?.fail(text);
+    if (!result) spinner = ora({ text: t('setup_applying', { tool: item.tool.displayName }), color: 'cyan', indent: 2 }).start();
+    else spinner?.stop();
   };
 }
 

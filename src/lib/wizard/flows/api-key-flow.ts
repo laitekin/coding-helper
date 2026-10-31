@@ -44,7 +44,8 @@ export async function runApiKeyFlow(forceSync = false, step?: StepInfo): Promise
       modelService.clearCache();
       marketModelService.clearCache();
       uiRenderer.renderSuccess(t('apikey_saved'));
-      if (changed || forceSync) await syncAfterChange(forceSync);
+      // 有同步结果时等用户看完再回菜单，否则结果表会被下一页立即清掉
+      if ((changed || forceSync) && (await syncAfterChange(forceSync)).length && process.stdin.isTTY) await promptHelper.pressEnter();
       return true;
     }
 

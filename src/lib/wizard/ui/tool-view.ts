@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import os from 'node:os';
+import ora from 'ora';
 import path from 'node:path';
 import chalk from 'chalk';
 import { t } from '../../i18n.js';
@@ -127,6 +128,16 @@ export function renderResultSummary(results: ToolResult[], options: { undoComman
     logger.log(`  ${theme.subtle(t('result_undo'))}  ${theme.value(options.undoCommand ?? 'npx qiniu-coding-helper restore')}`);
     logger.log(`  ${theme.subtle(t('result_backup_dir', { path: displayPath(backupsRoot()) }))}`);
     logger.newLine();
+  }
+}
+
+// 写入某个工具时的临时进度行（⠋ 正在写入 X…）；完成后清除，结果统一在结果表里展示
+export async function withProgress<T>(tool: ITool, operation: () => Promise<T>): Promise<T> {
+  const spinner = ora({ text: t('setup_applying', { tool: tool.displayName }), color: 'cyan', indent: 2 }).start();
+  try {
+    return await operation();
+  } finally {
+    spinner.stop();
   }
 }
 
