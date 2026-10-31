@@ -68,3 +68,35 @@ console.log('RESULT',JSON.stringify(results.map(r=>r.status)));console.log('QINI
   const out = await runPrompt(source, [[/Restore baseline[\s\S]*?old record[\s\S]*?Esc back/, '\x1b[A\x1b[A\r']], 100, { rows: 40 });
   assert.match(out, /RESULT.*\["success"\]/); assert.match(out, /QINIU true/); assert.match(out, /RESTORED true/); assert.doesNotMatch(out, /sk-deepseek|sk-old|sk-new/);
 });
+
+test('a config that still holds the helper-written endpoint is not treated as an external edit', async () => {
+  for (const entry of stateStore.getRecordedTools()) stateStore.removeToolRecords(entry);
+  fs.writeFileSync(settings, original); await tool.loadConfig('sk-qiniu', 'https://api.qnaigc.com', models);
+  // 例如线路切换后不再识别旧的自定义地址：文件没被外部改过，不能丢弃原始还原记录
+  const shadow = Object.create(tool); shadow.isConfigured = () => false;
+  const before = fs.readFileSync(state, 'utf8');
+  assert.equal(isExternallyModified(shadow), false);
+  assert.throws(() => rebaselineTool(shadow), /still matches/); assert.equal(fs.readFileSync(state, 'utf8'), before);
+  await tool.unloadConfig(); assert.equal(fs.readFileSync(settings, 'utf8'), original);
+});
+
+test('generic transactions: interrupted writes and records in another directory block rebaselining', () => {
+  for (const entry of stateStore.getRecordedTools()) stateStore.removeToolRecords(entry);
+  const fake = { name: 'fake-tx', displayName: 'Fake', isConfigured: () => false };
+  const dirA = path.join(home, 'fake-a'), dirB = path.join(home, 'fake-b'); fs.mkdirSync(dirA, { recursive: true }); fs.mkdirSync(dirB, { recursive: true });
+  const fileA = path.join(dirA, '.env'), fileB = path.join(dirB, '.env');
+  const applied = 'BASE_URL=https://api.qnaigc.com/v1\n';
+  fs.writeFileSync(fileA, 'BASE_URL=https://api.deepseek.com\n');
+  const record = extra => ({ priors: { files: [{ file: fileA, original: null, applied, ...extra }] } });
+  stateStore.setState(fake.name, record({ before: null }), fileA);
+  assert.equal(isExternallyModified(fake), false, 'unfinished transaction must be recovered first');
+  stateStore.setState(fake.name, record({}), fileA);
+  assert.equal(isExternallyModified(fake), true);
+  // 另一个目录的记录仍是助手写入的配置：不能一起丢弃
+  fs.writeFileSync(fileB, applied);
+  stateStore.setState(fake.name, { priors: { files: [{ file: fileB, original: null, applied }] } }, fileB);
+  assert.equal(isExternallyModified(fake), false);
+  assert.throws(() => rebaselineTool(fake), /still matches/);
+  assert.equal(stateStore.getFileStates(fake.name).length, 2);
+  stateStore.removeToolRecords(fake.name);
+});
