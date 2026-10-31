@@ -1,0 +1,9 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {runPrompt} from './helpers/prompt-pty.mjs';
+const source=`import fs from 'node:fs';import assert from 'node:assert/strict';import {configManager} from './dist/lib/config.js';import {i18n} from './dist/lib/i18n.js';import {toolManager} from './dist/lib/tool-manager.js';import {showToolMenu} from './dist/lib/wizard/menus/tool-menu.js';configManager.setLang('en_US');configManager.setApiKey('fixture-key');i18n.init();globalThis.fetch=async()=>new Response(JSON.stringify({status:true,data:[{id:'z-ai/glm-5.2',name:'GLM',features:['工具调用'],model_constraints:{context_length:1000000,max_tokens:128000}}]}));const tool=toolManager.get('dsh');`;
+const start=[[/Configure Models[\s\S]*?Esc back/,'\r'],[/Main model[\s\S]*?Esc back/,'\r'],[/Type to search[\s\S]*?Type search/,'z-ai/glm-5.2\r']];
+test('DSH tool menu stages a model and saves only after write confirmation',{skip:process.platform==='win32'},async()=>{
+ const out=await runPrompt(source+`await showToolMenu(tool);assert.equal(configManager.getModels().toolModels.dsh,'z-ai/glm-5.2');assert.equal(tool.isConfigured(),true);console.log('VERIFIED dsh write');`,[...start,[/Main model[\s\S]*?Esc back/,'\r'],[/\? Confirm[\s\S]*?Esc back/,'\x1b[A\x1b[A\r'],[/Press Enter/,'\r'],[/Configure Models[\s\S]*?Esc back/,'\x1b']],110,{rows:40});assert.match(out,/VERIFIED dsh write/);
+});
+test('DSH staged model cancellation returns to the tool menu with no client or model saved',{skip:process.platform==='win32'},async()=>{
+ const out=await runPrompt(source+`await showToolMenu(tool);assert.equal(configManager.getModels().toolModels?.dsh,undefined);assert.equal(fs.existsSync(process.env.HOME+'/.dsh'),false);console.log('VERIFIED dsh cancel');`,[...start,[/Main model[\s\S]*?Esc back/,'\x1b'],[/Configure Models[\s\S]*?Esc back/,'\x1b']],110,{rows:40});assert.match(out,/VERIFIED dsh cancel/);
+});
