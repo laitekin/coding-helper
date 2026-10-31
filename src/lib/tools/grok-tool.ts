@@ -37,7 +37,7 @@ function modelTable(table: string, model: string, baseUrl: string, apiKey: strin
   ].join('\n');
 }
 
-// 写入 [model.qiniu] 自带模型（BYOK），并把 [models] default 指向它；
+// 主对话、会话标题和摘要共用所选七牛模型，避免辅助请求落到内置模型。
 export function applyGrokConfig(
   existing: string,
   baseUrl: string,
@@ -47,7 +47,9 @@ export function applyGrokConfig(
 ): string {
   const newline = existing.includes('\r\n') ? '\r\n' : '\n';
   let content = removeTomlTable(existing, MODEL_TABLE);
-  content = upsertTomlTableKey(content, 'models', 'default', '"qiniu"');
+  for (const key of ['default', 'session_summary']) {
+    content = upsertTomlTableKey(content, 'models', key, '"qiniu"');
+  }
   const next = normalizeToml(content.trimEnd() + newline + newline + modelTable(MODEL_TABLE, model, baseUrl, apiKey, contextWindow).replace(/\n/g, newline));
   validateToml(next); return next;
 }
