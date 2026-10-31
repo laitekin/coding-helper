@@ -37,6 +37,7 @@ export function createProgram(): Command {
     .option('--model <id>', 'explicit model ID to avoid positional ambiguity')
     .option('--dry-run', 'preview quick configuration without writing files')
     .option('--no-save', 'write client settings without saving helper connection or models')
+    .option('--rebaseline', 'if a tool was switched to another provider outside the helper, back up its old restore record and use the current config as the new baseline')
     .action(async (tool: string | undefined, values: string[], options: QuickOptions) => {
       if (tool) { await quickCommand(tool, values, options); return; }
       const wizard = new Wizard();

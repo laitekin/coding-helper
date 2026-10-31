@@ -1,4 +1,4 @@
-import { executeToolUpdate } from '../../../utils/update-command.js';
+import { executeToolInstall, executeToolUpdate } from '../../../utils/update-command.js';
 import spawn from 'cross-spawn';
 import { findCommand } from '../../../utils/find-command.js';
 import { runCommand } from '../../../commands/run.js';
@@ -16,6 +16,8 @@ import { configManager } from '../../config.js';
 import { promptHelper } from '../ui/prompt-helper.js';
 import { uiRenderer } from '../ui/ui-renderer.js';
 import { theme } from '../ui/theme.js';
+import { currentToolModel, formatConfiguredBadge, quickDetect } from '../ui/tool-view.js';
+import { isExternallyModified } from '../../core/rebaseline.js';
 import type { ITool } from '../../tools/base-tool.js';
 import { logger } from '../../../utils/logger.js';
 import { fetchLatestVersion, isNewerVersion } from '../../version-service.js';
@@ -58,6 +60,7 @@ async function configureWithPlan(tool: ITool, reuse = false): Promise<void> {
 }
 
 type ToolMenuAction =
+  | 'install'
   | 'models'
   | 'load'
   | 'unload'
@@ -92,6 +95,14 @@ export async function showToolMenu(tool: ITool): Promise<void> {
   while (true) {
     uiRenderer.renderHeader(tool.name);
     uiRenderer.renderTitle(t('tool_menu_title', { tool: tool.displayName }));
+    // 一行接入状态与当前模型；外部改成其他服务时说明怎么接入
+    if (!tool.launchOnly) {
+      const detection = quickDetect(tool);
+      const model = currentToolModel(detection);
+      logger.log(`  ${formatConfiguredBadge(detection)}${model ? `   ${theme.subtle(t('tool_detail_model'))} ${theme.value(model)}` : ''}`);
+      if (isExternallyModified(tool)) logger.log(`  ${theme.subtle(t('tool_page_external_hint'))}`);
+      logger.newLine();
+    }
 
     const installedVersion = tool.getVersion();
     const isDesktop = tool.isInstalled() === null;
@@ -110,13 +121,20 @@ export async function showToolMenu(tool: ITool): Promise<void> {
             { name: t('tool_unload_config'), value: 'unload' as const },
           ]),
           { name: `${theme.icon('▸')} ${t('tool_launch')}`, value: 'launch' as const },
-          { name: `${theme.dimIcon('△')} ${t('tool_update')}`, value: 'update' as const },
+          // 未安装时「更新」换成「安装」；我的工具列表里回车即进入安装
+          tool.isInstalled() === false
+            ? { name: `${theme.icon('⬇')} ${t('install_action')}`, value: 'install' as const }
+            : { name: `${theme.dimIcon('△')} ${t('tool_update')}`, value: 'update' as const },
           { name: `${theme.dimIcon('▪')} ${t('tool_view_config')}`, value: 'view' as const },
           { name: `${theme.dimIcon('◁')} ${t('tool_back')}`, value: 'back' as const },
         ],
       });
 
     switch (action) {
+      case 'install':
+        await installTool(tool);
+        break;
+
       case 'models':
         if (PLANNED_TOOLS.includes(tool.name) && !tool.launchOnly) await configureWithPlan(tool);
         else await tool.runModelConfigFlow();
@@ -333,6 +351,45 @@ export async function launchTool(tool: ITool): Promise<void> {
 }
 
 // 更新工具
+// 安装未安装的命令行工具：展示命令，回车确认后执行，装好后重新检测；返回是否已安装
+export async function installTool(tool: ITool): Promise<boolean> {
+  uiRenderer.renderPage(t('install_title', { tool: tool.displayName }), undefined, t('install_subtitle'));
+  uiRenderer.renderConfigItem(t('install_command'), theme.value(tool.installCommand));
+  logger.newLine();
+  const { value, action } = await menuPrompt<'install' | 'back'>({
+    message: t('install_prompt', { tool: tool.displayName }), escape: true, default: 'install',
+    items: [
+      { value: 'install', label: theme.brandBold(t('install_action')), description: theme.subtle(t('install_action_desc')) },
+      { value: 'back', label: t('tool_back') },
+    ],
+  });
+  if (action === 'escape' || value === 'back') return false;
+  logger.newLine();
+  logger.info(t('install_running', { tool: tool.displayName }));
+  try {
+    executeToolInstall(tool);
+  } catch (error) {
+    uiRenderer.renderError(t('install_failed', { tool: tool.displayName }));
+    const status = (error as { status?: number }).status;
+    if (status !== undefined) uiRenderer.renderHint(t('install_exit_status', { status: String(status) }));
+    await promptHelper.pressEnter();
+    return false;
+  }
+  let installed: boolean | null = false;
+  try { installed = tool.isInstalled(); } catch { installed = false; }
+  if (installed === false) {
+    // 安装成功但当前进程的 PATH 里找不到命令（例如全局 bin 目录未加入 PATH）
+    uiRenderer.renderWarning(t('install_not_found', { tool: tool.displayName, command: tool.command }));
+    await promptHelper.pressEnter();
+    return false;
+  }
+  let version: string | null = null;
+  try { version = tool.getVersion(); } catch { /* 版本仅用于展示 */ }
+  uiRenderer.renderSuccess(t('install_success', { tool: tool.displayName, version: version ? ` v${version.replace(/^v/, '')}` : '' }));
+  await promptHelper.pressEnter(t('install_continue'));
+  return true;
+}
+
 export async function updateTool(tool: ITool): Promise<void> {
   // 桌面应用特殊处理：提示手动更新
   if (tool.isInstalled() === null) {

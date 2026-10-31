@@ -13,6 +13,7 @@ import { uiRenderer, type StepInfo } from './ui-renderer.js';
 import { checkPrompt, menuPrompt, type MenuEntry } from './prompts.js';
 import { renderToolResults, safeToolFailureReason } from './tool-results.js';
 import { theme } from './theme.js';
+import { isExternallyModified, rebaselineTool } from '../../core/rebaseline.js';
 import { detectSorted, displayPath, formatConfiguredBadge, formatInstallState, renderFileChanges, renderResultSummary, toolIcon } from './tool-view.js';
 
 // 勾选要处理的工具：左侧色点，右侧为 detail（如当前模型）或安装 / 接入状态；已安装的排在前面
@@ -23,7 +24,7 @@ export async function selectTargets(message: string, tools: ITool[], options: { 
   const selected = await checkPrompt({ message, allowEmpty: options.allowEmpty, nextLabel: options.nextLabel,
     items: detections.map(detection => {
       const { tool } = detection;
-      const tag = options.detail?.(tool) ?? `${padVisible(formatInstallState(detection), 10)}  ${detection.configured ? formatConfiguredBadge(detection) : ''}`;
+      const tag = options.detail?.(tool) ?? `${padVisible(formatInstallState(detection), 10)}  ${detection.configured || isExternallyModified(tool) ? formatConfiguredBadge(detection) : ''}`;
       return { value: tool.name, label: padVisible(tool.displayName, width), icon: toolIcon(tool.name, detection.installed === false), tag,
         checked: options.preselect?.includes(tool.name) ?? false, preferred: true };
     }),
@@ -54,6 +55,11 @@ async function apply(items: PlanItem[], persist: boolean, progress?: (item: Plan
   for (const item of items) {
     progress?.(item);
     const context = item.context === undefined ? {} : { [item.tool.name]: item.context ?? 0 };
+    if (item.rebaseline) {
+      // 预演中只在内存视图删除旧记录；真实写入前先归档旧记录与当前文件
+      try { rebaselineTool(item.tool); }
+      catch { const failed: ToolResult = { tool: item.tool, status: 'failed', reason: 'rebaseline_failed' }; progress?.(item, failed); results.push(failed); continue; }
+    }
     const result = await configManager.withContextWindows(context, () => withQuietLogs(() => applyTool(item.tool, { apiKey: item.connection!.apiKey!, baseUrl: item.connection!.baseUrl, models: item.models ?? configManager.getModels() })));
     if (result.status === 'failed') result.reason = safeToolFailureReason(result.reason, 'plan_write_failed');
     if (persist && result.status === 'success') {
@@ -121,7 +127,9 @@ function itemSummary(item: PlanItem): string {
   return `${changeText(first)}${extra ? theme.subtle(`  ${extra}`) : ''}`;
 }
 
-function changedFiles(item: PlanItem, files: Map<ITool, PlannedChange[]>): string[] {
+function changedFiles(item: PlanItem, files: Map<ITool, PlannedChange[]>, failed = false): string[] {
+  // 预演未通过时还不知道会改哪些文件，不能显示「没有需要修改的文件」
+  if (failed) return [t('plan_files_preview_failed')];
   const changed = files.get(item.tool);
   return changed?.length ? changed.map(change => displayPath(change.file)) : [t('plan_files_none')];
 }
@@ -148,8 +156,14 @@ export async function confirmAndWrite(title: string, initial: PlanItem[], untouc
     uiRenderer.renderPage(title, options.step, t('plan_subtitle', { count: String(items.length) }));
     // 预演失败仍允许调整计划；只有有效预演才能提交真实写入。
     if (invalid) {
-      renderToolResults(preview.results, undefined, true);
-      uiRenderer.renderHint(t('plan_invalid_hint'));
+      // 外部改成其他服务的工具用提示而不是错误：下面有「以当前配置为基线接入」
+      const externalTools = new Set(items.filter(item => !item.rebaseline && isExternallyModified(item.tool)).map(item => item.tool));
+      for (const result of preview.results) {
+        if (result.status === 'failed' && externalTools.has(result.tool)) uiRenderer.renderWarning(t('plan_external_line', { tool: result.tool.displayName }));
+        else renderToolResults([result], undefined, true);
+      }
+      const external = externalTools.size > 0;
+      uiRenderer.renderHint(t(external ? 'plan_rebaseline_hint' : 'plan_invalid_hint'));
       logger.newLine();
     }
     const nameWidth = Math.max(...items.map(item => visibleWidth(item.tool.displayName)));
@@ -162,10 +176,19 @@ export async function confirmAndWrite(title: string, initial: PlanItem[], untouc
         description: theme.subtle(options.edit ? t('plan_row_hint_edit') : t('plan_row_hint')) });
       if (!open) continue;
       const rows: [string, string][] = item.changes.map(change => [change.label, changeText(change)]);
-      changedFiles(item, preview.files).forEach((file, i) => rows.push([i === 0 ? t('plan_file') : '', theme.subtle(file)]));
+      changedFiles(item, preview.files, preview.results.some(result => result.tool === item.tool && result.status === 'failed')).forEach((file, i) => rows.push([i === 0 ? t('plan_file') : '', theme.subtle(file)]));
       rows.forEach(([label, value], i) => entries.push({ value: `row:${item.tool.name}:${i}`, label: `   ${theme.subtle(label)}`, hint: value, disabled: true }));
     }
     const fileCount = [...preview.files.values()].reduce((sum, changes) => sum + changes.length, 0);
+    // 旧还原记录与当前配置不一致、且当前已不是七牛时，允许以当前配置为基线（先备份）
+    const rebaseCandidates = items.filter(item => !item.rebaseline && isExternallyModified(item.tool) &&
+      preview.results.some(result => result.tool === item.tool && result.status === 'failed'));
+    if (rebaseCandidates.length) {
+      entries.push({ separator: '' });
+      for (const item of rebaseCandidates) entries.push({ value: 'rebase:' + item.tool.name, icon: theme.warning('⚠'),
+        label: theme.warning(t('plan_rebaseline_action', { tool: item.tool.displayName })),
+        description: theme.subtle(t('plan_rebaseline_desc')) });
+    }
     entries.push({ separator: '' },
       { value: WRITE, label: theme.brandBold(t('plan_write', { count: String(items.length) })), disabled: invalid },
       { value: FILES, label: t('plan_view_changes'), hint: invalid ? '' : theme.subtle(t('plan_files_count', { count: String(fileCount) })), description: theme.subtle(t('plan_view_changes_hint', { count: String(fileCount) })) },
@@ -215,6 +238,14 @@ export async function confirmAndWrite(title: string, initial: PlanItem[], untouc
       last = BACK;
       const edited = await options.edit(selected);
       if (edited) { items = items.map(item => item === selected ? { ...edited, connection: selected.connection } : item); preview = await previewByTool(items); }
+      continue;
+    }
+    if (value.startsWith('rebase:')) {
+      items = items.map(item => 'rebase:' + item.tool.name === value ? { ...item, rebaseline: true,
+        changes: [{ label: t('plan_rebaseline'), before: t('plan_rebaseline_before'), after: t('plan_rebaseline_after') }, ...item.changes] } : item);
+      for (const item of items) if (item.rebaseline) expanded.add(item.tool.name);
+      preview = await previewByTool(items);
+      last = BACK;
       continue;
     }
     if (value !== WRITE || invalid) continue;
