@@ -520,5 +520,8 @@
   "install_exit_status": "Install command exit status: {{status}}",
   "install_not_found": "The install command finished, but {{command}} is not on PATH yet. Reopen the terminal or add the global install directory to PATH.",
   "install_success": "{{tool}}{{version}} installed",
-  "install_continue": "Press Enter to continue"
+  "install_continue": "Press Enter to continue",
+  "tool_page_external_hint": "The current config now uses another provider. Choose Configure Models, then on the confirm page use the current config as baseline to connect to Qiniu (old record backed up first).",
+  "plan_external_line": "{{tool}} now uses another provider; the old Qiniu restore record no longer matches",
+  "plan_files_preview_failed": "Preview failed; files cannot be listed yet"
 }

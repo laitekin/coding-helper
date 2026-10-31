@@ -16,6 +16,8 @@ import { configManager } from '../../config.js';
 import { promptHelper } from '../ui/prompt-helper.js';
 import { uiRenderer } from '../ui/ui-renderer.js';
 import { theme } from '../ui/theme.js';
+import { currentToolModel, formatConfiguredBadge, quickDetect } from '../ui/tool-view.js';
+import { isExternallyModified } from '../../core/rebaseline.js';
 import type { ITool } from '../../tools/base-tool.js';
 import { logger } from '../../../utils/logger.js';
 import { fetchLatestVersion, isNewerVersion } from '../../version-service.js';
@@ -93,6 +95,14 @@ export async function showToolMenu(tool: ITool): Promise<void> {
   while (true) {
     uiRenderer.renderHeader(tool.name);
     uiRenderer.renderTitle(t('tool_menu_title', { tool: tool.displayName }));
+    // 一行接入状态与当前模型；外部改成其他服务时说明怎么接入
+    if (!tool.launchOnly) {
+      const detection = quickDetect(tool);
+      const model = currentToolModel(detection);
+      logger.log(`  ${formatConfiguredBadge(detection)}${model ? `   ${theme.subtle(t('tool_detail_model'))} ${theme.value(model)}` : ''}`);
+      if (isExternallyModified(tool)) logger.log(`  ${theme.subtle(t('tool_page_external_hint'))}`);
+      logger.newLine();
+    }
 
     const installedVersion = tool.getVersion();
     const isDesktop = tool.isInstalled() === null;

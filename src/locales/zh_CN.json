@@ -520,5 +520,8 @@
   "install_exit_status": "安装命令退出码：{{status}}",
   "install_not_found": "安装命令已完成，但还找不到 {{command}}。可能需要重新打开终端，或把全局安装目录加入 PATH。",
   "install_success": "{{tool}}{{version}} 已安装",
-  "install_continue": "按回车继续配置"
+  "install_continue": "按回车继续配置",
+  "tool_page_external_hint": "当前配置已改为其他服务。选「配置模型」后，可在确认页「以当前配置为基线接入」七牛（先备份旧记录）。",
+  "plan_external_line": "{{tool}} 当前配置已改为其他服务，旧的七牛还原记录对不上",
+  "plan_files_preview_failed": "预演未通过，暂时无法列出"
 }

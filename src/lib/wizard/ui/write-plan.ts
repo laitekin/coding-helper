@@ -127,7 +127,9 @@ function itemSummary(item: PlanItem): string {
   return `${changeText(first)}${extra ? theme.subtle(`  ${extra}`) : ''}`;
 }
 
-function changedFiles(item: PlanItem, files: Map<ITool, PlannedChange[]>): string[] {
+function changedFiles(item: PlanItem, files: Map<ITool, PlannedChange[]>, failed = false): string[] {
+  // 预演未通过时还不知道会改哪些文件，不能显示「没有需要修改的文件」
+  if (failed) return [t('plan_files_preview_failed')];
   const changed = files.get(item.tool);
   return changed?.length ? changed.map(change => displayPath(change.file)) : [t('plan_files_none')];
 }
@@ -154,8 +156,13 @@ export async function confirmAndWrite(title: string, initial: PlanItem[], untouc
     uiRenderer.renderPage(title, options.step, t('plan_subtitle', { count: String(items.length) }));
     // 预演失败仍允许调整计划；只有有效预演才能提交真实写入。
     if (invalid) {
-      renderToolResults(preview.results, undefined, true);
-      const external = items.some(item => !item.rebaseline && isExternallyModified(item.tool));
+      // 外部改成其他服务的工具用提示而不是错误：下面有「以当前配置为基线接入」
+      const externalTools = new Set(items.filter(item => !item.rebaseline && isExternallyModified(item.tool)).map(item => item.tool));
+      for (const result of preview.results) {
+        if (result.status === 'failed' && externalTools.has(result.tool)) uiRenderer.renderWarning(t('plan_external_line', { tool: result.tool.displayName }));
+        else renderToolResults([result], undefined, true);
+      }
+      const external = externalTools.size > 0;
       uiRenderer.renderHint(t(external ? 'plan_rebaseline_hint' : 'plan_invalid_hint'));
       logger.newLine();
     }
@@ -169,7 +176,7 @@ export async function confirmAndWrite(title: string, initial: PlanItem[], untouc
         description: theme.subtle(options.edit ? t('plan_row_hint_edit') : t('plan_row_hint')) });
       if (!open) continue;
       const rows: [string, string][] = item.changes.map(change => [change.label, changeText(change)]);
-      changedFiles(item, preview.files).forEach((file, i) => rows.push([i === 0 ? t('plan_file') : '', theme.subtle(file)]));
+      changedFiles(item, preview.files, preview.results.some(result => result.tool === item.tool && result.status === 'failed')).forEach((file, i) => rows.push([i === 0 ? t('plan_file') : '', theme.subtle(file)]));
       rows.forEach(([label, value], i) => entries.push({ value: `row:${item.tool.name}:${i}`, label: `   ${theme.subtle(label)}`, hint: value, disabled: true }));
     }
     const fileCount = [...preview.files.values()].reduce((sum, changes) => sum + changes.length, 0);
