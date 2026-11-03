@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'; import test from 'node:test'; import { runPrompt } from './helpers/prompt-pty.mjs';
 test('real PTY model picker search cancellation never saves helper settings', { skip: process.platform === 'win32' }, async () => {
- const out = await runPrompt(`import fs from 'node:fs'; import { configManager } from './dist/lib/config.js'; import { marketModelService } from './dist/lib/market-model-service.js'; import { pickModel } from './dist/lib/wizard/flows/model-pick-flow.js'; configManager.getConnection = () => ({apiKey:'fake',baseUrl:'https://example.com',endpoint:'china'}); marketModelService.fetchModels=async()=>[{id:'z-ai/glm-5.2',name:'GLM',features:['工具调用'],model_constraints:{context_length:200000,max_tokens:8192},architecture:{function_calling:{supported:true}}}]; console.log('RESULT',JSON.stringify(await pickModel({tools:[],title:'PICK_READY'}))); console.log('SAVED',fs.existsSync(configManager.configFile));`, [['glm-5.2', 'zzzz'], ['zzzz', '\x1b'], ['⌕ 直接打字搜索', '\x1b']]);
+ const out = await runPrompt(`import fs from 'node:fs'; import { configManager } from './dist/lib/config.js'; import { marketModelService } from './dist/lib/market-model-service.js'; import { pickModel } from './dist/lib/wizard/flows/model-pick-flow.js'; configManager.getConnection = () => ({apiKey:'fake',baseUrl:'https://example.com',endpoint:'china'}); marketModelService.fetchModels=async()=>[{id:'z-ai/glm-5.2',name:'GLM',features:['工具调用'],model_constraints:{context_length:200000,max_tokens:8192},architecture:{function_calling:{supported:true}}}]; console.log('RESULT',JSON.stringify(await pickModel({tools:[],title:'PICK_READY'}))); console.log('SAVED',fs.existsSync(configManager.configFile));`, [['glm-5.2', 'zzzz'], ['zzzz', '\x1b'], [/⌕ {1,2}直接打字搜索/, '\x1b']]);
  assert.match(out, /RESULT.*"back"/); assert.match(out, /SAVED.*false/);
 });
 const pickerHead = `import {configManager} from './dist/lib/config.js';import {marketModelService} from './dist/lib/market-model-service.js';import {modelService} from './dist/lib/model-service.js';import {pickModel} from './dist/lib/wizard/flows/model-pick-flow.js';configManager.getConnection=()=>({apiKey:'bound-test-key',baseUrl:'https://api.modelink.ai',endpoint:'international'});`;
@@ -30,3 +30,33 @@ test('model picker supports reasoning capability search with current metadata',{
 for(const [input,expected] of [['qwen/foo','qwen/foo'],['qwen/','qwen/foobar']])test('picker distinguishes explicit ID from namespace search: '+input,{skip:process.platform==='win32'},async()=>{
  const source=pickerHead+`marketModelService.fetchModels=async()=>[{id:'qwen/foobar',name:'FooBar',features:['工具调用']}];console.log('RESULT',JSON.stringify(await pickModel({tools:[]})));`;const out=await runPrompt(source,[['←→',input],[input,'\r']]);assert.ok(out.includes('"model":"'+expected+'"'),out);
 });
+// 选中模型的概览在列表上方（提示行之后、搜索框之前），随移动、搜索、切换厂商实时更新；矮终端下整页仍在一屏内
+const overviewSource = pickerHead + `import {i18n} from './dist/lib/i18n.js';i18n.init('zh_CN');const m=(id,ctx)=>({id,name:id,features:['工具调用'],model_constraints:{context_length:ctx,max_tokens:8192},architecture:{function_calling:{supported:true}}});marketModelService.fetchModels=async()=>[m('deepseek/deepseek-v3.1',128000),m('qwen/qwen3-max',1000000),m('z-ai/glm-4.6',200000),...Array.from({length:12},(_,i)=>m('zfill/model-'+i,32000))];console.log('RESULT',JSON.stringify(await pickModel({tools:[],title:'OVERVIEW_READY'})));`;
+const lastFrame = text => text.slice(text.lastIndexOf('? 选择模型'));
+for (const [columns, rows] of [[100, 30], [60, 16]]) {
+  test(`model overview sits above the search box and follows the selection at ${columns}x${rows}`, { skip: process.platform === 'win32' }, async () => {
+    const frames = [];
+    const grab = keys => text => { frames.push(lastFrame(text)); return keys; };
+    const out = await runPrompt(overviewSource, [
+      [/切换厂商[^]*搜索/, grab('\x1b[B')],
+      [/Qwen · 1M/, grab('glm')],
+      [/GLM · 200K/, grab('\x1b')],
+      [/⌕ {1,2}直接打字搜索/, grab('\x1b[C')],
+      [/❯ +deepseek\/deepseek-v3\.1[^]*搜索/, '\x1b[C'],
+      [/❯ +qwen\/qwen3-max[^]*搜索/, grab('\x1b')],
+    ], columns, { rows });
+    frames.push(lastFrame(out));
+    const [first, moved, searched, , tabbed] = frames;
+    // 概览在提示行之后、搜索框之前
+    for (const [frame, text] of [[first, 'DeepSeek · 128K'], [moved, 'Qwen · 1M'], [searched, 'GLM · 200K']]) {
+      const overview = frame.indexOf(text), search = frame.indexOf('⌕');
+      assert.ok(overview > 0 && search > overview, `overview "${text}" not above the search box:\n${frame}`);
+    }
+    // 切换到 Qwen 厂商后概览跟着更新
+    assert.match(tabbed, /Qwen · 1M/);
+    // 从提示行到操作提示都在一屏内（另留 1 行给光标）
+    const used = first.split('\n').length;
+    assert.ok(used < rows, `menu uses ${used} rows of ${rows}:\n${first}`);
+    assert.match(out, /RESULT "back"/);
+  });
+}

@@ -112,7 +112,7 @@ export interface MenuItem<T> {
   label: string;
   // 右侧的当前值/状态
   hint?: string;
-  // 选中时显示在列表下方
+  // 选中时显示的说明（默认在列表下方，detailPosition: 'top' 时在列表上方）
   description?: string;
   // 隐藏的加速键（数字或字母），按下直接选中并确认；不可搜索的菜单才生效
   key?: string;
@@ -164,7 +164,16 @@ export interface MenuConfig<T> {
   arrows?: boolean;
   // 选中项变化时异步取一行补充信息（如模型兼容性），结果按 value 缓存
   asyncDetail?: (item: MenuItem<T>) => Promise<string> | string | undefined;
+  // 选中项说明的位置：'top' 放在提示行之后、搜索框与标签之前（固定高度，随选中项实时更新），
+  // 并按终端高度缩小列表，保证说明、搜索框、列表与操作提示在一屏内
+  detailPosition?: 'top' | 'bottom';
   pageSize?: number;
+}
+
+// 文本在当前终端宽度下占用的行数（含自动折行）
+function screenRows(text: string): number {
+  const columns = process.stdout.columns || 100;
+  return text.split('\n').reduce((sum, line) => sum + Math.max(1, Math.ceil(visibleWidth(line) / columns)), 0);
 }
 
 export interface MenuResult<T> {
@@ -321,10 +330,45 @@ const menuView = createPrompt(<T,>(config: MenuConfig<T>, done: (result: MenuRes
     ...all.map((e) => 4 + iconWidth + labelWidth + 4 + visibleWidth(hintOf(e)) + 2),
   ));
 
+  // 列表之外的各行：提示行、搜索框、标签、无结果提示、说明区与操作提示
+  const detailTop = config.detailPosition === 'top';
+  const searchLine = config.searchable ? (() => {
+    const matches = !query ? 0 : config.items.filter((e) => selectable(e) && !e.pinned && (config.filter ?? defaultFilter)(e, query) !== undefined).length;
+    // 光标：输入后跟在搜索词末尾；未输入或清空后位于占位文字起始处
+    const cursor = cursorOn.current ? CURSOR_ON : ' ';
+    return query
+      ? `  ${theme.brand('⌕')} ${theme.value(query)}${cursor}   ${theme.subtle(t('ui_search_found', { count: String(matches) }))}`
+      : `  ${theme.subtle('⌕')} ${cursor}${theme.subtle(config.placeholder ?? t('ui_search_placeholder'))}`;
+  })() : undefined;
+  const tabsLine = config.tabs?.length ? `  ${config.tabs.map((x, i) => {
+    const on = query ? i === 0 : i === tab;
+    return on ? chalk.bgHex('#1C2733').hex('#E8F6FF')(` ${x.label} `) : theme.subtle(` ${x.label} `);
+  }).join(' ')}` : undefined;
+  const hasMatches = query ? config.items.some((e) => selectable(e) && !e.pinned && (config.filter ?? defaultFilter)(e, query) !== undefined) : true;
+  const emptyLine = hasMatches ? undefined : `  ${theme.subtle(config.emptyText?.(query) ?? t('ui_search_empty'))}`;
+  const footer = config.footer ?? standardHints({ back: !!config.escape, search: config.searchable, tabs: !!config.tabs?.length });
+  const footerText = `  ${renderKeyHints(query ? [['Esc', t('ui_key_clear_search')], [t('ui_key_enter'), t('ui_key_confirm')]] : footer)}`;
+  const extra = current && current.value !== CUSTOM ? details.get(current.value) : undefined;
+  const detailText = [current?.description, extra].filter(Boolean).join('\n');
+  // 上方说明区按所有选项中最多的行数固定高度，移动选中项时列表不跳动；放不下的行截断，避免折行
+  const detailRows = detailTop
+    ? Math.max(0, ...all.map((e) => (e.description ? e.description.split('\n').length : 0))) + (config.asyncDetail ? 1 : 0)
+    : 0;
+  const detailLines = detailTop ? Array.from({ length: detailRows }, (_, i) => {
+    const line = detailText.split('\n')[i] ?? '';
+    return visibleWidth(line) > terminalWidth() - 4 ? `  ${theme.subtle(truncate(stripAnsi(line), terminalWidth() - 4))}` : `  ${line}`;
+  }) : [];
+  const requestedPageSize = config.pageSize ?? 14;
+  const fixedRows = 1 + (searchLine ? screenRows(searchLine) : 0) + (tabsLine ? screenRows(tabsLine) : 0) + (emptyLine ? 1 : 0)
+    + (detailTop ? detailRows + 1 : 0) + 1 + screenRows(footerText) + 1;
+  const pageSize = detailTop && process.stdout.rows
+    ? Math.max(Math.min(3, requestedPageSize), Math.min(requestedPageSize, process.stdout.rows - fixedRows))
+    : requestedPageSize;
+
   const page = usePagination({
     items,
     active: Math.max(0, activeIndex),
-    pageSize: config.pageSize ?? 14,
+    pageSize,
     loop: false,
     renderItem({ item, isActive }) {
       if (isSeparator(item)) return item.separator ? `  ${theme.subtle(item.separator)}` : '';
@@ -346,32 +390,17 @@ const menuView = createPrompt(<T,>(config: MenuConfig<T>, done: (result: MenuRes
     return `${theme.success('✔')} ${theme.heading(config.message)} ${theme.brand(current?.value === CUSTOM ? query : current?.label ?? '')}`;
   }
   const lines = [`${theme.brand('?')} ${theme.heading(config.message)}`];
-  if (config.searchable) {
-    const matches = !query ? 0 : config.items.filter((e) => selectable(e) && !e.pinned && (config.filter ?? defaultFilter)(e, query) !== undefined).length;
-    // 光标：输入后跟在搜索词末尾；未输入或清空后位于占位文字起始处
-    const cursor = cursorOn.current ? CURSOR_ON : ' ';
-    lines.push(query
-      ? `  ${theme.brand('⌕')} ${theme.value(query)}${cursor}   ${theme.subtle(t('ui_search_found', { count: String(matches) }))}`
-      : `  ${theme.subtle('⌕')} ${cursor}${theme.subtle(config.placeholder ?? t('ui_search_placeholder'))}`);
-  }
-  if (config.tabs?.length) {
-    lines.push(`  ${config.tabs.map((x, i) => {
-      const on = query ? i === 0 : i === tab;
-      return on ? chalk.bgHex('#1C2733').hex('#E8F6FF')(` ${x.label} `) : theme.subtle(` ${x.label} `);
-    }).join(' ')}`);
-  }
-  const hasMatches = query ? config.items.some((e) => selectable(e) && !e.pinned && (config.filter ?? defaultFilter)(e, query) !== undefined) : true;
-  if (!hasMatches) {
-    lines.push(`  ${theme.subtle(config.emptyText?.(query) ?? t('ui_search_empty'))}`);
-  }
+  // 说明在上方：紧跟提示行，下面一条分隔线，再是搜索框与标签
+  if (detailTop && detailRows) lines.push(...detailLines, `  ${theme.border('─'.repeat(Math.max(1, Math.min(terminalWidth() - 4, 60))))}`);
+  if (searchLine) lines.push(searchLine);
+  if (tabsLine) lines.push(tabsLine);
+  if (emptyLine) lines.push(emptyLine);
   if (items.length) lines.push(page);
-  const extra = current && current.value !== CUSTOM ? details.get(current.value) : undefined;
-  if (current?.description || extra) {
+  if (!detailTop && detailText) {
     lines.push('');
-    for (const line of [current?.description, extra].filter(Boolean).join('\n').split('\n')) lines.push(`  ${line}`);
+    for (const line of detailText.split('\n')) lines.push(`  ${line}`);
   }
-  const footer = config.footer ?? standardHints({ back: !!config.escape, search: config.searchable, tabs: !!config.tabs?.length });
-  lines.push('', `  ${renderKeyHints(query ? [['Esc', t('ui_key_clear_search')], [t('ui_key_enter'), t('ui_key_confirm')]] : footer)}`);
+  lines.push('', footerText);
   return `${lines.join('\n')}${CURSOR_HIDE}`;
 });
 

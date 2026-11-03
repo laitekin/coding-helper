@@ -63,7 +63,7 @@ function supports(tool: ITool, m: PickerModel): boolean | undefined {
   return tool.checkModel ? undefined : true;
 }
 
-// 选中行下方：厂商 · 上下文 · 能力，以及每个工具能否使用
+// 列表上方的选中模型概览：厂商 · 上下文 · 能力，以及每个工具能否使用
 function describe(m: PickerModel, tools: ITool[]): string {
   const caps = capabilities(m);
   const vendor = VENDORS.find((v) => v.id === vendorOf(m.id))?.label ?? m.id.split('/')[0];
@@ -151,6 +151,8 @@ export async function pickModel(options: PickOptions): Promise<PickResult> {
       searchable: true,
       customFirst: q => q.trim().includes('/') && !q.trim().endsWith('/') && !byId.has(q.trim()),
       pageSize: 12,
+      // 概览放在列表上方，随选中项、搜索与厂商切换实时更新
+      detailPosition: 'top',
       items,
       tabs: [
         { label: t('model_tab_all'), match: () => true },
