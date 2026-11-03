@@ -39,8 +39,8 @@ for (const [columns, rows] of [[100, 30], [60, 16]]) {
     const grab = keys => text => { frames.push(lastFrame(text)); return keys; };
     const out = await runPrompt(overviewSource, [
       [/切换厂商[^]*搜索/, grab('\x1b[B')],
-      [/Qwen · 1M/, grab('glm')],
-      [/GLM · 200K/, grab('\x1b')],
+      [/1M 上下文/, grab('glm')],
+      [/200K 上下文/, grab('\x1b')],
       [/⌕ {1,2}直接打字搜索/, grab('\x1b[C')],
       [/❯ +deepseek\/deepseek-v3\.1[^]*搜索/, '\x1b[C'],
       [/❯ +qwen\/qwen3-max[^]*搜索/, grab('\x1b')],
@@ -48,15 +48,31 @@ for (const [columns, rows] of [[100, 30], [60, 16]]) {
     frames.push(lastFrame(out));
     const [first, moved, searched, , tabbed] = frames;
     // 概览在提示行之后、搜索框之前
-    for (const [frame, text] of [[first, 'DeepSeek · 128K'], [moved, 'Qwen · 1M'], [searched, 'GLM · 200K']]) {
+    for (const [frame, text] of [[first, '128K 上下文'], [moved, '1M 上下文'], [searched, '200K 上下文']]) {
       const overview = frame.indexOf(text), search = frame.indexOf('⌕');
       assert.ok(overview > 0 && search > overview, `overview "${text}" not above the search box:\n${frame}`);
     }
     // 切换到 Qwen 厂商后概览跟着更新
-    assert.match(tabbed, /Qwen · 1M/);
+    assert.match(tabbed, /qwen3-max  Qwen · 1M 上下文/);
     // 从提示行到操作提示都在一屏内（另留 1 行给光标）
     const used = first.split('\n').length;
     assert.ok(used < rows, `menu uses ${used} rows of ${rows}:\n${first}`);
     assert.match(out, /RESULT "back"/);
+  });
+}
+
+// 概览只展示能力，内容全部来自模型广场接口（/v1/market/models）：发布方、上下文与最大输出、标记、下线日期、能力标签；不显示价格
+const apiModel = `{id:'vendorless-model',name:'Demo-5.1',issuer:{name:'DemoAI'},hot_tags:['热门'],retirement_at:'2999-01-01',features:['工具调用','深度思考','AI 编程'],model_constraints:{context_length:200000,max_tokens:128000},architecture:{function_calling:{supported:true},input_modalities:['text']},pricing_rules_v2:[{details_v2:{th_input:{unit_name:'token',unit_size:1000,unit_price:0.006,unit_price_usd:0.00087},th_output:{unit_name:'token',unit_size:1000,unit_price:0.024,unit_price_usd:0.0035},cache:{unit_name:'token',unit_size:1000,unit_price:0.0001}}},{details_v2:{ncache_peak:{unit_name:'token',unit_size:1000,unit_price:0.008,unit_price_usd:0.00116},output_offpeak:{unit_name:'token',unit_size:1000,unit_price:0.028,unit_price_usd:0.00406}}}]}`;
+for (const [locale, endpoint, expected] of [
+  ['zh_CN', 'china', ['Demo-5.1  DemoAI · 200K 上下文 · 最大输出 128K  热门  2999-01-01 下线', '工具调用 · 深度思考 · AI 编程']],
+  ['en_US', 'international', ['Demo-5.1  DemoAI · 200K context · 128K max output  Hot  retiring 2999-01-01', 'Tool calls · Thinking · Coding']],
+]) {
+  test(`model overview renders market API fields (${locale}, ${endpoint})`, { skip: process.platform === 'win32' }, async () => {
+    const source = `import {configManager} from './dist/lib/config.js';import {marketModelService} from './dist/lib/market-model-service.js';import {pickModel} from './dist/lib/wizard/flows/model-pick-flow.js';import {i18n} from './dist/lib/i18n.js';i18n.init('${locale}');configManager.getConnection=()=>({apiKey:'k',baseUrl:'https://example.com',endpoint:'${endpoint}'});marketModelService.fetchModels=async()=>[${apiModel}];console.log('RESULT',JSON.stringify(await pickModel({tools:[],title:'API_READY'})));`;
+    const out = await runPrompt(source, [[/vendorless-model[^]*(搜索|search)/, '\x1b']], 100, { rows: 30 });
+    const frame = out.slice(out.lastIndexOf('? '), out.lastIndexOf('⌕'));
+    for (const text of expected) assert.ok(frame.includes(text), `missing "${text}" in:\n${frame}`);
+    // 不显示价格
+    assert.ok(!/0\.006|0\.00087|元|\$/.test(frame), frame);
   });
 }

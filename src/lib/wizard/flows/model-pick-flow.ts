@@ -1,6 +1,6 @@
 import ora from 'ora';
 import { modelService } from '../../model-service.js';
-import { t } from '../../i18n.js';
+import { t, i18n } from '../../i18n.js';
 import { configManager, type ModelConfig, type Connection } from '../../config.js';
 import { marketModelService, getModelCapabilities, type MarketModelInfo } from '../../market-model-service.js';
 import { RECOMMENDED_MODELS } from '../../core/quick-args.js';
@@ -63,23 +63,58 @@ function supports(tool: ITool, m: PickerModel): boolean | undefined {
   return tool.checkModel ? undefined : true;
 }
 
-// 列表上方的选中模型概览：厂商 · 上下文 · 能力，以及每个工具能否使用
+// 模型广场的能力标签（features）在英文界面下的显示名；未收录的标签原样显示
+const FEATURE_LABELS_EN: Record<string, string> = {
+  '工具调用': 'Tool calls', '深度思考': 'Thinking', '图像理解': 'Image input', 'AI 编程': 'Coding',
+  '结构化输出': 'Structured output', '联网搜索': 'Web search', '长上下文': 'Long context', '视频理解': 'Video input',
+  '全模态理解': 'Omni-modal', '流式输出': 'Streaming', '上下文缓存': 'Context cache', '音频理解': 'Audio input',
+};
+const HOT_TAG_LABELS_EN: Record<string, string> = { '热门': 'Hot', '上新': 'New', '免费': 'Free', '限时免费': 'Free (limited time)' };
+// 中文界面显示接口原文，其他语言按表翻译
+function localized(map: Record<string, string>, text: string): string {
+  return i18n.getLocale() === 'zh_CN' ? text : map[text] ?? text;
+}
+
+// 列表上方的选中模型概览，参照七牛模型广场的能力标签与 OpenCode 等 CLI 的模型详情行，只展示能力：
+//   第 1 行：名称 · 发布方 · 上下文 · 最大输出，以及热门 / 上新 / 免费 / 即将下线标记
+//   第 2 行：能力标签（工具调用、深度思考、图像理解、AI 编程……）
+//   第 3 行：每个要配置的工具能否使用
+// 内容全部取自 /v1/market/models，接口新增的标签无需改代码即可显示
 function describe(m: PickerModel, tools: ITool[]): string {
-  const caps = capabilities(m);
-  const vendor = VENDORS.find((v) => v.id === vendorOf(m.id))?.label ?? m.id.split('/')[0];
-  const info = [
-    vendor,
-    t('model_context', { size: caps.maxInputTokens ? formatContextSize(caps.maxInputTokens) : '—' }),
-    'capabilitiesUnknown' in m ? t('model_check_later') : caps.toolCall ? t('model_tool_call_yes') : t('model_tool_call_no'),
-    ...(caps.images ? [t('model_vision')] : []),
-  ].join(' · ');
   const compat = tools.map((tool) => {
     const ok = supports(tool, m);
     if (ok === true) return `${theme.success('✔')} ${theme.value(tool.displayName)}`;
     if (ok === false) return `${theme.danger('✖')} ${theme.subtle(tool.displayName)}`;
     return `${theme.warning('?')} ${theme.subtle(`${tool.displayName} ${t('model_check_later')}`)}`;
   }).join('  ');
-  return [theme.subtle(info), compat].filter(Boolean).join('\n');
+  const vendor = VENDORS.find((v) => v.id === vendorOf(m.id))?.label ?? m.id.split('/')[0];
+  if ('capabilitiesUnknown' in m) {
+    return [`${theme.value(m.id)}  ${theme.subtle(vendor)}`, theme.subtle(t('model_info_unknown')), compat].join('\n');
+  }
+  const caps = capabilities(m);
+  // 模型 ID 没有厂商前缀时（如 doubao-seed-2.0-pro）用接口的发布方名称
+  const issuer = VENDORS.some((v) => v.id === vendorOf(m.id)) ? vendor : m.issuer?.name || vendor;
+  const today = new Date().toISOString().slice(0, 10);
+  const badges = [
+    ...(m.hot_tags ?? []).map((tag) => (tag.includes('免费') ? theme.success : tag === '热门' ? theme.warning : theme.brand)(localized(HOT_TAG_LABELS_EN, tag))),
+    ...(m.retirement_at && m.retirement_at >= today ? [theme.danger(t('model_retiring', { date: m.retirement_at }))] : []),
+  ];
+  const facts = [
+    issuer,
+    t('model_context', { size: caps.maxInputTokens ? formatContextSize(caps.maxInputTokens) : '—' }),
+    t('model_max_output', { size: caps.maxOutputTokens ? formatContextSize(caps.maxOutputTokens) : '—' }),
+  ].join(' · ');
+  const title = [`${theme.value(m.name || m.id)}  ${theme.subtle(facts)}`, ...badges].join('  ');
+  // 能力标签：模型广场的 features，缺失时由 architecture 补齐工具调用 / 深度思考 / 图像理解
+  const features = [...(m.features ?? [])];
+  if (caps.toolCall && !features.includes('工具调用')) features.unshift('工具调用');
+  if (caps.reasoning && !features.includes('深度思考')) features.push('深度思考');
+  if (caps.images && !features.includes('图像理解')) features.push('图像理解');
+  const tags = [
+    ...(caps.toolCall ? [] : [theme.warning(t('model_tool_call_no'))]),
+    ...features.map((feature) => theme.brand(localized(FEATURE_LABELS_EN, feature))),
+  ].join(theme.subtle(' · '));
+  return [title, tags, compat].join('\n');
 }
 
 function modelRow(m: PickerModel, options: PickOptions, extra: Partial<MenuItem<string>> = {}): MenuItem<string> {
