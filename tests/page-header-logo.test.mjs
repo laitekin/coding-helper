@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict'; import test from 'node:test'; import { runPrompt } from './helpers/prompt-pty.mjs';
+// 菜单项前可能带图标（如 ≡ ◎），按键定位时允许一个可选图标；工具数取自注册表
+const { toolManager } = await import('../dist/lib/tool-manager.js');
+const TOOL_COUNT = toolManager.getAll().length;
 
 // 各页面共用页头规则：终端放得下「Logo + 状态栏 + 页面内容」时显示完整像素 Logo，否则退回一行标题；
 // 两种情况下页面内容（进度、选项、操作提示）都必须在一屏内
@@ -16,8 +19,8 @@ const pages = [
   ['wizard endpoint step', flow('flows/endpoint-selection-flow.js', 'm.runEndpointSelectionFlow({current:2,total:6})'), [], ['2 / 6', '国内线路', '海外线路', '自定义地址', 'Esc'], '\x1b'],
   ['wizard API key step', flow('flows/api-key-flow.js', 'm.runApiKeyFlow(false,{current:3,total:6})'), [], ['3 / 6', '请输入您的 API Key', 'Esc'], '\x1b'],
   ['main menu', mainMenu, [], ['接入编码工具', '我的工具', '账号与线路', '更多', 'Esc 退出'], '\x1b'],
-  ['account page', mainMenu, [[/Esc 退出/, '\x1b[B\x1b[B\x1b[B'], [/❯ +账号与线路/, '\r']], ['配置 API Key', '配置线路', '配置档', 'Esc 返回'], ['\x1b', [/Esc 退出/, '\x1b']]],
-  ['profile page', mainMenu, [[/Esc 退出/, '\x1b[B\x1b[B\x1b[B'], [/❯ +账号与线路/, '\r'], [/配置档[^]*Esc 返回/, '\x1b[B\x1b[B'], [/❯ +配置档/, '\r']], ['新建配置档', '返回', 'Esc 返回'], ['\x1b', [/配置 API Key[^]*Esc 返回/, '\x1b'], [/Esc 退出/, '\x1b']]],
+  ['account page', mainMenu, [[/Esc 退出/, '\x1b[B\x1b[B\x1b[B'], [/❯ +(?:\S+ )?账号与线路/, '\r']], ['配置 API Key', '配置线路', '配置档', 'Esc 返回'], ['\x1b', [/Esc 退出/, '\x1b']]],
+  ['profile page', mainMenu, [[/Esc 退出/, '\x1b[B\x1b[B\x1b[B'], [/❯ +(?:\S+ )?账号与线路/, '\r'], [/配置档[^]*Esc 返回/, '\x1b[B\x1b[B'], [/❯ +(?:\S+ )?配置档/, '\r']], ['新建配置档', '返回', 'Esc 返回'], ['\x1b', [/配置 API Key[^]*Esc 返回/, '\x1b'], [/Esc 退出/, '\x1b']]],
   ['model slot page', `${pre}const {editToolModels}=await import('./dist/lib/wizard/flows/model-slots-flow.js');await editToolModels(toolManager.get('claude-code'));`, [], ['主模型', '使用 Claude Code 内置模型', '保存并写入', 'Esc 返回'], '\x1b'],
 ];
 
@@ -49,6 +52,7 @@ for (const [name, source, steps, expected, exit] of pages) {
 }
 
 // 列表页：放得下 Logo 与整个列表时才显示 Logo，否则退回一行标题，保证全部工具都在一屏内
+// （13～14 个工具时：46 行放得下 Logo + 整个列表，40 行放不下）
 for (const [rows, logo] of [[46, true], [40, false]]) {
   test(`tool checklist at 100x${rows} ${logo ? 'shows the logo with' : 'drops the logo to keep'} every tool visible`, { skip: process.platform === 'win32' }, async () => {
     const source = `${pre}const {WIZARD_STEP_KEYS}=await import('./dist/lib/wizard/ui/ui-renderer.js');const m=await import('./dist/lib/wizard/flows/tool-setup-flow.js');await m.runToolSetupFlow(undefined,{first:4,total:6,keys:WIZARD_STEP_KEYS});`;
@@ -56,7 +60,7 @@ for (const [rows, logo] of [[46, true], [40, false]]) {
     const screen = strip(raw.split('\x1Bc').findLast(chunk => strip(chunk).includes('4 / 6')));
     assert.equal(/[▀▄█]/.test(screen.split('4 / 6')[0]), logo, screen);
     const total = (screen.match(/[☐☑] [^\n]*(?:已安装|未安装|桌面应用)/g) ?? []).length;
-    assert.equal(total, 13, screen);
+    assert.equal(total, TOOL_COUNT, screen);
     assert.ok(screen.split(/\r?\n/).findLastIndex(line => line.includes('Esc 返回')) + 1 < rows, screen);
   });
 }

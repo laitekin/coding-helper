@@ -30,7 +30,7 @@ test('real PTY main menu reaches full count once every configurable tool is conn
 test('real PTY My tools marks launch-only tools with their launch command', { skip: process.platform === 'win32' }, async () => {
   // Copilot 已安装时排在最前、默认选中，下方显示启动命令；列表徽标为「▸ 启动接入」而不是「○ 未接入」
   const src = head(false).replace("const all=toolManager.getAll()", "toolManager.get('copilot').isInstalled=()=>true;const all=toolManager.getAll()");
-  const out = await runPrompt(src, [[/Esc 退出/, '\x1b[B\x1b[B'], [/❯ +我的工具/, '\r'], [/启动方式[^]*搜索/, '\x1b'], [/Esc 退出/, '\x1b']], 120, { rows: 40 });
+  const out = await runPrompt(src, [[/Esc 退出/, '\x1b[B\x1b[B'], [/❯ +(?:\S+ )?我的工具/, '\r'], [/启动方式[^]*搜索/, '\x1b'], [/Esc 退出/, '\x1b']], 120, { rows: 40 });
   const page = out.slice(out.indexOf('「已接入」'));
   assert.match(page, /「已接入」只统计写入配置文件的工具/);
   assert.match(page, /GitHub Copilot CLI +已安装 +▸ 启动接入/);
