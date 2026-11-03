@@ -28,12 +28,15 @@ test('real PTY main menu reaches full count once every configurable tool is conn
 });
 
 test('real PTY My tools marks launch-only tools with their launch command', { skip: process.platform === 'win32' }, async () => {
-  const out = await runPrompt(head(false), [[/Esc 退出/, '\x1b[B\x1b[B'], [/❯ +我的工具/, '\r'], [/OpenCode[^]*返回/, '\x1b'], [/Esc 退出/, '\x1b']], 120, { rows: 34 });
+  // Copilot 已安装时排在最前、默认选中，下方显示启动命令；列表徽标为「▸ 启动接入」而不是「○ 未接入」
+  const src = head(false).replace("const all=toolManager.getAll()", "toolManager.get('copilot').isInstalled=()=>true;const all=toolManager.getAll()");
+  const out = await runPrompt(src, [[/Esc 退出/, '\x1b[B\x1b[B'], [/❯ +我的工具/, '\r'], [/启动方式[^]*搜索/, '\x1b'], [/Esc 退出/, '\x1b']], 120, { rows: 40 });
   const page = out.slice(out.indexOf('「已接入」'));
   assert.match(page, /「已接入」只统计写入配置文件的工具/);
-  assert.match(page, /GitHub Copilot CLI +启动接入 · coding-helper run copilot/);
-  // 其他工具不带启动接入说明
-  assert.doesNotMatch(page, /Claude Code +启动接入/);
+  assert.match(page, /GitHub Copilot CLI +已安装 +▸ 启动接入/);
+  assert.match(page, /启动方式 +coding-helper run copilot/);
+  // 其他工具仍是「○ 未接入」，不带启动接入标记
+  assert.match(page, /Claude Code +未安装 +○ 未接入/);
 });
 
 // 标语的工具数取自注册表：= 可配置的工具数 + 启动接入的工具数，与状态栏口径一致
