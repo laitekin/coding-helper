@@ -35,3 +35,11 @@ test('real PTY My tools marks launch-only tools with their launch command', { sk
   // 其他工具不带启动接入说明
   assert.doesNotMatch(page, /Claude Code +启动接入/);
 });
+
+// 标语的工具数取自注册表：= 可配置的工具数 + 启动接入的工具数，与状态栏口径一致
+test('header tagline counts every registered tool, configurable plus launch-only', { skip: process.platform === 'win32' }, async () => {
+  const out = await runPrompt(head(false), [[/Esc 退出/, '\x1b']], 120, { rows: 40 });
+  const { total, configurable, launchOnly } = counts(out);
+  assert.match(out, new RegExp(`${total} 款编程助手`));
+  assert.equal(total, configurable + launchOnly.length);
+});

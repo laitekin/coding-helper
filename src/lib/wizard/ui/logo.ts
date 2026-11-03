@@ -4,6 +4,7 @@ import { logger } from '../../../utils/logger.js';
 import { GRADIENT } from './theme.js';
 import { VERSION } from '../../version.js';
 import { t } from '../../i18n.js';
+import { registeredTools } from '../../tool-registry.js';
 import { logoGrid, renderGrid, renderSprite, joinBlocks, pixelsSupported, LOGO_WIDTH, spriteGrid } from './pixel.js';
 
 // "QINIU" ASCII Art（不支持 256 色或终端过窄时使用，约 34 列宽）
@@ -20,9 +21,10 @@ const LOGO_LINES = [
 const LOGO_GAP = 4;
 // 按当前角色的实际宽度判断终端能否容纳像素页头
 
+// 标语里的工具数取自注册表（含只能启动接入的工具），新增工具时不用改文案
 function renderTagline(): void {
   const prefix = `  ${chalk.bold.hex('#E8F6FF')('Coding Helper')}  ${chalk.hex('#7D8B99')(`v${VERSION}`)}`;
-  const line = `${prefix}  ${chalk.hex('#7D8B99')('·')}  ${chalk.hex('#9FB0BF')(t('header_tagline'))}`;
+  const line = `${prefix}  ${chalk.hex('#7D8B99')('·')}  ${chalk.hex('#9FB0BF')(t('header_tagline', { count: String(registeredTools().length) }))}`;
   const columns = process.stdout.columns || 80;
   logger.log(visibleWidth(line) <= columns ? line : prefix);
 }
