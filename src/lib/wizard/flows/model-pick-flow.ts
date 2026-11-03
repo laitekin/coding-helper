@@ -130,6 +130,7 @@ function modelRow(m: PickerModel, options: PickOptions, extra: Partial<MenuItem<
     label: m.id,
     hint: `${theme.subtle((caps.maxInputTokens ? formatContextSize(caps.maxInputTokens) : '—').padStart(5))}  ${tags}`,
     description: describe(m, options.tools),
+    current: m.id === options.current,
     search: m.name,
     ...extra,
   };
