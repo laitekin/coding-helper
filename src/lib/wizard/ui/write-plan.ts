@@ -145,7 +145,7 @@ export async function confirmAndWrite(title: string, initial: PlanItem[], untouc
   let last = BACK;
   while (true) {
     const invalid = preview.results.some(result => result.status === 'failed');
-    uiRenderer.renderPage(title, options.step, t('plan_subtitle', { count: String(items.length) }));
+    uiRenderer.renderPage(title, options.step, t('plan_subtitle', { count: String(items.length) }), undefined, { bodyRows: Math.max(18, (options.step ? 2 : 0) + 3 + items.length + 10) });
     // 预演失败仍允许调整计划；只有有效预演才能提交真实写入。
     if (invalid) {
       renderToolResults(preview.results, undefined, true);

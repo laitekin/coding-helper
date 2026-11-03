@@ -1,6 +1,6 @@
 import { t, i18n } from '../../i18n.js';
 import { promptHelper } from '../ui/prompt-helper.js';
-import { uiRenderer, connectedToolNames, launchOnlyTools } from '../ui/ui-renderer.js';
+import { uiRenderer, connectedToolNames, launchOnlyTools, checklistRows } from '../ui/ui-renderer.js';
 import chalk from 'chalk';
 import { menuPrompt, type MenuEntry } from '../ui/prompts.js';
 import { currentToolModel, detectSorted, formatConfiguredBadge, formatInstallState, toolIcon } from '../ui/tool-view.js';
@@ -27,11 +27,15 @@ import { restoreCommand } from '../../../commands/restore.js';
 type MainMenuAction = 'setup' | 'model' | 'tools' | 'account' | 'doctor' | 'more';
 type MoreAction = 'context' | 'restore' | 'language' | 'update' | 'clear_config';
 
+// 主菜单在页头之下的行数：提示行 1 + 6 项 + 空行 1 + 操作提示 1 + 光标 1 + 余量 1
+const MAIN_MENU_ROWS = 11;
+
 // 主菜单：6 项，右侧显示当前值；Esc 退出
 export async function showMainMenu(): Promise<void> {
   let last: MainMenuAction | undefined;
   while (true) {
-    uiRenderer.renderHeader({ full: true });
+    // 主菜单内容少（提示行 + 6 项 + 操作提示），24 行的终端也能显示完整 Logo；更矮时退回一行标题
+    uiRenderer.renderHeader({ bodyRows: MAIN_MENU_ROWS });
 
     const connected = connectedToolNames();
     // 只检测是否安装，不查版本（查版本要逐个启动工具，太慢）
@@ -170,7 +174,8 @@ function currentModelHint(connected: string[], models: ModelConfig): string {
 // 还原：勾选要还原的工具（默认不勾）后确认
 async function restoreSelected(): Promise<void> {
   const tools = getRestoreTargets(toolManager.getAll());
-  uiRenderer.renderPage(t('menu_restore'), undefined, t('restore_subtitle'));
+  // 标题与说明 3 + 整个还原勾选列表
+  uiRenderer.renderPage(t('menu_restore'), undefined, t('restore_subtitle'), undefined, { bodyRows: 3 + checklistRows(tools.length) });
   if (tools.length === 0) {
     uiRenderer.renderHint(t('restore_nothing'));
     await promptHelper.pressEnter();
@@ -251,8 +256,10 @@ async function showToolSelector(): Promise<void> {
   let last: string | undefined;
   while (true) {
     // 说明「已接入」的口径：只统计写入配置文件的工具，启动接入的工具单独标注
-    uiRenderer.renderPage(t('menu_my_tools'), undefined, launchOnlyTools().length ? t('tools_launch_only_subtitle') : undefined);
     const detections = detectSorted(toolManager.getAll());
+    // 标题与说明 3 + 提示行 + 搜索框 + 两个分组标题 + 全部工具 + 选中项说明 3 + 空行与操作提示 2 + 光标
+    uiRenderer.renderPage(t('menu_my_tools'), undefined, launchOnlyTools().length ? t('tools_launch_only_subtitle') : undefined, undefined,
+      { bodyRows: 3 + 4 + detections.length + 3 + 2 + 1 });
     const nameWidth = Math.max(...detections.map(detection => visibleWidth(detection.tool.displayName)));
     const installed = detections.filter(detection => detection.installed !== false);
     const missing = detections.filter(detection => detection.installed === false);

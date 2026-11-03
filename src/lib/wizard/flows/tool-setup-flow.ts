@@ -5,7 +5,7 @@ import { t } from '../../i18n.js';
 import { applyTool } from '../../core/tool-service.js';
 import { toolManager } from '../../tool-manager.js';
 import { promptHelper } from '../ui/prompt-helper.js';
-import { uiRenderer, FLOW_STEP_KEYS, type StepInfo } from '../ui/ui-renderer.js';
+import { uiRenderer, FLOW_STEP_KEYS, type StepInfo, checklistRows } from '../ui/ui-renderer.js';
 import type { ITool } from '../../tools/base-tool.js';
 
 export async function setupTool(tool: ITool): Promise<boolean> {
@@ -51,7 +51,8 @@ export async function setupTool(tool: ITool): Promise<boolean> {
 export async function runToolSetupFlow(candidates?: ITool[], steps: { first: number; total: number; keys: string[] } = { first: 1, total: FLOW_STEP_KEYS.length, keys: FLOW_STEP_KEYS }): Promise<boolean> {
   const tools = candidates ?? toolManager.getAll();
   const step = (offset: number): StepInfo => ({ current: steps.first + offset, total: steps.total, keys: steps.keys });
-  uiRenderer.renderPage(t('page_tools'), step(0), t('page_tools_hint'));
+  // 进度 2 + 标题与说明 3 + 整个工具勾选列表
+  uiRenderer.renderPage(t('page_tools'), step(0), t('page_tools_hint'), undefined, { bodyRows: 5 + checklistRows(tools.length) });
   const targets = await selectTargets(t('setup_select_tools'), tools);
   if (!targets?.length) return false;
   const previewable = targets.filter(tool => !tool.launchOnly && tool.supportsPreview === true);

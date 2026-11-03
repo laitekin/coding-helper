@@ -1,7 +1,7 @@
 import { registeredTools } from '../../tool-registry.js';
 import chalk from 'chalk';
 import { stringWidth, padEnd, truncate, visibleWidth, padVisible, stripAnsi } from '../../../utils/string-width.js';
-import { logger } from '../../../utils/logger.js';
+import { logger, screen } from '../../../utils/logger.js';
 import { renderLogo as renderLogoArt, logoHeight } from './logo.js';
 import { theme } from './theme.js';
 import { configManager, type Connection } from '../../config.js';
@@ -9,6 +9,24 @@ import { CUSTOM_ENDPOINT, ENDPOINT_DEFINITIONS } from '../../endpoints.js';
 import { t } from '../../i18n.js';
 
 export interface StepInfo { current: number; total: number; keys?: string[]; }
+
+// 页头之下默认给页面内容预留的行数：进度 2 + 标题与说明 3 + 菜单提示 1 + 约 8 行选项 + 说明 2 + 操作提示 2。
+// 终端放得下「Logo + 状态栏 + 这些行」时显示完整 Logo，否则退回一行标题；页面可按自己的内容传 bodyRows
+export const PAGE_BODY_ROWS = 18;
+
+// 勾选列表在页头之下的行数：提示行、全选、分隔线、继续、空行 + 已选摘要、空行 + 操作提示、光标
+export function checklistRows(items: number): number {
+  return items + 9;
+}
+
+export interface HeaderOptions {
+  // true / false 强制；不传时按终端高度自动决定
+  full?: boolean;
+  crumb?: string;
+  connection?: Connection;
+  // 页面内容需要的行数（含操作提示），默认 PAGE_BODY_ROWS
+  bodyRows?: number;
+}
 
 // 首次向导的步骤
 export const WIZARD_STEP_KEYS = ['step_language', 'step_endpoint', 'step_apikey', 'step_tools', 'step_model', 'step_confirm'];
@@ -47,9 +65,9 @@ function statusLines(parts: string[], columns: number): string[] {
 
 // 终端 UI 渲染器
 export const uiRenderer = {
-  // full：用完整 Logo 作页头（调用方先用 logoFits 确认终端高度够用）
-  renderPage(title: string, step?: StepInfo, subtitle?: string, connection?: Connection, options: { full?: boolean } = {}): void {
-    this.renderHeader({ connection, full: options.full });
+  // 页头按终端高度自动决定是否显示完整 Logo；bodyRows 为页面内容需要的行数
+  renderPage(title: string, step?: StepInfo, subtitle?: string, connection?: Connection, options: { full?: boolean; bodyRows?: number } = {}): void {
+    this.renderHeader({ connection, full: options.full, bodyRows: options.bodyRows });
     if (!step) return this.renderTitle(title, subtitle);
     this.renderSteps(step);
     this.renderTitle(title, subtitle);
@@ -73,11 +91,12 @@ export const uiRenderer = {
   // 清屏 - 清除终端内容和滚动缓冲区
   clearScreen(): void {
     process.stdout.write('\x1Bc');
+    screen.reset();
   },
 
   // 终端高度能否在 Logo 与状态栏之下完整放下 bodyRows 行（含操作提示，另留 1 行给光标）
-  logoFits(bodyRows: number): boolean {
-    return (process.stdout.rows || 0) >= logoHeight() + this.statusBarRows() + bodyRows + 1;
+  logoFits(bodyRows = PAGE_BODY_ROWS, connection?: Connection, sprite?: string): boolean {
+    return (process.stdout.rows || 0) >= logoHeight(sprite) + this.statusBarRows(connection) + bodyRows + 1;
   },
 
   // 渲染七牛 Logo
@@ -85,12 +104,15 @@ export const uiRenderer = {
     renderLogoArt(toolName);
   },
 
-  // 统一页面头部：清屏 + Logo + 配置面板（线路 + API Key）
-  renderHeader(options: string | { full?: boolean; crumb?: string; connection?: Connection } = {}): void {
+  // 统一页面头部：清屏 + 完整 Logo（终端够高时）或一行标题 + 状态栏。所有页面共用这一规则：
+  // 放得下 Logo、状态栏与页面内容时显示 Logo，只有空间不足时才退回一行标题。
+  // 传工具名时 Logo 旁显示该工具的角色，一行标题带上工具名
+  renderHeader(options: string | HeaderOptions = {}): void {
     const toolName = typeof options === 'string' ? options : undefined;
-    const header = typeof options === 'string' ? { full: (process.stdout.rows || 24) >= 30, crumb: toolName, connection: undefined } : options;
+    const header: HeaderOptions = typeof options === 'string' ? { crumb: toolName } : options;
+    const full = header.full ?? this.logoFits(header.bodyRows, header.connection, toolName);
     this.clearScreen();
-    if (header.full) this.renderLogo(toolName);
+    if (full) this.renderLogo(toolName);
     else {
       logger.newLine();
       logger.log(`  ${theme.brandBold('QINIU')} ${theme.heading('Coding Helper')}${header.crumb ? theme.subtle('  ›  ') + theme.value(header.crumb) : ''}`);
