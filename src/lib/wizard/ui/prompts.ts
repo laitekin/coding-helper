@@ -5,6 +5,7 @@ import {
   useEffect,
   usePagination,
   useMemo,
+  useRef,
   isEnterKey,
   isUpKey,
   isDownKey,
@@ -27,6 +28,9 @@ const MATCH = chalk.hex('#19C2F0').underline;
 
 // 光标隐藏（与 @inquirer/select 一致，避免闪烁）
 const CURSOR_HIDE = '\x1B[?25l';
+// 搜索框模拟光标的闪烁间隔（与常见终端光标一致）
+const BLINK_MS = 530;
+const CURSOR_ON = chalk.bgHex('#19C2F0')(' ');
 
 function sequenceOf(key: KeypressEvent): string {
   return (key as KeypressEvent & { sequence?: string }).sequence ?? '';
@@ -192,6 +196,24 @@ const menuView = createPrompt(<T,>(config: MenuConfig<T>, done: (result: MenuRes
   const [details] = useState(new Map<T, string | undefined>());
   const [, refreshDetails] = useState({});
 
+  // 可搜索菜单在搜索框里显示闪烁光标：真实终端光标在列表重绘时会跳到末尾，这里用模拟光标；
+  // 按键后先保持常亮再继续闪烁。菜单结束时 inquirer 会清理定时器并恢复终端光标
+  const cursorOn = useRef(true);
+  const lastKey = useRef(0);
+  const [, redraw] = useState(0);
+  const blinks = useRef(0);
+  useEffect(() => {
+    if (!config.searchable) return;
+    const timer = setInterval(() => {
+      // 刚按过键时保持常亮，和真实终端光标一致
+      if (Date.now() - lastKey.current < BLINK_MS) return;
+      cursorOn.current = !cursorOn.current;
+      redraw(++blinks.current);
+    }, BLINK_MS);
+    timer.unref?.();
+    return () => clearInterval(timer);
+  }, []);
+
   // 搜索时跨所有标签过滤并排序；没有搜索时按当前标签筛选
   const items = useMemo((): MenuEntry<T | typeof CUSTOM>[] => {
     if (query) {
@@ -245,6 +267,8 @@ const menuView = createPrompt(<T,>(config: MenuConfig<T>, done: (result: MenuRes
   };
 
   useKeypress((key) => {
+    cursorOn.current = true;
+    lastKey.current = Date.now();
     if (isEnterKey(key)) {
       if (!current) return;
       if (current.value === CUSTOM) return finish({ value: undefined as T, action: 'custom', query });
@@ -322,9 +346,11 @@ const menuView = createPrompt(<T,>(config: MenuConfig<T>, done: (result: MenuRes
   const lines = [`${theme.brand('?')} ${theme.heading(config.message)}`];
   if (config.searchable) {
     const matches = !query ? 0 : config.items.filter((e) => selectable(e) && !e.pinned && (config.filter ?? defaultFilter)(e, query) !== undefined).length;
+    // 光标：输入后跟在搜索词末尾；未输入或清空后位于占位文字起始处
+    const cursor = cursorOn.current ? CURSOR_ON : ' ';
     lines.push(query
-      ? `  ${theme.brand('⌕')} ${theme.value(query)}${chalk.bgHex('#19C2F0')(' ')}   ${theme.subtle(t('ui_search_found', { count: String(matches) }))}`
-      : `  ${theme.subtle('⌕')} ${theme.subtle(config.placeholder ?? t('ui_search_placeholder'))}`);
+      ? `  ${theme.brand('⌕')} ${theme.value(query)}${cursor}   ${theme.subtle(t('ui_search_found', { count: String(matches) }))}`
+      : `  ${theme.subtle('⌕')} ${cursor}${theme.subtle(config.placeholder ?? t('ui_search_placeholder'))}`);
   }
   if (config.tabs?.length) {
     lines.push(`  ${config.tabs.map((x, i) => {

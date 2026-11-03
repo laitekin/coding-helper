@@ -28,3 +28,25 @@ test('search accepts supplementary Unicode characters', { skip: process.platform
 test('unmatched explicit custom values take priority over suggestions', {skip:process.platform==='win32'},async()=>{
  const out=await runPrompt(head+`console.log('RESULT',JSON.stringify(await menuPrompt({message:'CUSTOM_READY',searchable:true,items:[{value:'known',label:'Known'}],suggest:()=>[{value:'known',label:'Known'}],customLabel:q=>'Use '+q})));`,[['CUSTOM_READY','vendor/new'],['vendor/new','\r']]);assert.match(out,/"action":"custom"/);assert.match(out,/"query":"vendor\/new"/);
 });
+// 搜索框闪烁光标：空输入时在占位文字起始处，输入后跟在搜索词末尾，清空后回到占位文字前；退出时恢复终端光标
+test('real PTY search box shows a blinking cursor before the placeholder, after the query and after clearing', { skip: process.platform === 'win32' }, async () => {
+ const src = head + `console.log('RESULT', JSON.stringify(await menuPrompt({message:'SEARCH_READY',escape:true,searchable:true,placeholder:'TYPE_HERE',items:[{value:'qwen',label:'qwen-max'},{value:'k',label:'kimi'}]})));`;
+ const raw = await runPrompt(src, [[/TYPE_HERE[^]*TYPE_HERE/, 'q'], [/⌕ q /, 'w'], [/⌕ qw /, '\x7f'], [/⌕ q /, '\x7f'], [/⌕ {1,2}TYPE_HERE[^]*⌕ {1,2}TYPE_HERE/, '\x1b']], 60, { raw: true });
+ const sgr = '(?:\\x1b\\[[\\d;]*m)*';
+ const cursor = '\\x1b\\[(?:4\\d|10\\d)[\\d;]*m \\x1b\\[49m';
+ // 第一次出现搜索词的搜索行（列表里的 qwen-max 不算）
+ const typed = raw.search(new RegExp(`⌕${sgr} ${sgr}q`)), cleared = raw.lastIndexOf('TYPE_HERE');
+ assert.ok(typed > 0, 'query never rendered');
+ // 空输入：亮与灭两帧都出现（会闪烁），光标位于占位文字之前
+ const before = raw.slice(0, typed);
+ assert.match(before, new RegExp(`⌕${sgr} ${cursor}${sgr}TYPE_HERE`));
+ assert.match(before, new RegExp(`⌕${sgr}  ${sgr}TYPE_HERE`));
+ // 输入后：光标跟在搜索词末尾
+ assert.match(raw, new RegExp(`qw${sgr}${cursor}`));
+ // 清空后：光标回到占位文字之前
+ assert.match(raw.slice(typed), new RegExp(`⌕${sgr} (?:${cursor})?${sgr}TYPE_HERE`));
+ assert.ok(cleared > typed);
+ // Esc 退出后恢复终端光标
+ assert.ok(raw.slice(cleared).includes('\x1B[?25h'), 'cursor not restored');
+ assert.match(raw, /RESULT.*"action":"escape"/);
+});
