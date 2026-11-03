@@ -17,6 +17,12 @@ export interface ConfigPanelItem {
   configured: boolean;
 }
 
+// 只能启动接入的工具（launchOnly，如 Copilot）：不写配置文件，由 coding-helper run 注入环境变量，
+// 不计入「已接入 x / y」，单独说明
+export function launchOnlyTools(): ReturnType<typeof registeredTools> {
+  return registeredTools().filter(tool => tool.launchOnly);
+}
+
 export function connectedToolNames(): string[] {
   return registeredTools().filter(tool => { try { return !tool.launchOnly && tool.isConfigured?.(); } catch { return false; } }).map(tool => tool.name);
 }
@@ -52,6 +58,7 @@ export const uiRenderer = {
       `${theme.success('●')} ${theme.subtle(this.endpointLabel(connection?.endpoint, connection?.baseUrl))}`,
       `${theme.subtle('Key')} ${apiKey ? theme.subtle(this.maskApiKey(apiKey)) : theme.warning(t('config_view_not_set'))}`,
       `${theme.subtle(t('status_applied'))} ${theme.brand(String(connectedToolNames().length))} / ${total}`,
+      ...(launchOnlyTools().length ? [theme.subtle(t('status_launch_only', { count: String(launchOnlyTools().length) }))] : []),
     ];
     const profile = connection ? connection.profile : configManager.getActiveProfile();
     if (profile) parts.push(`${theme.subtle(t('profile_label'))} ${theme.brand(profile)}`);

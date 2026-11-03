@@ -1,6 +1,6 @@
 import { t, i18n } from '../../i18n.js';
 import { promptHelper } from '../ui/prompt-helper.js';
-import { uiRenderer, connectedToolNames } from '../ui/ui-renderer.js';
+import { uiRenderer, connectedToolNames, launchOnlyTools } from '../ui/ui-renderer.js';
 import { menuPrompt } from '../ui/prompts.js';
 import { runLanguageFlow } from '../flows/language-flow.js';
 import { runEndpointSelectionFlow } from '../flows/endpoint-selection-flow.js';
@@ -44,7 +44,7 @@ export async function showMainMenu(): Promise<void> {
       items: [
         { value: 'setup', label: t('menu_setup_tools'), hint: pending > 0 ? t('menu_hint_pending', { count: String(pending) }) : t('menu_hint_all_connected') },
         { value: 'model', label: t('menu_switch_model'), hint: currentModelHint(connected, models) },
-        { value: 'tools', label: t('menu_my_tools'), hint: t('menu_hint_connected', { count: String(connected.length), total: String(total) }) },
+        { value: 'tools', label: t('menu_my_tools'), hint: myToolsHint(connected.length, total) },
         { value: 'account', label: t('menu_account'), hint: apiKey ? `${uiRenderer.maskApiKey(apiKey)} · ${uiRenderer.endpointLabel()}` : t('config_view_not_set') },
         { value: 'doctor', label: t('menu_doctor') },
         { value: 'more', label: t('menu_more'), hint: t('menu_more_hint') },
@@ -207,16 +207,26 @@ async function handleClearConfig(): Promise<boolean> {
   return true;
 }
 
+// 「我的工具」右侧：已接入 x / 可配置的工具数；另有只能启动接入的工具时注明名称（如 Copilot 用 run 启动，不写配置文件）
+function myToolsHint(connected: number, total: number): string {
+  const launchOnly = launchOnlyTools();
+  const base = t('menu_hint_connected', { count: String(connected), total: String(total) });
+  return launchOnly.length ? `${base} · ${t('menu_hint_launch_only', { names: launchOnly.map(tool => tool.displayName).join('、') })}` : base;
+}
+
 // 工具选择器（当有多个工具时选择）
 async function showToolSelector(): Promise<void> {
   const tools = toolManager.getAll();
 
   uiRenderer.renderHeader();
   uiRenderer.renderTitle(t('menu_my_tools'));
+  if (launchOnlyTools().length) { uiRenderer.renderHint(t('tools_launch_only_subtitle')); logger.newLine(); }
 
-  const choices = tools.map((tool) => ({
+  // 只能启动接入的工具在右侧注明启动方式，避免被当成「未接入」
+  const choices: { name: string; value: string; hint?: string }[] = tools.map((tool) => ({
     name: tool.displayName,
     value: tool.name,
+    ...(tool.launchOnly ? { hint: t('tools_launch_only_hint', { command: `coding-helper run ${tool.name}` }) } : {}),
   }));
 
   choices.push({ name: t('tool_back'), value: '__back__' });

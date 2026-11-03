@@ -10,9 +10,10 @@ export const MANUAL_MODEL_VALUE = '__manual_model__';
 
 export const promptHelper = {
   async pickModel(options: PickOptions): Promise<PickResult> { return pickModel(options); },
-  async select<T extends string>(message: string, choices: { name: string; value: T }[]): Promise<T> {
+  // hint：右侧说明（可选）
+  async select<T extends string>(message: string, choices: { name: string; value: T; hint?: string }[]): Promise<T> {
     const back = choices.find(choice => ['back', 'exit', '__back__'].includes(choice.value));
-    const result = await menuPrompt({ message, escape: !!back, items: choices.map(choice => ({ value: choice.value, label: choice.name })) });
+    const result = await menuPrompt({ message, escape: !!back, items: choices.map(choice => ({ value: choice.value, label: choice.name, hint: choice.hint })) });
     return result.action === 'escape' ? back!.value : result.value;
   },
   async password(message: string): Promise<string> { return await secretPrompt({ message, escape: true }) ?? ''; },
