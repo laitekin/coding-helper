@@ -36,11 +36,12 @@ const lastFrame = text => text.slice(text.lastIndexOf('? 选择模型'));
 for (const [columns, rows] of [[100, 30], [60, 16]]) {
   test(`model overview sits above the search box and follows the selection at ${columns}x${rows}`, { skip: process.platform === 'win32' }, async () => {
     const frames = [];
+    // 每一步都等到底部操作提示（…搜索）出现再截取：高负载下输出会分块到达，避免截到画了一半的一帧
     const grab = keys => text => { frames.push(lastFrame(text)); return keys; };
     const out = await runPrompt(overviewSource, [
       [/切换厂商[^]*搜索/, grab('\x1b[B')],
-      [/1M 上下文/, grab('glm')],
-      [/200K 上下文/, grab('\x1b')],
+      [/1M 上下文[^]*搜索/, grab('glm')],
+      [/200K 上下文[^]*搜索/, grab('\x1b')],
       [/⌕ {1,2}直接打字搜索/, grab('\x1b[C')],
       [/❯ +deepseek\/deepseek-v3\.1[^]*搜索/, '\x1b[C'],
       [/❯ +qwen\/qwen3-max[^]*搜索/, grab('\x1b')],
