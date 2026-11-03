@@ -245,6 +245,28 @@ export function currentMainModel(tool: ITool, models: ModelConfig = configManage
   return tool.isConfigured?.() ? savedModelFor(tool, models) ?? tool.defaultModel : undefined;
 }
 
+// Claude Code 使用内置模型：不写自定义模型映射，清空各槽位（与原「不自定义模型」流程写入的内容一致）
+export function builtinPlanForClaude(tool: ITool): PlanItem {
+  const saved = configManager.getModels();
+  const builtinValue = t('slots_builtin_value');
+  const before = saved.claudeCode?.useDefaultModels ? builtinValue : currentMainModel(tool, saved);
+  const previous = slotOverrides(tool.name, saved);
+  const changes: PlanChange[] = [
+    { label: mainLabel(tool), before, after: builtinValue },
+    ...toolSlots(tool.name).map((slot) => ({ label: t(slot.labelKey), before: before === builtinValue ? builtinValue : before ? previous[slot.id] ?? before : undefined, after: builtinValue })),
+  ];
+  return {
+    tool,
+    models: {
+      claudeCode: { haikuModel: undefined, sonnetModel: undefined, opusModel: undefined, subagentModel: undefined, useDefaultModels: true },
+      slotModels: { [tool.name]: {} },
+    },
+    changes,
+    overrides: {},
+    builtin: true,
+  };
+}
+
 // 一个工具的写入计划：主模型 + 各槽位（单独设置过的保持不变，其余跟随主模型）
 export function planForTool(tool: ITool, main: string, overrides: Record<string, string> = slotOverrides(tool.name), note = ''): PlanItem {
   const saved = configManager.getModels();
