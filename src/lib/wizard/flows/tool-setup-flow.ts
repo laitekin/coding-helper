@@ -11,6 +11,11 @@ import { toolManager } from '../../tool-manager.js';
 import { promptHelper } from '../ui/prompt-helper.js';
 import { uiRenderer, FLOW_STEP_KEYS, type StepInfo, checklistRows } from '../ui/ui-renderer.js';
 import type { ITool } from '../../tools/base-tool.js';
+import { installTool } from '../menus/tool-menu.js';
+
+function installState(tool: ITool): boolean | null {
+  try { return tool.isInstalled(); } catch { return null; }
+}
 
 // 首次配置与确认页调整共用计划：保留内置模型入口和 Buddy 多模型选择，确认前不保存配置。
 async function editSetupPlan(tool: ITool, from?: PlanItem): Promise<PlanItem | undefined> {
@@ -71,10 +76,21 @@ export async function setupTool(tool: ITool): Promise<boolean> {
 export async function runToolSetupFlow(candidates?: ITool[], steps: { first: number; total: number; keys: string[] } = { first: 1, total: FLOW_STEP_KEYS.length, keys: FLOW_STEP_KEYS }): Promise<boolean> {
   const tools = candidates ?? toolManager.getAll();
   const step = (offset: number): StepInfo => ({ current: steps.first + offset, total: steps.total, keys: steps.keys });
-  // 进度 2 + 标题与说明 3 + 整个工具勾选列表
-  uiRenderer.renderPage(t('page_tools'), step(0), t('page_tools_hint'), undefined, { bodyRows: 5 + checklistRows(tools.length) });
-  const targets = await selectTargets(t('setup_select_tools'), tools);
-  if (!targets?.length) return false;
+  let targets: ITool[] | undefined;
+  let cursor: string | undefined;
+  while (true) {
+    // 进度 2 + 标题与说明 3 + 整个工具勾选列表
+    uiRenderer.renderPage(t('page_tools'), step(0), t('page_tools_hint'), undefined, { bodyRows: 5 + checklistRows(tools.length) });
+    let entered: ITool | undefined;
+    targets = await selectTargets(t('setup_select_tools'), tools, { installable: true, default: cursor, onEnter: tool => { entered = tool; } });
+    if (!targets?.length) return false;
+    // 在未安装的命令行工具上直接回车：先进安装页；可安装、跳过安装直接配置，或返回重选。勾选后继续则直接配置
+    const only = entered;
+    if (!only || installState(only) !== false || !only.installCommand) break;
+    const installed = await installTool(only, { allowSkip: true });
+    if (installed) break;
+    cursor = only.name;
+  }
   const previewable = targets.filter(tool => !tool.launchOnly && tool.supportsPreview === true);
   if (previewable.length) while (true) {
     const plans: PlanItem[] = [];
